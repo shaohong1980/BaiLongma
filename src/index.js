@@ -15,6 +15,7 @@ import { summarizeThread } from './memory/thread-summarize.js'
 import { classifyThreadAttribution } from './memory/thread-classifier.js'
 import { runMemoryRefreshLoop } from './memory/refresh-loop.js'
 import { startConsolidationLoop } from './memory/consolidation-loop.js'
+import { startConversationImportLoop } from './memory/conversation-import-loop.js'
 import { recordSelfEvolutionFromMemories } from './memory/self-evolution.js'
 import { runRuntimeInjector } from './context/runtime-injector.js'
 import { selectContextSections } from './context/section-gate.js'
@@ -1662,6 +1663,7 @@ const consciousnessLoop = createConsciousnessLoop({
   getNextPendingReminder,
   getQuotaStatus,
   startConsolidationLoop,
+  startConversationImportLoop,
   ensureStartupSelfCheckState,
   setStickyEvent,
   startupSelfCheckVersion: STARTUP_SELF_CHECK_VERSION,

@@ -394,21 +394,44 @@ function nodeStrength(d) {
   return d._strength;
 }
 
+// 图谱节点按 event_type 分类着色（每个类型一个色相）
+const NODE_TYPE_COLORS = {
+  knowledge:            "#4f8cff", // 知识
+  fact:                 "#4ad1c0", // 事实
+  self_constraint:      "#ff9f1c", // 自我约束
+  focus_conclusion:     "#b898f8", // 焦点结论
+  hotspot_event:        "#ff5c8a", // 热点事件
+  system:               "#778397", // 系统
+  task_complete:        "#6fcf97", // 任务完成
+  person:               "#f2c94c", // 人物
+  opinion_expressed:    "#e879f9", // 观点
+  impressive_statement: "#56ccf2", // 亮点话语
+  behavioral_constraint: "#eb5757", // 行为约束
+  task_knowledge:       "#9b51e0", // 任务知识
+  conversation:         "#ffffff", // 对话（通常走 source_ref=session_* 判定，这里兜底）
+};
+const NODE_TYPE_LABELS = {
+  knowledge: "知识", fact: "事实", self_constraint: "自我约束",
+  focus_conclusion: "焦点结论", hotspot_event: "热点事件", system: "系统",
+  task_complete: "任务完成", person: "人物", opinion_expressed: "观点",
+  impressive_statement: "亮点话语", behavioral_constraint: "行为约束",
+  task_knowledge: "任务知识",
+  conversation: "对话",
+};
+const NODE_TYPE_DEFAULT = "#8b95a5";
+
+// 对话记忆：来源是会话（source_ref=session_*），单独一类，白色
+function isConversationMemory(n) {
+  return typeof (n && n.source_ref) === "string" && n.source_ref.startsWith("session_");
+}
+
 function nodeColor(d) {
-  if (d._core) return themeColors.warm || "#d39872";
-  const age = (Date.now() - (d._ts || Date.now())) / 18000;
-  const fade = Math.max(0.25, 1 - age);
-  const t = 0.18 + nodeStrength(d) * 0.5 * fade;
-  const interp = d3.interpolateRgb(themeColors.nodeLow || "#3a556e", themeColors.nodeHigh || "#cfe3f5");
-  let color = interp(Math.min(1, t));
-  const base = d3.color(color);
-  if (base) color = base.darker(0.55) + "";
-  const useBoost = nodeUseProgress(d._nid);
-  if (isGlowing(d._nid) || useBoost > 0) {
-    const c = d3.color(color);
-    if (c) return c.brighter(2 + useBoost * 2) + "";
-  }
-  return color;
+  // 核心节点（自身）用暖色高亮
+  if (d._core) return themeColors.warm || "#ff9f1c";
+  // 对话记忆（与小白龙的会话产生）单独一类，白色
+  if (isConversationMemory(d)) return "#ffffff";
+  // 其余按 event_type 分类着色
+  return NODE_TYPE_COLORS[d.event_type] || NODE_TYPE_DEFAULT;
 }
 
 function nodeRadius(d) {
@@ -649,7 +672,7 @@ function computeDegrees() {
 
 function showTip(event, d) {
   const label = d.title || (d.content || "").slice(0, 120) || d._nid;
-  const type = d._core ? "self" : (d.event_type || "memory");
+  const type = d._core ? "自身" : (isConversationMemory(d) ? "对话" : (NODE_TYPE_LABELS[d.event_type] || d.event_type || "其他"));
   tip
     .style("display", "block")
     .style("left", `${event.clientX + 14}px`)
@@ -692,17 +715,26 @@ function markCore() {
 function renderLegend() {
   const el = document.getElementById("legend");
   if (!el) return;
-  const total = nodeData.length;
-  const active = nodeData.filter(n => (Date.now() - (n._ts || 0)) < 15000).length;
-  const known = Math.max(0, total - active - 1);
-  const decayed = nodeData.filter(n => (Date.now() - (n._ts || 0)) > 60000).length;
-
-  const items = [
-    { name: "Constraint", count: 1, color: themeColors.warm },
-    { name: "Memory", count: total, color: themeColors.nodeHigh },
-    { name: "Knowledge", count: known, color: themeColors.cool },
-    { name: "Decayed", count: decayed, color: themeColors.dim },
-  ];
+  // 统计真实分布：核心=自身、会话来源=对话，其余按 event_type；图例与节点着色一一对应
+  const counts = new Map();
+  nodeData.forEach(n => {
+    let t;
+    if (n._core) t = "self";
+    else if (isConversationMemory(n)) t = "conversation";
+    else t = n.event_type || "default";
+    counts.set(t, (counts.get(t) || 0) + 1);
+  });
+  const items = Array.from(counts.entries())
+    .map(([type, count]) => ({
+      name: type === "self" ? "自身"
+        : type === "conversation" ? "对话"
+        : (NODE_TYPE_LABELS[type] || type),
+      count,
+      color: type === "self" ? (themeColors.warm || "#ff9f1c")
+        : type === "conversation" ? "#ffffff"
+        : (NODE_TYPE_COLORS[type] || NODE_TYPE_DEFAULT),
+    }))
+    .sort((a, b) => b.count - a.count);
 
   el.innerHTML = items.map(i =>
     `<div class="legend-item">
@@ -906,7 +938,7 @@ function findAnchorNode(memory, nodeMap) {
 async function loadMemories() {
   if (!MEMORY_GRAPH_ENABLED) return;
   try {
-    const rows = await fetch(`${API}/memories?limit=120`).then(r => r.json());
+    const rows = await fetch(`${API}/memories?limit=500`).then(r => r.json());
     if (!Array.isArray(rows)) return;
 
     const prevPositions = new Map(nodeData.map(n => [n._nid, {

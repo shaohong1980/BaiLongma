@@ -206,17 +206,35 @@ function createXunfeiSession(appId, apiKey, lang, onTranscript, onError, onClose
     pending.length = 0
   })
 
+  // RTASR 结果语义（实测确认）：每个 result 帧是「当前 VAD 段」的识别文本，
+  //   data = {"seg_id":N,"cn":{"st":{"type":"1|0","bg":"890","rt":[{"ws":[{"cw":[{"w":"你好"}]}]}]}}}
+  //   同段内文本逐步增长（"你好"→"你好，我是小"→"你好，我是小白龙"），bg 是段起始 ms。
+  //   段切换时 bg 大幅跳变（如 0→890→2160），同段内 bg 仅轻微漂移（±200ms 内）。
+  // 因此：用「bg 跳变 >500ms」切段，每段分配一个递增段索引作 seg，让前端按段替换——
+  //   短句（单段）所有帧共用 seg，文本就地增长，最终即完整句；多句长语音各段各自累积。
+  let lastSegBg = null
+  let xunfeiSegIdx = 0
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString())
       if (msg.action === 'error') { onError(`讯飞 RTASR 错误: ${msg.desc}`); return }
       if (msg.action === 'result') {
         const parsed = JSON.parse(msg.data)
-        const isFinal = parsed.type === '1'
-        const text = (parsed.ws || [])
+        // RTASR 结果结构（实测确认）：data 是
+        //   {"seg_id":0,"cn":{"st":{"type":"1","rt":[{"ws":[{"cw":[{"w":"你好"}]}]}]}}}
+        // 旧代码读顶层 parsed.ws / parsed.type —— 结构与实际不符，text 恒为空 → 转录永远是 0。
+        const st = parsed?.cn?.st
+        const text = (st?.rt || [])
+          .flatMap(r => r.ws || [])
           .flatMap(w => w.cw || [])
           .map(c => c.w || '').join('')
-        if (text) onTranscript(text, isFinal)
+        if (!text) return
+        const bg = Number(st?.bg)
+        if (lastSegBg != null && Number.isFinite(bg) && bg - lastSegBg > 500) xunfeiSegIdx++
+        if (Number.isFinite(bg)) lastSegBg = bg
+        // 一律按 final 上报：同段替换、跨段追加，前端 committed 始终反映最新全文。
+        // 段内多帧（含 type=0 的增量帧）都用同一 seg 就地替换，避免重复追加。
+        onTranscript(text, true, `x${xunfeiSegIdx}`)
       }
     } catch {}
   })
@@ -234,8 +252,9 @@ function createXunfeiSession(appId, apiKey, lang, onTranscript, onError, onClose
     },
     flush() {
       if (ws.readyState !== WebSocket.OPEN) return
-      // 讯飞要求发送结束帧
-      ws.send(JSON.stringify({ end: true }))
+      // 讯飞 RTASR 文档明确：上传结束标识必须发「特殊的 binary message」，内容是 {end:true}。
+      // 旧代码发的是文本 JSON 帧，讯飞不认作结束标识 → 会话挂到超时、final 结果不吐出。
+      ws.send(Buffer.from(JSON.stringify({ end: true })))
     },
     close() { try { ws.close() } catch {} },
   }

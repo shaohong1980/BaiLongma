@@ -364,6 +364,40 @@ export async function execCommand(args, context = {}) {
   }
 }
 
+// run_node_script：把脚本源码写入沙盒临时 .cjs 文件，用应用自身运行时（ELECTRON_RUN_AS_NODE）执行。
+// 解决 exec_command 里贴内联 JS 会被当文件路径、以及 node/electron 原生模块 ABI 不匹配的问题。
+export async function execRunNodeScript(args = {}, context = {}) {
+  throwIfAborted(context.signal)
+  const code = String(args.code || '').trim()
+  if (!code) return toolJson({ ok: false, tool: 'run_node_script', error: 'missing code' })
+
+  const scriptPath = path.join(SANDBOX_ROOT, `node-script-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.cjs`)
+  try {
+    fs.writeFileSync(scriptPath, code, 'utf8')
+  } catch (err) {
+    return toolJson({ ok: false, tool: 'run_node_script', error: `write script failed: ${err.message}` })
+  }
+
+  // 应用自身运行时：开发/打包都是 electron（ELECTRON_RUN_AS_NODE=1 当 node 用），原生模块 ABI 匹配
+  const runtime = process.execPath
+  const q = s => `'${String(s).replace(/'/g, "''")}'`
+  const command = `$env:ELECTRON_RUN_AS_NODE='1'; & ${q(runtime)} ${q(scriptPath)}`
+
+  try {
+    const result = await execCommandImpl({ command, timeout: args.timeout, background: false, promote_to_background: false }, context)
+    try {
+      const obj = JSON.parse(result)
+      obj.tool = 'run_node_script'
+      delete obj.command
+      return JSON.stringify(obj, null, 2)
+    } catch {
+      return result
+    }
+  } finally {
+    try { fs.unlinkSync(scriptPath) } catch {}
+  }
+}
+
 async function execProfiledCommand(toolName, profile, args, context = {}, overrides = {}) {
   const result = await execCommand({ ...args, ...overrides, profile }, context)
   try {

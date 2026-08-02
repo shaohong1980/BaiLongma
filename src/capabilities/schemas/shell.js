@@ -37,6 +37,22 @@ export const shellSchemas = {
     }
   },
 
+  run_node_script: {
+    type: 'function',
+    function: {
+      name: 'run_node_script',
+      description: 'Run a Node.js script reliably. Pass the FULL script source in `code`; it is written to a temp file in the sandbox and executed with the app runtime, so native modules (better-sqlite3) work. ALWAYS use this for Node/JS scripts (e.g. querying the database with better-sqlite3) instead of exec_command — pasting inline JS after node/electron in exec_command gets mangled into a file path and fails. The script runs as CommonJS, so use require() (e.g. require("better-sqlite3")). Returns the script stdout/stderr.',
+      parameters: {
+        type: 'object',
+        properties: {
+          code: { type: 'string', description: 'Full JavaScript source code to run (CommonJS style, use require()).' },
+          timeout: { type: 'number', description: 'Timeout in seconds, default 30, max 120.' }
+        },
+        required: ['code']
+      }
+    }
+  },
+
   exec_quick_command: {
     type: 'function',
     function: {

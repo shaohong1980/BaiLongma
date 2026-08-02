@@ -39,6 +39,38 @@ sandbox/               Agent 工作区与生成内容存放区
 data/                  本地运行数据，打包时不会带入安装包
 ```
 
+## 环境要求
+
+Bailongma 强制要求 **Node.js 20.18.x**（与 Electron 33 内置的 Node 20.18 一致，保证 `better-sqlite3` 原生模块 ABI 匹配）。版本不符时，启动守卫会直接报错退出，不会进入运行阶段。
+
+项目通过以下机制强制版本：
+
+- `package.json` 的 `engines` 字段声明 `>=20.18.0 <21.0.0`。
+- `.nvmrc` 指定 `20.18.3`，使用 nvm-windows / fnm 时执行 `nvm use` 即可切换到目标版本。
+- `.npmrc` 开启 `engine-strict=true`，版本不符时 `npm install` 会直接拒绝。
+- `scripts/check-node.mjs` 作为 `predev` / `prestart` / `prestart:backend` / `prestart:backend:lan` 的启动守卫，版本不符时打印切换提示并以非零码退出。
+
+### 统一运行时（Electron）
+
+`better-sqlite3` 是原生模块，本项目统一在 **Electron 运行时**下运行：桌面端（`npm start`）与后端（`npm run dev` / `npm run start:backend`）都使用 Electron 内置的 Node 20.18，原生模块始终按 Electron ABI（130）编译，**无需在两种 ABI 之间来回切换**。
+
+后端脚本通过 `ELECTRON_RUN_AS_NODE=1 electron ...` 运行，即把 Electron 当作普通 Node 使用：
+
+```bash
+npm run dev            # 后端开发（watch 模式，走 Electron-as-node）
+npm start              # 桌面应用（走 Electron 运行时）
+```
+
+如需手动重编原生模块：
+
+```bash
+npm run electron:rebuild   # 重编 better-sqlite3 为 Electron ABI（默认/推荐状态）
+```
+
+> ⛔ **严禁执行 `npm rebuild better-sqlite3` 或 `npm run backend:rebuild`**：它们会把原生模块编回普通 Node ABI，导致桌面端与后端都无法启动（报 `NODE_MODULE_VERSION` 不匹配）。重编统一用 `npm run electron:rebuild`。
+>
+> 注意：不要用普通 `node xxx.js` 直接跑依赖 better-sqlite3 的脚本——普通 node 与 Electron 的 ABI 不同，会报错。请改用仓库提供的 `blm-run xxx.js`（Git Bash）或 `ELECTRON_RUN_AS_NODE=1 electron xxx.js`。
+
 ## 运行方式
 
 先安装依赖：

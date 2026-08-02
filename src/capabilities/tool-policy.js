@@ -40,6 +40,7 @@ const TOOL_RISK = {
   delete_file: 'high',
   install_software: 'high',
   exec_command: 'high',
+  run_node_script: 'high',
   exec_quick_command: 'medium',
   exec_task_command: 'high',
   exec_background_command: 'high',

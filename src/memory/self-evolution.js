@@ -1,4 +1,63 @@
-import { getConfig, setConfig, getMemoryByMemId } from '../db.js'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
+// 纯 JSON 文件存储，不依赖 better-sqlite3
+const DATA_DIR = join(__dirname, '..', '..', 'data')
+const STATE_FILE = join(DATA_DIR, 'self_evolution_state.json')
+const MEMORY_FILE = join(DATA_DIR, 'self_evolution_memories.json')
+
+function ensureDataDir() {
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true })
+}
+
+function readJsonFile(filePath, fallback = null) {
+  try {
+    if (!existsSync(filePath)) return fallback
+    return JSON.parse(readFileSync(filePath, 'utf-8'))
+  } catch {
+    return fallback
+  }
+}
+
+function writeJsonFile(filePath, data) {
+  ensureDataDir()
+  writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
+}
+
+// ========== 本地存储层（替代 db.js） ==========
+
+function getConfig(key) {
+  const state = readJsonFile(STATE_FILE, {})
+  return state[key] ?? null
+}
+
+function setConfig(key, value) {
+  const state = readJsonFile(STATE_FILE, {})
+  state[key] = value
+  writeJsonFile(STATE_FILE, state)
+}
+
+function getMemoryByMemId(memId) {
+  const memories = readJsonFile(MEMORY_FILE, [])
+  return memories.find(m => m.mem_id === memId) || null
+}
+
+function upsertMemoryByMemId(memory) {
+  const memories = readJsonFile(MEMORY_FILE, [])
+  const idx = memories.findIndex(m => m.mem_id === memory.mem_id)
+  if (idx >= 0) {
+    memories[idx] = { ...memories[idx], ...memory }
+  } else {
+    memories.push(memory)
+  }
+  writeJsonFile(MEMORY_FILE, memories)
+}
+
+// ========== 原有逻辑（不变） ==========
 
 const STATE_KEY = 'self_evolution_state_v1'
 const STATE_VERSION = 1
@@ -214,4 +273,138 @@ export function formatSelfEvolutionForPrompt({
     ...lines,
     'Use this as provenance. Turn-specific guidance still comes from <active-policies> when a learned policy matches the current situation.',
   ].join('\n')
+}
+
+// ========== 自我评估自动化 ==========
+
+const EVAL_MEM_ID_PREFIX = 'self_eval_';
+const EVAL_MAX_HISTORY = 50;
+
+export function evaluateTask({ taskId, taskDesc, accuracy, efficiency, satisfaction, note } = {}) {
+  if (!taskId || !taskDesc) return null;
+
+  const state = getSelfEvolutionState();
+  if (state.enabled === false) return null;
+
+  const a = Math.max(1, Math.min(10, Math.round(Number(accuracy) || 5)));
+  const e = Math.max(1, Math.min(10, Math.round(Number(efficiency) || 5)));
+  const s = Math.max(1, Math.min(10, Math.round(Number(satisfaction) || 5)));
+  const avg = Math.round((a + e + s) / 3);
+  const now = new Date().toISOString();
+  const safeId = taskId.replace(/[^a-zA-Z0-9_\u4e00-\u9fff-]/g, '_').slice(0, 80);
+  const memId = EVAL_MEM_ID_PREFIX + safeId;
+
+  const reflection = note || (
+    avg >= 8 ? '任务完成良好，策略有效，可复用。' :
+    avg >= 5 ? '任务基本完成，有优化空间。' :
+    '任务完成度偏低，需调整策略。'
+  );
+
+  const content = [
+    '【任务评估】' + truncate(taskDesc, 120),
+    '准确性:' + a + '/10  效率:' + e + '/10  满意度:' + s + '/10  综合:' + avg + '/10',
+    '反思: ' + reflection,
+  ].join(' | ');
+
+  const memory = {
+    mem_id: memId,
+    type: 'self_constraint',
+    event_type: 'self_constraint',
+    title: '任务评估: ' + truncate(taskDesc, 60),
+    content: content,
+    salience: avg >= 7 ? 4 : avg >= 4 ? 3 : 2,
+    tags: ['kind:policy', 'self_evaluation', 'auto'],
+    detail: JSON.stringify({
+      taskId,
+      taskDesc: truncate(taskDesc, 200),
+      scores: { accuracy: a, efficiency: e, satisfaction: s, average: avg },
+      reflection,
+      evaluated_at: now,
+    }),
+  };
+
+  try {
+    upsertMemoryByMemId(memory);
+  } catch (err) {
+    console.error('[self-evolution] evaluateTask upsert failed:', err.message);
+    return null;
+  }
+
+  const entry = memoryToEntry(memory, { action: 'self_evaluated' });
+  const byId = new Map();
+  byId.set(entry.mem_id, entry);
+  for (const e of state.recent) {
+    if (!byId.has(e.mem_id)) byId.set(e.mem_id, e);
+  }
+  const nextRecent = [...byId.values()]
+    .sort((a, b) => String(b.learned_at || '').localeCompare(String(a.learned_at || '')))
+    .slice(0, MAX_RECENT);
+
+  saveState({
+    ...state,
+    total_events: state.total_events + 1,
+    learned_count: nextRecent.length,
+    last_at: now,
+    recent: nextRecent,
+  });
+
+  return { mem_id: memId, scores: { accuracy: a, efficiency: e, satisfaction: s, average: avg } };
+}
+
+export function getRecentEvaluations({ limit = 10 } = {}) {
+  const state = getSelfEvolutionState();
+  return state.recent
+    .filter(e => e.mem_id && e.mem_id.startsWith(EVAL_MEM_ID_PREFIX))
+    .slice(0, Math.max(1, Math.min(Number(limit) || 10, EVAL_MAX_HISTORY)));
+}
+
+// ========== 测试入口 ==========
+
+export async function runTest() {
+  console.log('=== self-evolution 测试（JSON 存储模式）===\n');
+
+  // 1. 测试 evaluateTask
+  console.log('[1] 测试 evaluateTask...');
+  const result = evaluateTask({
+    taskId: 'test_001',
+    taskDesc: '测试任务：验证自我评估写入',
+    accuracy: 8,
+    efficiency: 7,
+    satisfaction: 9,
+    note: '手动测试，一切正常。',
+  });
+
+  if (result) {
+    console.log('  ✅ evaluateTask 成功');
+    console.log('  mem_id:', result.mem_id);
+    console.log('  scores:', JSON.stringify(result.scores));
+  } else {
+    console.log('  ❌ evaluateTask 返回 null');
+  }
+
+  // 2. 测试 getRecentEvaluations
+  console.log('\n[2] 测试 getRecentEvaluations...');
+  const evals = getRecentEvaluations({ limit: 5 });
+  console.log('  最近评估记录数:', evals.length);
+  evals.forEach((e, i) => {
+    console.log(`  [${i + 1}] ${e.mem_id} | ${e.title || '(无标题)'}`);
+  });
+
+  // 3. 测试 getSelfEvolutionSnapshot
+  console.log('\n[3] 测试 getSelfEvolutionSnapshot...');
+  const snap = getSelfEvolutionSnapshot({ maxRecent: 5 });
+  console.log('  enabled:', snap.enabled);
+  console.log('  total_events:', snap.total_events);
+  console.log('  learned_count:', snap.learned_count);
+  console.log('  last_at:', snap.last_at);
+
+  console.log('\n=== 测试完成 ===');
+}
+
+// 直接运行时执行测试
+if (process.argv[1] === __filename) {
+  runTest().catch(err => {
+    console.error('测试失败:', err);
+    process.exit(1);
+  });
 }

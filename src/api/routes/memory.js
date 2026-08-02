@@ -20,7 +20,7 @@ function stripAssistantHistoryLabels(content) {
 async function handleMemories(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/memories') {
     const db = getDB()
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 100)
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '20'), 500)
     const search = url.searchParams.get('search')
     let rows
     if (search) {

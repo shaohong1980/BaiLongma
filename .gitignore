@@ -20,6 +20,11 @@ sandbox
 data
 voice/*.json
 
+# 运行时生成的配置/数据（USER_DIR 落在仓库根目录时）
+llm
+api-capability-slots.json
+.dev-test
+
 # PyInstaller 打包产物（由 npm run build:voice 生成）
 voice-dist/
 

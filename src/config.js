@@ -1567,7 +1567,11 @@ export function getVoiceConfig() {
 }
 
 export function getVoiceRuntimeConfig(providerHint = null) {
-  const provider = readActiveVoiceProvider(providerHint || 'aliyun')
+  // 显式 hint（例如前端请求的服务商）优先；无效时回退到 active provider。
+  // 旧实现把 hint 当 fallback 只在 active.json 缺失时使用，导致主动切换服务商时
+  // 读到的是 active 服务商的凭证，而不是请求的服务商。
+  const hint = normalizeVoiceProvider(providerHint, null)
+  const provider = hint || readActiveVoiceProvider('aliyun')
   const stored = readVoiceProviderConfig(provider)
   return {
     ...stored,

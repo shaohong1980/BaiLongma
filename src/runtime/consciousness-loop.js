@@ -27,6 +27,7 @@ export function createConsciousnessLoop({
   getNextPendingReminder,
   getQuotaStatus,
   startConsolidationLoop,
+  startConversationImportLoop,
   ensureStartupSelfCheckState,
   setStickyEvent,
   startupSelfCheckVersion,
@@ -226,6 +227,7 @@ export function createConsciousnessLoop({
     loopStarted = true
 
     startConsolidationLoop()
+    startConversationImportLoop()
 
     // Register the scheduler so the control layer (stop/start) can wake it up
     setScheduler(scheduleNextTick)

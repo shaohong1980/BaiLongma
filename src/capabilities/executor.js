@@ -27,7 +27,7 @@ import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
-import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execTaskCommand } from './tools/shell.js'
+import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
 import { execBrowserRead, execFetchUrl, execWebSearch } from './tools/web.js'
 import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory } from './tools/memory.js'
@@ -233,6 +233,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execInstallSoftware(args, context)
       case 'exec_command':
         return await execShellToolAndMaybeCloseWritePreview(execCommand, args, context)
+      case 'run_node_script':
+        return await execRunNodeScript(args, context)
       case 'exec_quick_command':
         return await execShellToolAndMaybeCloseWritePreview(execQuickCommand, args, context)
       case 'exec_task_command':

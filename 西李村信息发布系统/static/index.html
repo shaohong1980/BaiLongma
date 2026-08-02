@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>西李村综合信息发布系统</title>
+<script src="config.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#070d1a;color:#c8d6e5;font-family:'Microsoft YaHei',sans-serif;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+.header{background:linear-gradient(90deg,#060e1f,#0f2140,#060e1f);padding:10px 30px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1a3a60;flex-shrink:0}
+.header h1{font-size:24px;background:linear-gradient(90deg,#ffd700,#f0a500);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:4px}
+.header .info{font-size:13px;color:#607a9a}
+.header .info span{margin-left:18px;color:#ffd700;font-weight:bold}
+.main{display:grid;grid-template-columns:260px 1fr 250px;gap:10px;padding:10px;flex:1;min-height:0}
+.panel{background:rgba(10,25,47,0.95);border:1px solid #1a3355;border-radius:6px;display:flex;flex-direction:column;overflow:hidden}
+.panel-head{padding:8px 14px;font-size:14px;font-weight:bold;border-bottom:1px solid #1a3355;display:flex;align-items:center;gap:8px;background:rgba(15,35,60,0.6);flex-shrink:0}
+.panel-body{flex:1;overflow:hidden;padding:0}
+
+.village-hero{text-align:center;padding:14px 10px;border-bottom:1px solid #1a3355}
+.village-name{font-size:22px;font-weight:bold;color:#ffd700;letter-spacing:3px}
+.village-loc{font-size:11px;color:#607a9a;margin-top:3px}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:8px 10px}
+.info-card{background:rgba(20,40,65,0.7);border:1px solid #1e3d60;border-radius:4px;padding:8px;text-align:center}
+.info-card .ic-val{font-size:18px;font-weight:bold;color:#ffd700}
+.info-card .ic-lbl{font-size:10px;color:#6080a0;margin-top:2px}
+.info-section{padding:8px 10px;font-size:11px;color:#8099b5;line-height:1.8;border-top:1px solid #152d45}
+.info-section .is-title{color:#ffd700;font-weight:bold;font-size:12px;margin-bottom:3px}
+.land-list{overflow-y:auto;flex:1;padding:0 10px 10px}
+.land-mini-table{width:100%;font-size:10px;border-collapse:collapse}
+.land-mini-table th{background:#0f2a45;color:#7088a0;padding:3px 5px;text-align:left;font-weight:normal;position:sticky;top:0;z-index:1}
+.land-mini-table td{padding:3px 5px;border-bottom:1px solid #0d2540}
+.status-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:3px}
+.dot-growing{background:#4caf50;box-shadow:0 0 4px #4caf50}
+.dot-harvest{background:#ff9800;box-shadow:0 0 4px #ff9800}
+.dot-normal{background:#2196f3;box-shadow:0 0 4px #2196f3}
+.dot-fallow{background:#9c27b0;box-shadow:0 0 4px #9c27b0}
+
+/* Map iframe */
+#mapFrame{width:100%;height:100%;border:none}
+
+.price-grid{display:flex;flex-direction:column;gap:5px;padding:10px;overflow-y:auto;height:100%}
+.price-item{background:rgba(20,40,65,0.7);border:1px solid #1e3d60;border-radius:4px;padding:8px 10px;display:flex;justify-content:space-between;align-items:center}
+.price-item .pn{font-size:13px;color:#c8d6e5}
+.price-item .pv{text-align:right}
+.price-item .pv .pr{font-size:16px;font-weight:bold}
+.price-item .pv .ch{font-size:10px;display:block}
+.up{color:#ff6b6b}.down{color:#51cf66}.flat{color:#6b8299}
+
+.ticker-wrap{flex-shrink:0;background:rgba(10,25,47,0.95);border-top:1px solid #1a3355;overflow:hidden;height:36px;display:flex;align-items:center}
+.ticker-label{background:linear-gradient(90deg,#1a3355,#2a5078);color:#ffd700;padding:0 14px;font-size:12px;font-weight:bold;white-space:nowrap;height:100%;display:flex;align-items:center;gap:6px;flex-shrink:0;border-right:1px solid #1a3355}
+.ticker-track{overflow:hidden;flex:1;position:relative;height:100%}
+.ticker-content{display:flex;animation:scroll 50s linear infinite;white-space:nowrap;height:100%;align-items:center}
+@keyframes scroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.ticker-item{padding:0 30px;font-size:12px;color:#b0c5d8;white-space:nowrap}
+.ticker-item b{color:#ffd700;margin-right:6px}
+.ticker-divider{color:#2a5078;margin:0 4px}
+
+.soil-bar{flex-shrink:0;background:rgba(10,25,47,0.95);border-top:1px solid #1a3355;padding:6px 15px;display:flex;align-items:center;gap:20px;font-size:11px;color:#4a7098}
+.soil-bar .stitle{color:#6b9ac0;font-weight:bold;white-space:nowrap}
+.soil-bar .endpoint{color:#4a88b8;font-family:monospace;font-size:10px}
+.soil-bar .sep{color:#1a3355}
+.footer{flex-shrink:0;text-align:right;padding:2px 15px;font-size:9px;color:#2a4060;background:#070d1a}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#1a3355;border-radius:2px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🌾 西李村综合信息发布系统</h1>
+  <div class="info">📍 商丘市睢阳区郭村镇 &nbsp;|&nbsp; <span id="clock"></span></div>
+</div>
+
+<div class="main">
+
+  <div class="panel">
+    <div class="panel-head">🏘 西李村基本情况</div>
+    <div class="panel-body" style="display:flex;flex-direction:column;overflow-y:auto">
+      <div class="village-hero"><div class="village-name">西李村</div><div class="village-loc" id="villageLoc"></div></div>
+      <div class="info-grid" id="infoCards"></div>
+      <div class="info-section" id="infoEconomy"></div>
+      <div class="info-section" id="infoInfra"></div>
+      <div style="padding:0 10px;font-size:12px;color:#ffd700;font-weight:bold;margin-top:4px">📋 地块明细</div>
+      <div class="land-list"><table class="land-mini-table"><thead><tr><th>地块</th><th>亩</th><th>作物</th><th>状态</th></tr></thead><tbody id="landBody"></tbody></table></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">📍 西李村土地分布图（高德高清地图）<span style="font-size:10px;color:#4a7098;margin-left:8px">iframe嵌入高德搜索页 | 可搜索/缩放/测距</span></div>
+    <div class="panel-body">
+      <iframe id="mapFrame" src="" allow="geolocation"></iframe>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">💰 农产品行情<span style="font-size:10px;color:#4a7098;margin-left:auto" id="priceUpdated"></span></div>
+    <div class="panel-body"><div class="price-grid" id="priceGrid"></div></div>
+  </div>
+
+</div>
+
+<div class="ticker-wrap">
+  <div class="ticker-label">📋 政策与新闻</div>
+  <div class="ticker-track"><div class="ticker-content" id="tickerContent"></div></div>
+</div>
+
+<div class="soil-bar">
+  <span class="stitle">🔬 土壤监测系统（预留端口）</span>
+  <span class="endpoint">GET /api/soil/latest</span><span class="sep">|</span>
+  <span class="endpoint">POST /api/soil/upload</span><span class="sep">|</span>
+  <span class="endpoint">GET /api/soil/history</span>
+  <span style="margin-left:auto">字段：温度 | 湿度 | pH | 氮 | 磷 | 钾 | 有机质 | 电导率</span>
+</div>
+
+<div class="footer">河南省科技特派员 · 张诗红 · 郑州工程技术学院 &nbsp;|&nbsp; 高德地图（iframe嵌入）</div>
+
+<script>
+function tick(){document.getElementById('clock').textContent=new Date().toLocaleString('zh-CN',{hour12:false})}
+tick();setInterval(tick,1000)
+
+const cfg = typeof MAP_CONFIG!=='undefined' ? MAP_CONFIG : null
+const statusClass={'生长期':'dot-growing','采摘期':'dot-growing','挂果期':'dot-growing','已收割':'dot-harvest','成熟期':'dot-harvest','正常':'dot-normal','休耕':'dot-fallow'}
+
+// ===== Embed Gaode SSR search page =====
+// Center on 西李村委会 coordinates
+let cwh = cfg ? cfg.cunweihui : {lat:34.355652,lng:115.440476,label:'西李村委会'}
+// Gaode SSR search page - point to the village location
+let mapUrl = `https://www.gaode.com/ssr/search?query=${encodeURIComponent('郭村镇西李村退役军人服务站')}`
+document.getElementById('mapFrame').src = mapUrl
+
+// ===== Left Panel =====
+function renderVillage(d){
+  document.getElementById('villageLoc').textContent=d.location
+  document.getElementById('infoCards').innerHTML=['总人口','户数','总面积','耕地','劳动力','外出务工'].map((l,i)=>{let v=[d.population.total+'人',d.population.households+'户',d.area.total+'亩',d.area.farmland+'亩',d.population.labor+'人',d.population.migrant+'人'][i];return`<div class="info-card"><div class="ic-val">${v}</div><div class="ic-lbl">${l}</div></div>`}).join('')
+  document.getElementById('infoEconomy').innerHTML=`<div class="is-title">🌱 经济产业</div>主要作物：${d.economy.main_crops}<br>村办企业：${d.economy.village_enterprises}<br>人均收入：${d.economy.avg_income} 元/年`
+  document.getElementById('infoInfra').innerHTML=`<div class="is-title">🏗 基础设施</div>道路：${d.infrastructure.roads}<br>供水：${d.infrastructure.water}<br>网络：${d.infrastructure.internet}`
+}
+
+function renderLandTable(plots){document.getElementById('landBody').innerHTML=plots.map(p=>`<tr><td>${p.name}</td><td>${p.area}</td><td>${p.crop}</td><td><span class="status-dot ${statusClass[p.status]||''}"></span>${p.status}</td></tr>`).join('')}
+
+function renderPrices(d){
+  document.getElementById('priceUpdated').textContent='更新：'+d.updated_at.slice(-8)
+  let arrow={up:'↑',down:'↓',flat:'→'},cls={up:'up',down:'down',flat:'flat'}
+  document.getElementById('priceGrid').innerHTML=d.items.map(i=>`<div class="price-item"><span class="pn">${i.name}</span><span class="pv"><span class="pr ${cls[i.trend]}">${arrow[i.trend]} ${i.price}</span><span class="ch ${cls[i.trend]}">${i.change>=0?'+':''}${i.change} ${i.unit}</span></span></div>`).join('')
+}
+
+function renderTicker(items){let ticker=items.map(i=>`<span class="ticker-item"><b>[${i.source}]</b>${i.title}<span class="ticker-divider"> | </span></span>`).join('');document.getElementById('tickerContent').innerHTML=ticker+ticker}
+
+async function load(){
+  try{
+    let [village,land,prices,policies]=await Promise.all([fetch('/api/village').then(r=>r.json()),fetch('/api/land').then(r=>r.json()),fetch('/api/prices').then(r=>r.json()),fetch('/api/policies').then(r=>r.json())])
+    renderVillage(village);renderLandTable(land.plots);renderPrices(prices);renderTicker(policies.items)
+  }catch(e){console.error(e)}
+}
+
+load()
+setInterval(load,300000)
+</script>
+</body>
+</html>

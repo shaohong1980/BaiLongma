@@ -41,6 +41,9 @@ export function initChat({
   let audioCtx = null;
   let audioUnlocked = false;
   let warmupTimer = null;
+  // 语音对话抑制自动弹出：语音轮不主动弹出中间对话框（用户点击/输入才显示）。
+  // 语音发送时置 true；文本发送或用户鼠标/键盘交互时复位 false。
+  let suppressAutoOpen = false;
   const renderedMessageIds = new Set();
   const recentRenderedKeys = new Map();
   const RENDER_DEDUPE_TTL_MS = 2 * 60 * 1000;
@@ -224,7 +227,13 @@ export function initChat({
     } catch { return []; }
   }
 
+  function clearAutoOpenSuppression() {
+    suppressAutoOpen = false;
+  }
+
   function openChat(autoClose = false) {
+    // 语音对话轮不自动弹出对话框；用户显式交互（鼠标悬停/聚焦输入框）前保持收起。
+    if (suppressAutoOpen) return;
     chatHistory.classList.add("open");
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
     if (autoClose && (!hasPendingJarvisMessage || pendingMessageDismissed) && !isTyping()) scheduleClose(4500);
@@ -454,6 +463,8 @@ export function initChat({
 
   async function send({ channel = null, label = null, text = null } = {}) {
     if (inputLocked) return;
+    // 语音对话（channel='语音识别'）：不自动弹出中间对话框；文本输入则恢复自动弹出。
+    suppressAutoOpen = (channel === "语音识别");
     const fromInput = (text == null);
     const rawContent = (fromInput ? msgInput.value : text).trim();
     const pastedAttachments = fromInput ? snapshotPastedImages() : [];
@@ -512,11 +523,13 @@ export function initChat({
   }
 
   chatArea.addEventListener("mouseenter", () => {
+    suppressAutoOpen = false;
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
     openChat();
   });
   chatArea.addEventListener("mouseleave", () => scheduleClose());
   msgInput.addEventListener("focus", () => {
+    suppressAutoOpen = false;
     openChat();
     if (!inputLocked) msgInput.placeholder = defaultInputPlaceholder();
   });
@@ -581,7 +594,34 @@ export function initChat({
       label: "查看全部命令", desc: "列出所有可用斜杠命令",
       run: showSlashHelp,
     },
+    {
+      cmd: "/new", keys: ["new", "新对话", "清空对话", "重置对话"],
+      label: "新对话", desc: "清空当前对话历史，让 Agent 重新开始",
+      run: clearConversation,
+    },
   ];
+
+  // 清空当前用户对话历史（"新对话"），摆脱被污染的上下文锚定。
+  async function clearConversation() {
+    try {
+      const res = await fetch(`${apiBase}/admin/clear-conversation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_id: "ID:000001" }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        chatMessages.innerHTML = "";
+        addMsg("jarvis", "已开启新对话 —— 之前的上下文已清空，重新开始吧。", { alert: false, pending: false });
+        openChat();
+        scheduleClose(6000);
+      } else {
+        addMsg("jarvis", `清空对话失败：${data.error || "未知错误"}`, { alert: false, pending: false });
+      }
+    } catch {
+      addMsg("jarvis", "清空对话失败 — 请检查本地服务。", { alert: false, pending: false });
+    }
+  }
 
   let slashItems = [];    // 当前过滤后的命令
   let slashActive = -1;   // 当前高亮索引
@@ -809,6 +849,7 @@ export function initChat({
     isComposerLocked: () => inputLocked,
     isTyping,
     openChat,
+    clearAutoOpenSuppression,
     restoreChatHistory,
     send,
     unlockAudioOnFirstGesture,

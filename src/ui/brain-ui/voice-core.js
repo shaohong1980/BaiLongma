@@ -124,8 +124,14 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
 registerProcessor('pcm-capture', PcmCaptureProcessor);
 `;
 
-export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessage, getLang }) {
-  const ctx = canvas.getContext('2d');
+export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessage, getLang, renderer }) {
+  // 2D 上下文懒获取：一旦提前 getContext('2d') 就锁死 canvas，Rive(WebGL2) 拿不到上下文。
+  // 只有渲染器缺省、走内置点阵球绘制时才真正申请 2D context。
+  let ctx = null;
+  function ensureCtx() {
+    if (!ctx) ctx = canvas.getContext('2d');
+    return ctx;
+  }
   let W = 0, H = 0, cx = 0, cy = 0, scale = 0;
   // canvas 的 CSS 短边，绘制帧的 resize 顺手写入（节流档位/抽稀档位都按它判）。
   // 初值取大,首帧按全量画,第一次 resize 后立刻校正。
@@ -285,6 +291,26 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
       return;
     }
     lastDrawTs = ts;
+
+    // 声音事件闪烁自动恢复（状态逻辑，渲染器 / 点阵球两个分支共用）
+    if (sk === 'event') {
+      eventFlashCount--;
+      if (eventFlashCount <= 0) setStatus(micActive ? 'listening' : 'idle');
+    }
+
+    // 外部渲染器（Rive 助手）：不绘制点阵球，把状态 + 视觉音量推给渲染器，由它驱动动画。
+    // 主窗口自带的麦克风/TTS 音量分析在上方分析段已跑完，这里只做视觉转发。
+    if (renderer) {
+      const visualVol = externalVol != null
+        ? externalVol
+        : (sk === 'speaking' ? ttsVol : (micData ? lastVol : 0));
+      renderer.setStatus(sk);
+      renderer.setExternalVol(visualVol);
+      if (renderer.startRenderLoop) renderer.startRenderLoop();
+      rafId = requestAnimationFrame(drawFrame);
+      return;
+    }
+
     resizeCanvasToDisplay();
     const cfg = STATE_CFG[sk];
     const s = animState;
@@ -308,16 +334,11 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
       s.spd = lerp(s.spd, 1.0 + visualVol * 5.0, 0.2);
     }
 
-    // 声音事件闪烁效果自动恢复
-    if (sk === 'event') {
-      eventFlashCount--;
-      if (eventFlashCount <= 0) setStatus(micActive ? 'listening' : 'idle');
-    }
-
     s.t    += 0.016 * s.spd;
     s.rotY += 0.008;
     s.rotX  = 0.22 + Math.sin(s.t * 0.15) * 0.06;
 
+    ensureCtx();
     ctx.clearRect(0, 0, W, H);
 
     const cY = Math.cos(s.rotY), sY = Math.sin(s.rotY);

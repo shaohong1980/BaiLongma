@@ -5,22 +5,29 @@
   "description": "A continuously running digital consciousness framework",
   "type": "module",
   "main": "electron/main.cjs",
+  "engines": {
+    "node": ">=20.18.0 <21.0.0"
+  },
   "author": {
     "name": "xiaoyuanda666-ship-it"
   },
   "scripts": {
     "start": "chcp 65001 >nul && electron .",
+    "prestart": "node scripts/check-node.mjs",
     "start:lan": "powershell -ExecutionPolicy Bypass -File scripts/start-lan.ps1 app",
-    "start:backend": "chcp 65001 >nul && node --env-file=.env src/index.js",
+    "start:backend": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd --env-file=.env src\\index.js\"",
+    "prestart:backend": "node scripts/check-node.mjs",
     "start:backend:lan": "powershell -ExecutionPolicy Bypass -File scripts/start-lan.ps1 backend",
-    "dev": "chcp 65001 >nul && node --env-file=.env --watch src/index.js",
+    "prestart:backend:lan": "node scripts/check-node.mjs",
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd --env-file=.env --watch src\\index.js\"",
+    "predev": "node scripts/check-node.mjs",
     "build": "node scripts/prebuild-clean.mjs && node scripts/build-macos-speech.mjs && node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3 -v 33.4.11 && node ./node_modules/electron-builder/cli.js",
     "build:win": "node scripts/prebuild-clean.mjs && node scripts/build-macos-speech.mjs && node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3 -v 33.4.11 && node ./node_modules/electron-builder/cli.js --win",
     "build:mac": "node scripts/build-mac.mjs",
     "build:mac:x64": "node scripts/build-mac.mjs x64",
     "build:mac:arm64": "node scripts/build-mac.mjs arm64",
     "publish": "node scripts/prebuild-clean.mjs && node scripts/build-macos-speech.mjs && node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3 -v 33.4.11 && node ./node_modules/electron-builder/cli.js --publish always",
-    "postinstall": "node ./node_modules/electron-builder/cli.js install-app-deps",
+    "postinstall": "node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3",
     "test:rule-context": "electron ./src/test-rule-context.js",
     "test:complex-task": "electron ./src/test-complex-task.js",
     "test:relevance": "electron ./src/test-relevance-selection.js",
@@ -38,6 +45,7 @@
     "test:db-schema-module": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\src\\test-db-schema-module.js\"",
     "test:voice-continuous": "node ./src/test-voice-continuous.js",
     "test:websocket-security": "node ./src/test-websocket-security.js",
+    "test:learned-improvements": "node ./src/test-learned-improvements.js",
     "repair:memories:dry": "electron ./scripts/repair-memory-quality.js",
     "repair:memories": "electron ./scripts/repair-memory-quality.js --apply",
     "probe:config-upgrade": "node ./scripts/probe-config-upgrade.mjs",
@@ -45,14 +53,16 @@
     "smoke:tool-factory-web": "node scripts/smoke-tool-factory-web-e2e.mjs",
     "smoke:brain-ui": "node scripts/smoke-brain-ui.mjs",
     "smoke:social": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-social.mjs\"",
-    "smoke:feishu-ws": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-feishu-ws.mjs\""
+    "smoke:feishu-ws": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-feishu-ws.mjs\"",
+    "electron:rebuild": "node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3",
+    "backend:rebuild": "node scripts/backend-rebuild-guard.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",
     "@larksuiteoapi/node-sdk": "^1.68.0",
     "better-sqlite3": "^12.8.0",
     "d3": "^7.9.0",
-    "electron-updater": "^6.3.9",
+    "electron-updater": "^6.8.9",
     "openai": "^6.34.0",
     "sherpa-onnx-node": "^1.13.3",
     "undici": "^6.25.0",
@@ -62,7 +72,7 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
     "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.15.3",
     "playwright": "^1.59.1"
   },
   "build": {

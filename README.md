@@ -13,6 +13,9 @@ Bailongma 是一个持续运行的桌面 AI Agent 项目。它不是一次问答
 - 动态上下文注入：每轮对话前自动选择相关记忆、最近对话、用户画像、工具结果、UI 信号、预取内容和运行状态。
 - 多模型接入：通过 OpenAI 兼容接口连接 DeepSeek、MiniMax、OpenAI、Qwen、Moonshot、Zhipu、MiMo 以及自定义服务。
 - 工具系统：按需注入工具，支持通信、文件系统、Shell、网页读取、搜索、媒体生成、记忆管理、UI 卡片、任务、提醒、本地 Agent 委托和系统操作。
+- 技能学习闭环（Agent Skills）：支持 `learn_skill` 把刚做过的工作流/文档沉淀成可复用的 `SKILL.md` 技能包，`view_skill`/`list_skills` 按需浏览，`improve_skill` 把使用中的踩坑写回技能（技能在使用中自我改进），并带用量遥测与 active/stale/archived 生命周期。
+- MCP 接入：通过 `mcp_call` 调用已配置的 MCP（Model Context Protocol）服务器（Notion/Gmail/GitHub/数据库/文件系统等），服务器在 `data/mcp-servers.json` 里显式配置（白名单），`mcp_call`/`delete_skill` 在自主 Tick 下需显式用户上下文。
+- 工具结果压缩（TokenJuice）：超过阈值的「只读/信息型」工具输出（read_file/exec/web_search…）进入模型前压成一行摘要，全文写 `data/tool-outputs/<id>.txt` 供按需取回，省 token 且不丢细节；可在设置/`config.json` 的 `toolCompression` 块调整。
 - Brain UI：提供聊天、思考流、记忆图、焦点线程、热点面板、文档面板、人物卡片、语音控制、设置页和 ACUI 卡片渲染。
 - 语音能力：支持云端语音识别和多种 TTS 服务，可在 UI 中配置语音输入、语音输出和声音参数。
 - 社交连接器：支持 Discord 与微信桥接，外部消息进入同一个主循环，回复按渠道路由返回。
@@ -38,6 +41,38 @@ scripts/               构建、探测、修复、冒烟测试和辅助脚本
 sandbox/               Agent 工作区与生成内容存放区
 data/                  本地运行数据，打包时不会带入安装包
 ```
+
+## 环境要求
+
+Bailongma 强制要求 **Node.js 20.18.x**（与 Electron 33 内置的 Node 20.18 一致，保证 `better-sqlite3` 原生模块 ABI 匹配）。版本不符时，启动守卫会直接报错退出，不会进入运行阶段。
+
+项目通过以下机制强制版本：
+
+- `package.json` 的 `engines` 字段声明 `>=20.18.0 <21.0.0`。
+- `.nvmrc` 指定 `20.18.3`，使用 nvm-windows / fnm 时执行 `nvm use` 即可切换到目标版本。
+- `.npmrc` 开启 `engine-strict=true`，版本不符时 `npm install` 会直接拒绝。
+- `scripts/check-node.mjs` 作为 `predev` / `prestart` / `prestart:backend` / `prestart:backend:lan` 的启动守卫，版本不符时打印切换提示并以非零码退出。
+
+### 统一运行时（Electron）
+
+`better-sqlite3` 是原生模块，本项目统一在 **Electron 运行时**下运行：桌面端（`npm start`）与后端（`npm run dev` / `npm run start:backend`）都使用 Electron 内置的 Node 20.18，原生模块始终按 Electron ABI（130）编译，**无需在两种 ABI 之间来回切换**。
+
+后端脚本通过 `ELECTRON_RUN_AS_NODE=1 electron ...` 运行，即把 Electron 当作普通 Node 使用：
+
+```bash
+npm run dev            # 后端开发（watch 模式，走 Electron-as-node）
+npm start              # 桌面应用（走 Electron 运行时）
+```
+
+如需手动重编原生模块：
+
+```bash
+npm run electron:rebuild   # 重编 better-sqlite3 为 Electron ABI（默认/推荐状态）
+```
+
+> ⛔ **严禁执行 `npm rebuild better-sqlite3` 或 `npm run backend:rebuild`**：它们会把原生模块编回普通 Node ABI，导致桌面端与后端都无法启动（报 `NODE_MODULE_VERSION` 不匹配）。重编统一用 `npm run electron:rebuild`。
+>
+> 注意：不要用普通 `node xxx.js` 直接跑依赖 better-sqlite3 的脚本——普通 node 与 Electron 的 ABI 不同，会报错。请改用仓库提供的 `blm-run xxx.js`（Git Bash）或 `ELECTRON_RUN_AS_NODE=1 electron xxx.js`。
 
 ## 运行方式
 
@@ -172,6 +207,8 @@ Bailongma 的长期状态主要保存在本地 SQLite 数据库中，包括：
 - 生成语音、控制媒体面板、管理音乐和生成视频。
 - 委托本地 Agent 执行子任务。
 - 复核已完成工作。
+- 浏览/查看/学习/改进/删除 Agent Skills 技能包。
+- 列出并调用 MCP 服务器上的外部工具。
 
 工具市场允许安装自定义工具。安装后的工具会持久化在沙箱相关目录中，并在后续回合按需加入可用工具列表。
 
@@ -201,6 +238,7 @@ npm run test:relevance
 npm run test:section-gate
 npm run test:agent-skills
 npm run test:config-upgrade
+npm run test:learned-improvements
 ```
 
 记忆修复和配置探测：

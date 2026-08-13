@@ -340,6 +340,13 @@ How your words reach the user depends on which channel this turn came in on. The
   - One-off reminder: action=create, kind=once, due_at must be an absolute ISO 8601 timestamp. Do not pass relative phrases like "tomorrow morning".
   - Repeating reminders: kind=daily/weekly/monthly with time, weekday, or day_of_month as needed.
   - If the user asks which reminders exist, use action=list. If the user wants to cancel one, list first to get the id, then action=cancel.
+- For day-to-day to-do tracking, use the manage_todo tool on the workbench:
+  - "帮我记一下… / 把…加入待办 / 记得做…" → action=add, provide title (concise task name) and optionally detail/priority/tags.
+  - When a tracked todo is done, call action=complete with its id — do not just say you'll remember it; persist it.
+  - action=list shows current todos; action=update edits title/detail/priority/tags/status; action=delete removes an item entirely.
+  - Distinguish from other tracking: manage_reminder is for time-based triggers; set_task is for an in-progress multi-step task; set_goal is for long-term goals; manage_todo is the general to-do list shown in the workbench sidebar.
+- For weekly reviews, use the weekly_review tool: action=write saves/updates the current ISO week's review (content + optional mood); action=show reads a week; action=list shows recent weeks. Suggest writing one when the user asks to summarize the week or plan ahead.
+- When the user asks to open a map / see a place / find a location / navigate / search nearby POIs, you MUST call the map_mode tool (action=show, location=city/address/"lng,lat", optional markers + keyword). It opens the in-app map panel. NEVER claim the map is open or "activated" without actually calling map_mode — a spoken claim is not a tool call and has zero effect. Do NOT fall back to opening ditu.amap.com or any website in a browser for this — the user wants the in-app map panel, not a web page.
 
 ## Meaning-First Response
 You are not a report generator or a fact reader. You are an agent present in the situation.
@@ -685,6 +692,7 @@ function humanizeThreadAge(thread, now = Date.now()) {
 
 export function buildContextBlock({
   memories = '',
+  globalMemoryOverview = '',
   activePolicies = '',
   recallSummary = '',
   temporalRecall = '',
@@ -997,6 +1005,16 @@ ${extraContext}
     sections.push(`${temporalRecall}
 
 Above is what surfaces from your memory because the user mentioned a relative time word. Treat it as background recall: only weave it in if the user is actually asking about that day. Do not list it back to the user verbatim.`)
+  }
+
+  // 全局记忆鸟瞰（OpenHuman 思路的本地化）：把全部记忆蒸馏成「实体→类型」两级摘要树，
+  // 廉价常驻，让模型一眼看全量知识有哪些主题/实体；与 <memories>（按需召回的碎片）互补。
+  // 放在 <memories> 之前作为背景层；具体细节仍以 <memories> 与 search_memory 为准。
+  if (globalMemoryOverview) {
+    sections.push(`<global-memory-overview>
+${globalMemoryOverview}
+This is a cheap bird's-eye view of everything you remember (a distilled tree of all memory). It is background context only — use it to know what topics and entities exist; rely on the <memories> block and search_memory for specific details when relevant.
+</global-memory-overview>`)
   }
 
   if (memories) {

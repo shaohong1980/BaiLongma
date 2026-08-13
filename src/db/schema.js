@@ -254,6 +254,62 @@ export function initializeSchema(db) {
   try { db.exec(`ALTER TABLE reminders ADD COLUMN recurrence_type TEXT`) } catch {}
   try { db.exec(`ALTER TABLE reminders ADD COLUMN recurrence_config TEXT`) } catch {}
 
+  // 长期目标（Goals）：目标推进 + 晨间简报的数据基础
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS goals (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      title        TEXT    NOT NULL,
+      description  TEXT    DEFAULT '',
+      status       TEXT    NOT NULL DEFAULT 'active',  -- active / paused / done / abandoned
+      priority     INTEGER NOT NULL DEFAULT 3,          -- 1-5
+      progress     INTEGER NOT NULL DEFAULT 0,          -- 0-100
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      due_at       TEXT,
+      last_tick_at TEXT,
+      result_note  TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status, updated_at);
+  `)
+
+  // 晨间简报（每天一份，按日期 upsert）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS briefing (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      date       TEXT    NOT NULL UNIQUE,
+      content    TEXT    NOT NULL,
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `)
+
+  // 工作台（Workbench）：待办事项 / 完成事项 / 每周复盘
+  // workbench_todos : 待办清单。status=pending 是待办，status=done 是完成事项（保留历史）。
+  // workbench_reviews : 每周复盘。week_key 形如 "2026-W33"（ISO 周），每周期一份，按周 upsert。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workbench_todos (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      title        TEXT    NOT NULL,
+      detail       TEXT    NOT NULL DEFAULT '',
+      status       TEXT    NOT NULL DEFAULT 'pending',   -- pending / done
+      priority     INTEGER NOT NULL DEFAULT 3,           -- 1-5
+      tags         TEXT    NOT NULL DEFAULT '[]',
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workbench_todos_status ON workbench_todos(status, created_at);
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workbench_reviews (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_key   TEXT    NOT NULL UNIQUE,                -- 形如 "2026-W33"
+      content    TEXT    NOT NULL DEFAULT '',
+      mood       TEXT    NOT NULL DEFAULT '',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `)
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS prefetch_tasks (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -511,6 +567,24 @@ export function initializeSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_extract_audit_created_at ON extract_audit(created_at);
     CREATE INDEX IF NOT EXISTS idx_extract_audit_from_id    ON extract_audit(from_id);
+  `)
+
+  // 用量洞察（Insights）：每次 LLM 调用的 token 消耗落库，支撑每日/每周用量报告。
+  // quota.js 的滑动窗口只在内存（重启即丢），这里是持久化的记录。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      provider      TEXT,
+      model         TEXT,
+      input_tokens  INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      total_tokens  INTEGER NOT NULL DEFAULT 0,
+      cost_estimate REAL    NOT NULL DEFAULT 0,
+      source        TEXT    NOT NULL DEFAULT 'llm'   -- llm / briefing / review / ack ...
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_events_created_at ON usage_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_usage_events_source     ON usage_events(source);
   `)
 
   // 重建 FTS 索引（覆盖已有数据，确保历史记忆也被索引）

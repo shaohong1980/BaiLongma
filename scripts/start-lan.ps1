@@ -35,7 +35,9 @@ Write-Host 'If the page does not open, allow Node/Electron through Windows Firew
 Write-Host ''
 
 if ($Mode -eq 'backend') {
-  node --env-file=.env src/index.js
+  # 统一走 Electron 运行时（ELECTRON_RUN_AS_NODE），native 模块保持 Electron ABI，无需切换
+  $env:ELECTRON_RUN_AS_NODE = '1'
+  & .\node_modules\.bin\electron.cmd --env-file=.env src/index.js
 } else {
   electron .
 }

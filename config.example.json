@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 3,
+  "provider": "deepseek",
+  "temperature": 0.5,
+  "model": "",
+  "minimax_api_key": "",
+  "tts": {
+    "ttsProvider": "",
+    "ttsVoiceId": "",
+    "doubaoKey": "",
+    "doubaoSpeechRate": "0",
+    "doubaoResourceId": ""
+  },
+  "embedding": {},
+  "social": {},
+  "clawbot": {}
+}

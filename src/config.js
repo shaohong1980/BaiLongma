@@ -979,6 +979,19 @@ export const config = {
     allowLanAccess: false,
     updatedAt: null,
   },
+  // 工具结果压缩（TokenJuice）：超过阈值的「只读/信息型」工具结果进入模型前压成一行摘要，
+  // 全文写 data/tool-outputs/<id>.txt 供模型按需 read_file 取回。省 token 且不丢细节。
+  toolCompression: {
+    enabled: true,
+    threshold: 6000,   // 字符数；结果超过该值才压缩
+    maxSaved: 100000,  // 落盘文件体上限（超出截断并标注）
+  },
+  // 通用长文压缩（text-compressor.js）：给任意长文本生成信息量足够、体量可控的浓缩版，
+  // 当前用于工具结果摘要行的"内容预览"（大结果不只报字符数，还附一段摘要）。
+  textCompression: {
+    enabled: true,
+    maxChars: 1200,    // 压缩后最大字符数（被工具结果摘要行进一步限制在 400 以内）
+  },
 }
 
 // 迁移必须在下面读取/加载 config.json 之前跑完，确保后续逻辑看到的是已升级的结构。
@@ -1007,6 +1020,17 @@ if (parsedConfig) {
     const n = parsedConfig.network
     if (typeof n.allowLanAccess === 'boolean') config.network.allowLanAccess = n.allowLanAccess
     if (typeof n.updatedAt === 'string') config.network.updatedAt = n.updatedAt
+  }
+  if (parsedConfig.toolCompression && typeof parsedConfig.toolCompression === 'object') {
+    const tc = parsedConfig.toolCompression
+    if (typeof tc.enabled === 'boolean') config.toolCompression.enabled = tc.enabled
+    if (Number.isFinite(Number(tc.threshold)) && Number(tc.threshold) >= 0) config.toolCompression.threshold = Number(tc.threshold)
+    if (Number.isFinite(Number(tc.maxSaved)) && Number(tc.maxSaved) >= 0) config.toolCompression.maxSaved = Number(tc.maxSaved)
+  }
+  if (parsedConfig.textCompression && typeof parsedConfig.textCompression === 'object') {
+    const txc = parsedConfig.textCompression
+    if (typeof txc.enabled === 'boolean') config.textCompression.enabled = txc.enabled
+    if (Number.isFinite(Number(txc.maxChars)) && Number(txc.maxChars) > 0) config.textCompression.maxChars = Number(txc.maxChars)
   }
 }
 
@@ -1373,6 +1397,47 @@ export function getNetworkConfig() {
   }
 }
 
+// 工具结果压缩配置：阈值/开关。供 llm.js 在把大工具结果写入模型上下文前调用。
+export function getToolCompressionConfig() {
+  return {
+    enabled: !!config.toolCompression.enabled,
+    threshold: Number(config.toolCompression.threshold) || 6000,
+    maxSaved: Number(config.toolCompression.maxSaved) || 100000,
+  }
+}
+
+export function setToolCompressionConfig(updates) {
+  if (typeof updates.enabled === 'boolean') config.toolCompression.enabled = updates.enabled
+  if (Number.isFinite(Number(updates.threshold))) {
+    const v = Number(updates.threshold)
+    config.toolCompression.threshold = v >= 0 ? v : config.toolCompression.threshold
+  }
+  if (Number.isFinite(Number(updates.maxSaved))) {
+    const v = Number(updates.maxSaved)
+    config.toolCompression.maxSaved = v >= 0 ? v : config.toolCompression.maxSaved
+  }
+  patchConfig({ toolCompression: { ...config.toolCompression } })
+  return getToolCompressionConfig()
+}
+
+// 通用长文压缩配置：开关 + 压缩后最大字符数。
+export function getTextCompressionConfig() {
+  return {
+    enabled: !!config.textCompression.enabled,
+    maxChars: Number(config.textCompression.maxChars) || 1200,
+  }
+}
+
+export function setTextCompressionConfig(updates) {
+  if (typeof updates.enabled === 'boolean') config.textCompression.enabled = updates.enabled
+  if (Number.isFinite(Number(updates.maxChars))) {
+    const v = Number(updates.maxChars)
+    config.textCompression.maxChars = v > 0 ? v : config.textCompression.maxChars
+  }
+  patchConfig({ textCompression: { ...config.textCompression } })
+  return getTextCompressionConfig()
+}
+
 export function setNetworkConfig(updates) {
   const before = getNetworkConfig()
   if (typeof updates.allowLanAccess === 'boolean') {
@@ -1567,7 +1632,11 @@ export function getVoiceConfig() {
 }
 
 export function getVoiceRuntimeConfig(providerHint = null) {
-  const provider = readActiveVoiceProvider(providerHint || 'aliyun')
+  // 显式 hint（例如前端请求的服务商）优先；无效时回退到 active provider。
+  // 旧实现把 hint 当 fallback 只在 active.json 缺失时使用，导致主动切换服务商时
+  // 读到的是 active 服务商的凭证，而不是请求的服务商。
+  const hint = normalizeVoiceProvider(providerHint, null)
+  const provider = hint || readActiveVoiceProvider('aliyun')
   const stored = readVoiceProviderConfig(provider)
   return {
     ...stored,

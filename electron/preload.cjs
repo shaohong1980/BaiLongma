@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('bailongma', {
     orbEnter: () => ipcRenderer.send('wake:orb-enter'),
     orbFrame: (payload) => ipcRenderer.send('wake:orb-frame', payload),
     orbText: (payload) => ipcRenderer.send('wake:orb-text', payload),
+    orbViseme: (code) => ipcRenderer.send('wake:orb-viseme', code),
     orbExit: () => ipcRenderer.send('wake:orb-exit'),
   },
 })

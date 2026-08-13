@@ -8,6 +8,7 @@ import {
 } from '../../db.js'
 import { emitEvent } from '../../events.js'
 import { extractKeywords } from '../../memory/keywords.js'
+import { findFactContradiction, applyDialecticCorrection } from '../../memory/profile-dialectic.js'
 
 // search_memory：批量按关键词检索记忆。
 // 优先走 keywords 数组；为兼容旧调用方，单字符串 keyword 也接受（自动转数组）。
@@ -104,20 +105,36 @@ export async function execUpsertMemory(args = {}, context = {}) {
   const ordered = [...roots, ...children]
 
   const results = []
+  const dialecticWarnings = []
   for (const memory of ordered) {
     try {
       // 只对 fact 兜底：fact 绝大多数是关于用户的稳定事实/偏好；
       // person/object/article/knowledge 有各自主体，不该粘上 sender ID
       const isFact = memory.type === 'fact' || (!memory.type && typeof memory.mem_id === 'string' && memory.mem_id.startsWith('fact_'))
       const entitiesEmpty = !Array.isArray(memory.entities) || memory.entities.length === 0
+      const isNew = !memoryExistsByMemId(memory.mem_id)
       // 只对新记忆兜底，避免 UPDATE 覆盖旧 entities
-      if (entitiesEmpty && isFact && context.senderId && !memoryExistsByMemId(memory.mem_id)) {
+      if (entitiesEmpty && isFact && context.senderId && isNew) {
         memory.entities = [context.senderId]
         console.log(`[识别器] entities 兜底注入: mem_id=${memory.mem_id} entities=[${context.senderId}]`)
       }
       const payload = { ...memory, source_ref: memory.source_ref || sourceRef }
       const r = upsertMemoryByMemId(payload)
       results.push({ mem_id: r.mem_id, action: r.updated ? 'updated' : 'inserted', id: r.id })
+
+      // 画像辩证更新（Honcho dialectic）：新写入的 fact 若与既有事实矛盾，显式标记更正。
+      // 只在「新插入」时检测，避免 UPDATE 自身反复触发；best-effort，不阻塞主流程。
+      if (isNew && isFact && context.senderId && r.mem_id) {
+        try {
+          const conflict = findFactContradiction(memory, null)
+          if (conflict?.old?.mem_id) {
+            const warn = applyDialecticCorrection(r.mem_id, conflict.old)
+            if (warn) dialecticWarnings.push(warn)
+          }
+        } catch (err) {
+          console.warn('[profile-dialectic] 检测失败:', err?.message)
+        }
+      }
     } catch (err) {
       results.push({ mem_id: memory.mem_id || null, action: 'error', error: err.message })
     }
@@ -126,7 +143,9 @@ export async function execUpsertMemory(args = {}, context = {}) {
   const inserted = results.filter(r => r.action === 'inserted').length
   const updated = results.filter(r => r.action === 'updated').length
   const failed = results.filter(r => r.action === 'error').length
-  return JSON.stringify({ ok: failed === 0, inserted, updated, failed, results }, null, 2)
+  const out = { ok: failed === 0, inserted, updated, failed, results }
+  if (dialecticWarnings.length) out.dialectic = dialecticWarnings
+  return JSON.stringify(out, null, 2)
 }
 
 // skip_recognition：识别器明确表示无内容要存

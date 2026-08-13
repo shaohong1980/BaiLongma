@@ -7,6 +7,7 @@
 import { searchMemories, getMemoriesByDateRange } from '../db.js'
 import { extractKeywords } from './keywords.js'
 import { parseTemporalHints } from './temporal-parser.js'
+import { sortByDecay } from './memory-decay.js'
 
 // 消息格式解析
 // 格式：[ID:xxxxxx] 2026-04-13 10:00:00 [渠道] 内容
@@ -15,7 +16,7 @@ export function parseMessageInput(message) {
   if (/^TICK\s/i.test(message.trim())) {
     return { isTick: true, senderId: null, messageBody: '' }
   }
-  const match = message.match(/^\[([^\]]+)\]\s*[\d\-T:+]+\s*\[[^\]]*\]\s*(.*)$/s)
+  const match = message.match(/^\[([^\]]+)\]\s*[\d\-T:+]+?\s*\[[^\]]*\]\s*(.*)$/s)
   // queue.js 把输入头编码成 `[canonicalId via externalPartyId]`（外部渠道才有 ` via ...`）。
   // 这里必须对称地只取 canonicalId——否则带 " via wechat:clawbot:..." 的复合串会污染 senderId，
   // 使 getRecentConversation(WHERE from_id=?) 永远查空、conversationWindow 丢失逐字历史。
@@ -30,6 +31,9 @@ export function parseMessageInput(message) {
 // 桶内重排：salience >= 4 的提到前面（按 salience 高到低），
 // 同 boost 组内 timestamp 距今超过 365 天的下沉到该组末尾，
 // 其余维持调用方传入的原顺序（JS Array.prototype.sort 在 ES2019+ 是 stable 的）
+//
+// 注：此函数已被 sortByDecay 取代（见 memory-decay.js），保留仅为向后兼容。
+// 新代码应使用 import { sortByDecay } from './memory-decay.js'
 function rerankByImportance(memories) {
   if (!Array.isArray(memories) || memories.length === 0) return memories
   const now = Date.now()
@@ -164,9 +168,11 @@ export async function searchRelevantMemories({
     // 静默：embedding 模块导入失败、API 异常等都不影响 FTS5 兜底结果
   }
 
-  const focusHitsRanked   = rerankByImportance(focusHitsCapped)
-  const contextHitsRanked = rerankByImportance(contextHitsCapped)
-  const vecRanked         = rerankByImportance(vecAppended)
+  // 使用记忆衰减算法排序（替代旧的 rerankByImportance）
+  // sortByDecay 按 Score = 重要性 × e^(-λ × Δt) 降序排列，低于阈值的自动过滤
+  const focusHitsRanked   = sortByDecay(focusHitsCapped, { includeFiltered: true })
+  const contextHitsRanked = sortByDecay(contextHitsCapped, { includeFiltered: true })
+  const vecRanked         = sortByDecay(vecAppended, { includeFiltered: true })
   // 顺序：focus FTS5 → 向量补充 → context FTS5
   return [...focusHitsRanked, ...vecRanked, ...contextHitsRanked].slice(0, focusLimit + contextLimit)
 }

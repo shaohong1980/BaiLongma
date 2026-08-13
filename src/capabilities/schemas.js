@@ -13,6 +13,10 @@ import { remindersSchemas } from './schemas/reminders.js'
 import { agentsSchemas } from './schemas/agents.js'
 import { systemSchemas } from './schemas/system.js'
 import { apiCapabilitySchemas } from './schemas/api-capabilities.js'
+import { goalsSchemas } from './schemas/goals.js'
+import { skillsSchemas } from './schemas/skills.js'
+import { mcpSchemas } from './schemas/mcp.js'
+import { workbenchSchemas } from './schemas/workbench.js'
 
 // 所有工具的 schema 定义（按类别拆分到 ./schemas/*.js，此处合并）。
 // 调用方按需用 getToolSchemas(toolNames) 取子集，合并顺序不影响输出顺序。
@@ -31,6 +35,10 @@ export const TOOL_SCHEMAS = {
   ...agentsSchemas,
   ...systemSchemas,
   ...apiCapabilitySchemas,
+  ...goalsSchemas,
+  ...skillsSchemas,
+  ...mcpSchemas,
+  ...workbenchSchemas,
 }
 
 function normalizeToolPromptHints(toolPromptHints = null) {

@@ -27,11 +27,16 @@ import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
-import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execTaskCommand } from './tools/shell.js'
+import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
 import { execBrowserRead, execFetchUrl, execWebSearch } from './tools/web.js'
 import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory } from './tools/memory.js'
 import { execManageReminder } from './tools/reminders.js'
+import { execSetGoal, execListGoals, execUpdateGoal, execShowBriefing } from './tools/goals.js'
+import { execDeleteSkill, execImproveSkill, execLearnSkill, execListSkills, execViewSkill } from './tools/skills.js'
+import { execMcpCall, execMcpListServers } from './tools/mcp.js'
+import { execManageTodo, execWeeklyReview } from './tools/workbench.js'
+import { getMapServiceSettings } from '../map-service.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
 import { execManageRule } from './tools/rules.js'
@@ -233,6 +238,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execInstallSoftware(args, context)
       case 'exec_command':
         return await execShellToolAndMaybeCloseWritePreview(execCommand, args, context)
+      case 'run_node_script':
+        return await execRunNodeScript(args, context)
       case 'exec_quick_command':
         return await execShellToolAndMaybeCloseWritePreview(execQuickCommand, args, context)
       case 'exec_task_command':
@@ -283,6 +290,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execWorldcupMode(args)
       case 'typhoon_mode':
         return execTyphoonMode(args)
+      case 'map_mode':
+        return execMapMode(args)
       case 'open_doc_panel':
         return execOpenDocPanel(args)
       case 'person_card_mode':
@@ -298,6 +307,32 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execManagePrefetchTask(args)
       case 'manage_rule':
         return execManageRule(args)
+      case 'set_goal':
+        return execSetGoal(args)
+      case 'list_goals':
+        return execListGoals(args)
+      case 'update_goal':
+        return execUpdateGoal(args)
+      case 'show_briefing':
+        return await execShowBriefing(args)
+      case 'manage_todo':
+        return execManageTodo(args)
+      case 'weekly_review':
+        return execWeeklyReview(args)
+      case 'list_skills':
+        return execListSkills(args)
+      case 'view_skill':
+        return execViewSkill(args)
+      case 'learn_skill':
+        return execLearnSkill(args)
+      case 'improve_skill':
+        return execImproveSkill(args)
+      case 'delete_skill':
+        return execDeleteSkill(args)
+      case 'mcp_list_servers':
+        return await execMcpListServers()
+      case 'mcp_call':
+        return await execMcpCall(args)
       case 'ui_set':
         return execUISet(args)
       case 'capability_demo':
@@ -702,6 +737,54 @@ function execTyphoonMode(args = {}) {
   return JSON.stringify({ ok: true, tool: 'typhoon_mode', state })
 }
 
+// map_mode：对话里打开高德地图面板（show/hide/toggle/status）
+// 高德 Key/安全密钥未配置时返回引导提示，不报错——让模型直接引导用户去设置页。
+function execMapMode(args = {}) {
+  const action = String(args.action || 'status').trim().toLowerCase()
+  if (!['show', 'open', 'hide', 'close', 'toggle', 'status'].includes(action)) {
+    return JSON.stringify({ ok: false, tool: 'map_mode', error: 'unsupported action' })
+  }
+
+  const settings = getMapServiceSettings()
+  const opening = (action === 'show' || action === 'open' || action === 'toggle')
+
+  if (opening && !settings.configured) {
+    return JSON.stringify({
+      ok: false,
+      tool: 'map_mode',
+      error: 'map_not_configured',
+      map: settings,
+      guidance: '高德地图还没配置好。请让用户到「设置 → 高级功能 → 地图服务」填写 Web 端 Key 和 安全密钥（securityJsCode）后，再让我打开地图。',
+    })
+  }
+
+  const payload = {
+    active: action === 'show' || action === 'open' || (action === 'toggle' && true),
+    action: action === 'show' || action === 'open' ? 'show' : (action === 'hide' || action === 'close' ? 'hide' : action),
+    location: typeof args.location === 'string' ? args.location.trim() : '',
+    title: typeof args.title === 'string' ? args.title.trim() : '',
+    zoom: Number.isFinite(Number(args.zoom)) ? Number(args.zoom) : undefined,
+    markers: Array.isArray(args.markers) ? args.markers.map(m => String(m)).slice(0, 20) : [],
+    keyword: typeof args.keyword === 'string' ? args.keyword.trim() : '',
+    reason: typeof args.reason === 'string' ? args.reason : '',
+  }
+
+  // toggle：读取面板状态做切换（无本地状态表，直接按当前 emit 判断；前端幂等处理）
+  if (action === 'toggle') {
+    // 前端 map-panel 维护实际开关状态；后端 toggle 一律发 show 让前端切换。
+    payload.active = true
+    payload.action = 'show'
+  }
+
+  emitEvent('map_mode', payload)
+  emitEvent('action', {
+    tool: 'map_mode',
+    summary: payload.action === 'hide' ? '关闭地图面板' : `打开地图${payload.location ? '：' + payload.location : ''}`,
+    detail: [payload.title, payload.keyword, (payload.markers || []).join(',')].filter(Boolean).join(' | ') || payload.reason,
+  })
+  return JSON.stringify({ ok: true, tool: 'map_mode', state: { active: payload.active, location: payload.location, configured: settings.configured } })
+}
+
 function execOpenDocPanel(args = {}) {
   const action = String(args.action || 'open').trim().toLowerCase()
   const nextActive = action !== 'close'
@@ -831,8 +914,9 @@ function unverifiedDeliveryNotice() {
 
 function execCompleteTask({ summary = '' }, context) {
   if (!context?.onCompleteTask) return '错误：任务管理回调未注册'
-  context.onCompleteTask(String(summary || '').trim())
+  const suggestion = context.onCompleteTask(String(summary || '').trim()) || ''
   const lines = [`任务已完成${summary ? '：' + summary : ''}`]
+  if (suggestion) lines.push(suggestion)
   const notice = unverifiedDeliveryNotice()
   if (notice) lines.push(notice)
   return lines.join('\n')

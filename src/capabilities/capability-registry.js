@@ -38,6 +38,7 @@ export const HOTSPOT_TOOLS = ['hotspot_mode']
 // 要联网，所以 WEB_TOOLS 一并带上。
 export const WORLDCUP_TOOLS = ['worldcup_mode', ...WEB_TOOLS]
 export const TYPHOON_TOOLS = ['typhoon_mode']
+export const MAP_TOOLS = ['map_mode']
 export const SOFTWARE_INSTALL_TOOLS = ['install_software', 'list_processes']
 
 // ---- 触发词 / 触发正则 ----
@@ -61,11 +62,18 @@ const WORLDCUP_TRIGGERS = [
 const TYPHOON_TRIGGERS = [
   '台风', '热带气旋', '台风路径', '台风预警', '风圈', '登陆台风', 'typhoon', 'tropical cyclone',
 ]
+const MAP_TRIGGERS = [
+  '地图', '高德', '位置', '在哪', '在哪儿', '在哪个', '导航', '路线', '怎么去', '怎么走',
+  '附近的', '周边', '周边有', '附近有', '打开看看', '看看地图', '显示地图', '卫星图',
+  'map', 'amap', 'gaode', 'location', 'navigate', 'route', 'directions', 'where is',
+  'nearby', 'around', 'address', '坐标',
+]
 
 const WEATHER_KEYWORD_RE = /天气|温度|气温|下雨|降雨|下雪|台风|雾霾|阴天|晴天|多云|wttr|weather/i
 const HOTSPOT_KEYWORD_RE = /热点|热搜|热门|新闻|今日|趋势|榜单|头条|热议|微博热搜|trending|headline/i
 const WORLDCUP_KEYWORD_RE = /世界杯|赛况|比分|赛程|对阵|积分榜|小组赛|淘汰赛|揭幕战|进球|几比几|world ?cup|worldcup|fifa/i
 const TYPHOON_KEYWORD_RE = /台风|热带气旋|台风路径|台风预警|风圈|登陆台风|typhoon|tropical cyclone/i
+const MAP_KEYWORD_RE = /地图|高德|位置|在哪|在哪儿|导航|路线|怎么去|怎么走|附近的|周边|附近有|卫星图|\bmap\b|\bamap\b|\bnavigate\b|\bdirections\b|\bnearby\b/i
 
 // ---- 工作流块（prompt 注入用；从 prompt.js / index.js 搬来，文本逐字保留）----
 const WEATHER_CONTEXT_BLOCK = `### Weather Surface Rules
@@ -95,6 +103,14 @@ const TYPHOON_CONTEXT_BLOCK = `### Typhoon Monitoring Panel
 - You have a typhoon_mode tool that opens a visual typhoon monitoring panel. It shows current active-typhoon tracks, intensity, wind circles, and forecast tracks from the Central Meteorological Observatory. It is NOT pre-loaded each turn — if it is not in your current tool list, call find_tool("台风 路径 typhoon") first to load it.
 - Open it (action="show") when the user explicitly asks to view typhoon paths, tracking, or monitoring; close it (action="hide") when asked.
 - The panel's data is for situational awareness. Do not present it as a replacement for official local emergency instructions.`
+
+const MAP_CONTEXT_BLOCK = `### Map Panel (Amap / Gaode) — 打开地图
+- **这是打开地图的唯一正确方式：调用 map_mode 工具**，它会在 Bailongma 界面内弹出交互地图面板（标准图层、支持城市/地址/坐标定位、标点与周边搜索）。
+- 当用户说「打开地图」「看看某地在哪」「导航到某地」「某地附近有什么」等，一律调用 map_mode(action="show", location="地名/地址/经纬度")。可加 markers 标点、keyword 搜周边（如 "咖啡"、"加油站"）。
+- **绝不**用 exec_command / 浏览器去打开 ditu.amap.com 等网页地图——用户要的是界面内地图面板，不是打开网页。除非用户明确要求"在浏览器里打开高德网站"。
+- map_mode 本轮通常已加载；若不在工具列表里，先 find_tool("地图 位置 map") 装载再调用。
+- 调用后直接告诉用户"地图已打开，定位在 XX"，不要描述成"在浏览器里打开"。
+- 若返回 map_not_configured：告诉用户去「设置 → 高级功能 → 地图服务」配置高德 Key 与安全密钥，别假装打开了。`
 
 // 安装工作流：原先以 directions.unshift 注入在 index.js，现归位为能力 context，统一经
 // buildSystemPrompt 注入（同一份文本、同一道 isSoftwareInstallRequest 门）。
@@ -182,6 +198,18 @@ export const CAPABILITIES = [
     toolWhen: () => false,
     context: TYPHOON_CONTEXT_BLOCK,
     prefeed: (ctx) => buildTyphoonRuntimeContext(ctx.rawText || ''),
+  },
+  {
+    id: 'map',
+    label: '地图',
+    summary: '打开高德交互地图（map_mode），可按城市/地址/坐标定位、标点与搜索周边 POI。需要地图服务已配置。',
+    triggers: MAP_TRIGGERS,
+    tools: MAP_TOOLS,
+    detect: (ctx) => MAP_KEYWORD_RE.test(ctx.rawText || ''),
+    // 地图 schema 很轻，命中地图意图时自动注入，对话里直接就能调 map_mode。
+    toolWhen: (ctx) => MAP_KEYWORD_RE.test(ctx.rawText || ''),
+    context: MAP_CONTEXT_BLOCK,
+    prefeed: null,
   },
   {
     id: 'software-install',

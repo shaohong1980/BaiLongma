@@ -189,6 +189,39 @@ export function refreshSkills() {
   return loadSkills({ force: true })
 }
 
+// 按 id / name / alias 精确找一个技能（供 view_skill / delete_skill 等工具使用）
+export function getSkillById(query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return null
+  const skills = loadSkills({ force: true })
+  return skills.find(s =>
+    s.id === q ||
+    s.name.toLowerCase() === q ||
+    (s.aliases || []).some(a => String(a).toLowerCase() === q)
+  ) || null
+}
+
+// 模糊搜索技能（列表/目录用途）：命中 name/description/tags/aliases
+export function findSkillsByQuery(query, { limit = 20 } = {}) {
+  const q = String(query || '').trim().toLowerCase()
+  const skills = loadSkills({ force: true })
+  if (!q) return skills.slice(0, Math.max(1, Math.min(Number(limit) || 20, 200)))
+  const scored = skills
+    .map(skill => {
+      let score = 0
+      if (skill.id === q || skill.name.toLowerCase() === q) score += 10
+      else if (skill.name.toLowerCase().includes(q)) score += 6
+      if ((skill.aliases || []).some(a => String(a).toLowerCase() === q)) score += 5
+      if ((skill.tags || []).some(t => String(t).toLowerCase().includes(q))) score += 2
+      if (skill.description.toLowerCase().includes(q)) score += 1
+      return { skill, score }
+    })
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.skill.name.localeCompare(b.skill.name))
+    .map(item => item.skill)
+  return scored.slice(0, Math.max(1, Math.min(Number(limit) || 20, 200)))
+}
+
 function skillMatchText(skill) {
   return [
     skill.name,

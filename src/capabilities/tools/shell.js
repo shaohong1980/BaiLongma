@@ -344,7 +344,24 @@ async function probeLocalUrl(url, timeoutMs = 3000) {
 // 仅供测试
 export const __probeInternal = { extractUserFacingLocalUrl, probeLocalUrl }
 
+// 拦截"用浏览器打开高德网页地图"的常见命令（Start-Process ... ditu.amap.com / amap.com），
+// 引导 Agent 改调 map_mode 打开界面内地图面板——用户要的是面板，不是网页。
+// 仅在命令明显指向高德地图网址时拦截；其它命令不受影响。
+function maybeRedirectAmapBrowserOpen(command = '') {
+  const text = String(command || '')
+  if (!/(?:ditu\.)?amap\.com|gaode/i.test(text)) return null
+  if (!/(?:https?:|start|open|explorer|ditu\.amap\.com)/i.test(text)) return null
+  return {
+    ok: false,
+    tool: 'exec_command',
+    error: 'amap_website_browser_open',
+    hint: '你想打开地图时，不要用 exec_command 去浏览器打开 ditu.amap.com 网页。请直接调用 map_mode 工具：map_mode({ action: "show", location: "要定位的地点/城市", markers: [...], keyword: "周边关键词" })，它会在 Bailongma 界面内弹出标准地图面板。只有用户明确说"在浏览器里打开高德网站"时才允许 exec_command 打开。',
+  }
+}
+
 export async function execCommand(args, context = {}) {
+  const amapRedirect = maybeRedirectAmapBrowserOpen(String(args.command || args.cmd || ''))
+  if (amapRedirect) return JSON.stringify(amapRedirect, null, 2)
   const result = await execCommandImpl(args, context)
   try {
     const probeUrl = extractUserFacingLocalUrl(String(args.command || args.cmd || ''))
@@ -361,6 +378,40 @@ export async function execCommand(args, context = {}) {
     return JSON.stringify(obj, null, 2)
   } catch {
     return result
+  }
+}
+
+// run_node_script：把脚本源码写入沙盒临时 .cjs 文件，用应用自身运行时（ELECTRON_RUN_AS_NODE）执行。
+// 解决 exec_command 里贴内联 JS 会被当文件路径、以及 node/electron 原生模块 ABI 不匹配的问题。
+export async function execRunNodeScript(args = {}, context = {}) {
+  throwIfAborted(context.signal)
+  const code = String(args.code || '').trim()
+  if (!code) return toolJson({ ok: false, tool: 'run_node_script', error: 'missing code' })
+
+  const scriptPath = path.join(SANDBOX_ROOT, `node-script-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.cjs`)
+  try {
+    fs.writeFileSync(scriptPath, code, 'utf8')
+  } catch (err) {
+    return toolJson({ ok: false, tool: 'run_node_script', error: `write script failed: ${err.message}` })
+  }
+
+  // 应用自身运行时：开发/打包都是 electron（ELECTRON_RUN_AS_NODE=1 当 node 用），原生模块 ABI 匹配
+  const runtime = process.execPath
+  const q = s => `'${String(s).replace(/'/g, "''")}'`
+  const command = `$env:ELECTRON_RUN_AS_NODE='1'; & ${q(runtime)} ${q(scriptPath)}`
+
+  try {
+    const result = await execCommandImpl({ command, timeout: args.timeout, background: false, promote_to_background: false }, context)
+    try {
+      const obj = JSON.parse(result)
+      obj.tool = 'run_node_script'
+      delete obj.command
+      return JSON.stringify(obj, null, 2)
+    } catch {
+      return result
+    }
+  } finally {
+    try { fs.unlinkSync(scriptPath) } catch {}
   }
 }
 

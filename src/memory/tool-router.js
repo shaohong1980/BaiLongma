@@ -44,6 +44,8 @@ const CORE_TOOLS = [
   // voice_retire：收起悬浮语音球。常驻很轻（一个小 schema），但保证语音对话轮一定可用；
   // 何时调由 prompt 的 Voice Orb 段（仅语音轮注入）指导，非语音轮虽在工具表但不会被提示使用。
   'voice_retire',
+  // map_mode：常驻保证地图请求一定能被调用（schema 很轻，且能避免模型退回"开浏览器/谎称激活"）。
+  'map_mode',
 ]
 
 const TASK_CTRL_FULL    = ['set_task', 'complete_task', 'update_task_step', 'review_work']
@@ -59,6 +61,7 @@ const FILESYSTEM_TOOLS  = ['read_file', 'write_file', 'delete_file', 'list_dir',
 const EXEC_TOOLS        = ['exec_command', 'exec_quick_command', 'exec_task_command', 'exec_background_command', 'download_file', 'kill_process', 'list_processes']
 const MEDIA_TOOLS       = ['media_mode', 'music']
 const REMINDER_TOOLS    = ['manage_reminder']
+const WORKBENCH_TOOLS   = ['manage_todo', 'weekly_review']
 const PREFETCH_TOOLS    = ['manage_prefetch_task']
 const TICKER_TOOLS      = ['set_tick_interval']
 // Startup self-check is a deterministic, local-only three-step flow. Keep its
@@ -128,6 +131,39 @@ const REMINDER_TRIGGERS = [
   '提醒', '记一下', '别忘', '到时候', '明天', '后天', '今晚', '明早',
   '几点', '点钟', '点叫', '点喊', '计划', '安排', '日程',
   'remind', 'reminder', 'schedule', 'alarm', 'wake me', 'notify',
+]
+
+// 工作台：待办事项 / 完成事项 / 每周复盘（对话方式操作工作台）
+const WORKBENCH_TRIGGERS = [
+  '待办', '待办事项', '办事项', 'todo', '完成事项', '已完成', '工作台', '任务清单',
+  '清单', '记一下', '记一下任务', '记一下事情', '记个任务', '加个待办', '加入待办', '帮我记',
+  '要做的', '要做的事', '记得做', '列个任务', '添加任务', '加任务', '任务列表',
+  '复盘', '周复盘', '每周复盘', '周总结', '周报', '总结一下这周', '这周怎么样', '这周干了',
+  '本周总结', 'weekly', 'weekly review', 'review',
+]
+
+// 长期目标：定目标 / 看目标 / 改目标进度 / 晨间简报
+const GOAL_TOOLS = ['set_goal', 'list_goals', 'update_goal', 'show_briefing']
+const GOAL_TRIGGERS = [
+  '目标', '长期目标', '定个目标', '立个flag', 'flag', '想学', '计划达成',
+  '我的目标', '目标进度', '目标进展',
+  '晨间简报', '今日简报', '简报', '早上好', '早安', '今天有什么', '今天干嘛',
+  'goal', 'goals', 'objective', 'long-term', 'briefing', 'daily brief',
+]
+
+// MCP：连外部服务（Notion/Gmail/GitHub/数据库/文件系统等）。配置在 data/mcp-servers.json。
+const MCP_TOOLS = ['mcp_list_servers', 'mcp_call']
+const MCP_TRIGGERS = [
+  'mcp', 'notion', 'gmail', 'github', 'jira', 'slack', 'database', '数据库',
+  '外部服务', '集成', '插件服务', 'mcp服务器',
+]
+
+// 技能（Agent Skills）：浏览 / 查看 / 从经验学一个 / 用后改进 / 删除
+const SKILL_TOOLS = ['list_skills', 'view_skill', 'learn_skill', 'improve_skill', 'delete_skill']
+const SKILL_TRIGGERS = [
+  '技能', '能力包', '有什么技能', '有哪些技能', '查看技能', '列出技能', '技能列表',
+  '学一个技能', '学个技能', '记住怎么做', '把刚才', '沉淀成技能', '教你这招',
+  'skill', 'skills', 'SKILL.md', 'learn this', 'learn a skill', 'agent skills',
 ]
 
 const PREFETCH_TRIGGERS = [
@@ -214,6 +250,10 @@ export const TOOL_GROUPS = [
   { triggers: EXEC_TRIGGERS,         tools: EXEC_TOOLS },
   { triggers: MEDIA_TRIGGERS,        tools: MEDIA_TOOLS },
   { triggers: REMINDER_TRIGGERS,     tools: REMINDER_TOOLS },
+  { triggers: WORKBENCH_TRIGGERS,    tools: WORKBENCH_TOOLS },
+  { triggers: GOAL_TRIGGERS,         tools: GOAL_TOOLS },
+  { triggers: SKILL_TRIGGERS,        tools: SKILL_TOOLS },
+  { triggers: MCP_TRIGGERS,          tools: MCP_TOOLS },
   { triggers: PREFETCH_TRIGGERS,     tools: PREFETCH_TOOLS },
   { triggers: TICKER_TRIGGERS,       tools: TICKER_TOOLS },
   { triggers: PERSON_CARD_TRIGGERS,  tools: PERSON_CARD_TOOLS },
@@ -355,6 +395,18 @@ export function selectTools(ctx = {}) {
   }
   if (hits(body, REMINDER_TRIGGERS)) {
     for (const t of REMINDER_TOOLS) out.add(t)
+  }
+  if (hits(body, WORKBENCH_TRIGGERS)) {
+    for (const t of WORKBENCH_TOOLS) out.add(t)
+  }
+  if (hits(body, GOAL_TRIGGERS)) {
+    for (const t of GOAL_TOOLS) out.add(t)
+  }
+  if (hits(body, SKILL_TRIGGERS)) {
+    for (const t of SKILL_TOOLS) out.add(t)
+  }
+  if (hits(body, MCP_TRIGGERS)) {
+    for (const t of MCP_TOOLS) out.add(t)
   }
   if (hits(body, PREFETCH_TRIGGERS)) {
     for (const t of PREFETCH_TOOLS) out.add(t)

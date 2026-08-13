@@ -16,8 +16,20 @@ function loadScript(src) {
     const script = document.createElement('script')
     script.src = src
     script.async = true
-    script.onload = () => resolve(window.AMapLoader)
-    script.onerror = () => reject(new MapServiceError('loader_failed', '高德地图加载器下载失败'))
+    script.onload = () => {
+      if (!window.AMapLoader) {
+        // 脚本加载成功但对象没出来，也按失败处理并允许重试
+        loaderPromise = null
+        reject(new MapServiceError('loader_invalid', '高德地图加载器初始化失败'))
+        return
+      }
+      resolve(window.AMapLoader)
+    }
+    script.onerror = () => {
+      // 失败时清掉缓存 promise，下次调用可重试
+      loaderPromise = null
+      reject(new MapServiceError('loader_failed', '高德地图加载器下载失败，请检查网络'))
+    }
     document.head.appendChild(script)
   })
   return loaderPromise
@@ -45,7 +57,19 @@ async function loadAmap(apiRoot) {
     const AMap = await loader.load({
       key: config.jsKey,
       version: '2.0',
-      plugins: ['AMap.Scale', 'AMap.ToolBar', 'AMap.DistrictLayer'],
+      plugins: [
+        'AMap.Scale', 'AMap.ToolBar', 'AMap.DistrictLayer',
+        'AMap.Geocoder', 'AMap.PlaceSearch',   // 定位/周边搜索组件，显式声明避免未加载
+      ],
+    })
+    // 兜底：某些版本插件名可能未随 plugins 加载，确保核心服务可用
+    await new Promise((resolve, reject) => {
+      try {
+        AMap.plugin(['AMap.Geocoder', 'AMap.PlaceSearch', 'AMap.Scale', 'AMap.ToolBar', 'AMap.DistrictLayer'], (err) => {
+          if (err) { resolve() } // 个别缺失不影响主地图，放行
+          else resolve()
+        })
+      } catch { resolve() }
     })
     return { AMap, config }
   })().catch(err => {
@@ -55,7 +79,16 @@ async function loadAmap(apiRoot) {
   return amapPromise
 }
 
-function addCityBoundaryLayer(AMap, map) {
+// 预热：提前拉配置 + 加载 AMap 核心，让第一次打开地图更流畅（不创建地图实例）。
+let warmPromise = null
+export function warmUpMapService(apiRoot = location.origin) {
+  if (warmPromise) return warmPromise
+  warmPromise = loadAmap(apiRoot).catch(() => { warmPromise = null; return null })
+  return warmPromise
+}
+
+function addCityBoundaryLayer(AMap, map, colors = {}) {
+  colors = colors || {}   // boundaryColors 可能显式传 null，参数默认值只兜 undefined
   if (!AMap.DistrictLayer?.Country) return null
   const layer = new AMap.DistrictLayer.Country({
     zIndex: 8,
@@ -64,11 +97,11 @@ function addCityBoundaryLayer(AMap, map) {
     depth: 2,
   })
   layer.setStyles({
-    'nation-stroke': '#4cc9f0',
-    'coastline-stroke': '#4cc9f0',
-    'province-stroke': 'rgba(96, 204, 240, 0.72)',
-    'city-stroke': 'rgba(122, 190, 218, 0.38)',
-    fill: 'rgba(8, 38, 58, 0.12)',
+    'nation-stroke': colors.nationStroke || 'rgba(110, 140, 170, 0.85)',
+    'coastline-stroke': colors.coastlineStroke || 'rgba(110, 140, 170, 0.85)',
+    'province-stroke': colors.provinceStroke || 'rgba(120, 150, 180, 0.5)',
+    'city-stroke': colors.cityStroke || 'rgba(140, 165, 190, 0.28)',
+    fill: colors.fill || 'rgba(120, 150, 175, 0.06)',
   })
   map.add(layer)
   return layer
@@ -80,6 +113,8 @@ export async function createMap(container, {
   zoom = 5,
   cityBoundaries = true,
   controls = true,
+  mapStyle = 'amap://styles/normal',   // 标准图层 / 标准皮肤（ditu.amap.com 同款）；暗色场景传 'amap://styles/darkblue'
+  boundaryColors = null,               // 自定义行政边界配色；缺省用标准浅色
 } = {}) {
   if (!container) throw new MapServiceError('container_missing', '地图容器不存在')
   const { AMap, config } = await loadAmap(apiRoot)
@@ -88,12 +123,12 @@ export async function createMap(container, {
     zoom,
     zooms: [3, 18],
     viewMode: '2D',
-    mapStyle: 'amap://styles/darkblue',
+    mapStyle,
     showLabel: true,
     showIndoorMap: false,
     resizeEnable: true,
   })
-  const boundaryLayer = cityBoundaries ? addCityBoundaryLayer(AMap, map) : null
+  const boundaryLayer = cityBoundaries ? addCityBoundaryLayer(AMap, map, boundaryColors) : null
   if (controls) {
     map.addControl(new AMap.Scale({ position: 'LB' }))
     map.addControl(new AMap.ToolBar({ position: 'RT', liteStyle: true }))

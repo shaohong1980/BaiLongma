@@ -15,7 +15,11 @@ import { summarizeThread } from './memory/thread-summarize.js'
 import { classifyThreadAttribution } from './memory/thread-classifier.js'
 import { runMemoryRefreshLoop } from './memory/refresh-loop.js'
 import { startConsolidationLoop } from './memory/consolidation-loop.js'
-import { recordSelfEvolutionFromMemories } from './memory/self-evolution.js'
+import { getGlobalSummaryTreeText } from './memory/global-summary-tree.js'
+import { startConversationImportLoop } from './memory/conversation-import-loop.js'
+import { startPrefetchLoop } from './prefetch/prefetch-loop.js'
+import { recordSelfEvolutionFromMemories, triggerTaskSelfEval } from './memory/self-evolution.js'
+import { buildSkillSuggestion } from './memory/skill-suggest.js'
 import { runRuntimeInjector } from './context/runtime-injector.js'
 import { selectContextSections } from './context/section-gate.js'
 import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, loadThreadState, saveThreadState, setCurrentFocusTopic, setCurrentThreadId, updateUserMessageFocusTopic, reassignConversationsThread, insertActionLog } from './db.js'
@@ -45,13 +49,14 @@ import { collectGeoWeather, getGeoWeatherBlock } from './geo-weather.js'
 import { collectTrending } from './trending.js'
 import { collectAgents, buildAgentContextBlock, buildDelegationDiscoveryContext } from './agents/registry.js'
 import { refreshSkills, selectSkillsForMessage, formatSkillsForContext } from './skills/registry.js'
+import { bumpSkillUsage } from './memory/skill-usage.js'
 import { tryAutoConfigureKey } from './key-auto-config.js'
 import { PRIMARY_USER_ID, formatPresenceForPrompt, normalizeChannel, isExternalChannel, isVoiceChannel } from './identity.js'
 import { truncateToolResultForUI } from './runtime/tool-result-preview.js'
 import { buildLLMMessages } from './runtime/messages.js'
 import { parseMarkers } from './runtime/markers.js'
 import { createConsciousnessLoop } from './runtime/consciousness-loop.js'
-import { buildAutonomousTickDirections } from './runtime/tick-policy.js'
+import { buildAutonomousTickDirections, buildMemoryNudge } from './runtime/tick-policy.js'
 import { buildStrictEvaluationContext, filterStrictEvaluationTools, resolveStrictEvaluationMode } from './runtime/strict-evaluation.js'
 import { extractVerbatimPayload, findRecentVerbatimPayload, hasInlineVerbatimPayload, isVerbatimOutputRequest, isVerbatimSetup, isVerbatimStart } from './runtime/verbatim.js'
 import { filterSendMessageForLocalReply, turnNeedsExternalSendMessage } from './runtime/local-reply-tools.js'
@@ -388,6 +393,18 @@ function ensureStartupSelfCheckState() {
   return next
 }
 
+// 每日一次的记忆沉淀提醒节流（hermes periodic nudge）：当天已提醒过就返回空串。
+function buildDailyMemoryNudge() {
+  try {
+    const today = new Date().toISOString().slice(0, 10)
+    if (getConfig('memory_nudge_last_date') === today) return ''
+    setConfig('memory_nudge_last_date', today)
+    return buildMemoryNudge()
+  } catch {
+    return ''
+  }
+}
+
 function buildStartupSelfCheckDirections(checkState) {
   if (!checkState?.active) return ''
   return [
@@ -513,6 +530,7 @@ function buildToolContextForProcess(msg, injection) {
 
     onCompleteTask: (summary) => {
       const clearedTask = state.task
+      const stepCount = Array.isArray(state.taskSteps) ? state.taskSteps.length : 0
       state.task = null
       state.taskSteps = []
       setConfig('current_task', '')
@@ -528,7 +546,11 @@ function buildToolContextForProcess(msg, injection) {
           entities: [], concepts: [], tags: ['task_complete'],
           timestamp: nowTimestamp(),
         })
+        triggerTaskSelfEval(clearedTask, summary || '任务完成')
       }
+      // 复杂任务完成后给一句"要不要沉淀成技能"的软引导（learn_skill 工具已可用），
+      // 返回值会被 execCompleteTask 拼进工具结果，模型下一轮能看到并决定是否照做。
+      return buildSkillSuggestion(clearedTask, stepCount)
     },
 
     onUpdateTaskStep: (idx, status, note) => {
@@ -1012,6 +1034,9 @@ async function runTurn(input, label, msg = null) {
           tickerStatus: getTickerStatus(),
         }))
       }
+      // 每日一次的记忆沉淀提醒（低频、软引导）：每天第一次心跳时提示回顾并持久化可复用经验
+      const memoryNudgeText = buildDailyMemoryNudge()
+      if (memoryNudgeText) directions.push(memoryNudgeText)
     }
     if (fastUserPath) {
       directions.unshift('Current turn is a real-time external user message. Understand it quickly and reply directly with send_message. If no slow tool is needed, send exactly one final answer and stop. Use heavier tools only when the reply depends on them. During longer execution, send progress only for meaningful new findings or blockers; do not send an acknowledgement and then a near-duplicate final answer.')
@@ -1030,6 +1055,9 @@ async function runTurn(input, label, msg = null) {
     if (keyConfigFailDir) directions.unshift(keyConfigFailDir)
 
     const memoriesText = formatMemoriesForPrompt(injection.memories, injection.recallMemories)
+    // ① 全局记忆鸟瞰：把全部记忆蒸馏成一棵分层摘要树，廉价常驻上下文。
+    //    常态命中缓存（零 DB IO），只有记忆变化/超时才懒重建。放在 <memories> 之前作背景层。
+    const globalMemoryOverview = await getGlobalSummaryTreeText()
     const activePoliciesText = formatActivePoliciesForPrompt(injection.activePolicies)
     const directionsText = directions.join('\n')
     const taskKnowledgeText = formatTaskKnowledge(injection.taskKnowledge)
@@ -1123,9 +1151,18 @@ async function runTurn(input, label, msg = null) {
     const entities = getKnownEntities()
     const hasActiveTask = !!state.task
     const terminalStreamContext = formatTerminalStreamContext()
-    const extraContextJoined = [presenceText, runtimeInjection.contextText, terminalStreamContext, prefetchText, injection.uiSignalSummary, formatSceneManifest(sceneStore.manifest()), formatAIVideoPanel(getAIVideoPanelState())].filter(Boolean).join('\n\n')
+    // 主线会话窗口外历史摘要（conv-compress）：长会话的"窗口之前"压成一句随上下文注入，
+    // 让模型在只看到最近 N 条的情况下仍保有连续性。
+    const mainlineSummaryText = injection.mainlineSummary
+      ? `<mainline-history-summary>\n${injection.mainlineSummary}\n</mainline-history-summary>`
+      : ''
+    const extraContextJoined = [presenceText, runtimeInjection.contextText, terminalStreamContext, prefetchText, mainlineSummaryText, injection.uiSignalSummary, formatSceneManifest(sceneStore.manifest()), formatAIVideoPanel(getAIVideoPanelState())].filter(Boolean).join('\n\n')
     const skillSelection = selectSkillsForMessage(msg?.content || input || '')
     const agentSkillsText = formatSkillsForContext(skillSelection)
+    // 技能遥测：实际注入本轮上下文的技能记一次使用（hermes skill_usage 的本地版）
+    for (const s of skillSelection.active) {
+      try { bumpSkillUsage(s.id) } catch { /* best-effort */ }
+    }
     if (skillSelection.active.length > 0 || skillSelection.catalogRequested) {
       emitEvent('agent_skills_selected', {
         active: skillSelection.active.map(s => ({
@@ -1170,6 +1207,7 @@ async function runTurn(input, label, msg = null) {
 
     const baseContextArgs = {
       memories: memoriesText,
+      globalMemoryOverview,
       activePolicies: activePoliciesText,
       temporalRecall: temporalRecallText,
       directions: directionsText,
@@ -1223,6 +1261,13 @@ async function runTurn(input, label, msg = null) {
     }
 
     let contextBlock = buildContextBlock(gateResult.args)
+
+    // 系统级自动打开地图：pushMessage 已检测到明确地图意图并代用户打开面板。
+    // 告知 LLM，避免它再调 map_mode（面板已开）或谎称/退回浏览器。
+    if (msg?.map_auto_opened) {
+      contextBlock += `\n\n[system] 系统已在界面内自动打开地图面板${msg.map_auto_location ? `，定位到「${msg.map_auto_location}」` : ''}${msg.map_auto_keyword ? `，并搜索周边「${msg.map_auto_keyword}」` : ''}。你只需在回复里简短确认地图已打开并说明定位，不要再调用 map_mode（面板已打开，重复调用无意义），也不要用浏览器打开网页地图。`
+    }
+
     const strictEvaluation = resolveStrictEvaluationMode(msg?.content || input || '', {
       strictEvaluation: msg?.strictEvaluation,
       forbiddenTools: msg?.forbiddenTools,
@@ -1566,6 +1611,7 @@ async function runTurn(input, label, msg = null) {
   }
   if (markers.clearTask) {
     const clearedTask = state.task
+    const stepCount = Array.isArray(state.taskSteps) ? state.taskSteps.length : 0
     console.log(`[system] Task completed: ${clearedTask}`)
     emitEvent('task_cleared', { task: clearedTask })
     state.task = null
@@ -1582,6 +1628,10 @@ async function runTurn(input, label, msg = null) {
         entities: [], concepts: [], tags: ['task_complete'],
         timestamp: nowTimestamp(),
       })
+      triggerTaskSelfEval(clearedTask, 'CLEAR_TASK')
+      // 复杂任务完成 → 软引导沉淀技能（UI 事件；工具路径走 execCompleteTask 返回值）
+      const suggestion = buildSkillSuggestion(clearedTask, stepCount)
+      if (suggestion) emitEvent('skill_suggestion', { task: clearedTask, suggestion })
     }
   }
 
@@ -1662,6 +1712,8 @@ const consciousnessLoop = createConsciousnessLoop({
   getNextPendingReminder,
   getQuotaStatus,
   startConsolidationLoop,
+  startConversationImportLoop,
+  startPrefetchLoop,
   ensureStartupSelfCheckState,
   setStickyEvent,
   startupSelfCheckVersion: STARTUP_SELF_CHECK_VERSION,

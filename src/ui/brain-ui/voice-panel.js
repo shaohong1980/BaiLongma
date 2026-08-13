@@ -12,9 +12,13 @@
 // 以保持「常开在跑时按空格 = 强制立即发一次」的叠加语义。
 
 import { createVoiceCore } from './voice-core.js';
+import { createVoiceBagua } from './voice-bagua.js';
+import { initLaunchColor } from './launch-color.js';
 import { createContinuousPolicy } from './voice-continuous.js';
 import { createPttController } from './voice-ptt.js';
 import { createWakeFlow } from './voice-wake.js';
+
+// 助手配色：每次启动随机换色（主窗口启动时生成，见 launch-color.js）
 
 export function initVoicePanel({
   btnId, panelId, canvasId, statusId, transcriptId,
@@ -28,7 +32,11 @@ export function initVoicePanel({
   if (!panel || !canvas) return;
 
   // ─── 组装 core + 两个模式策略 ───
-  const core = createVoiceCore({ canvas, transcript, getChatInput, getSendMessage, getLang });
+  // 渲染器：太极六十四卦（替代原 Rive 小助手）。voice-core 保留全部会话逻辑
+  // （麦克风/ASR/TTS 打断），渲染器只做「脸」——voice-core 每帧把状态+音量推给它。
+  const theme = initLaunchColor();
+  const renderer = createVoiceBagua({ canvas, ...theme });
+  const core = createVoiceCore({ canvas, transcript, getChatInput, getSendMessage, getLang, renderer });
   const continuous = createContinuousPolicy(core, { getAutoSend });
 
   // 常开会话开关：点球/按钮触发，也被 PTT 在「mic 未开」时复用（保持叠加语义）
@@ -59,6 +67,8 @@ export function initVoicePanel({
   core.setOnTranscript((msg, isFinal) => {
     wake.onTranscript(msg, isFinal);
     continuous.onTranscript(msg, isFinal);
+    // 说话内容 → 渲染器用于定位卦象
+    renderer.setSpeakingText?.(msg);
   });
   core.setOnSessionStop(continuous.onSessionStop);
   core.setOnSuspendForTTS(continuous.onSuspendForTTS);
@@ -82,6 +92,13 @@ export function initVoicePanel({
     },
     stop: () => core.stopSession(),
     setTTSAnalyser: (analyser) => core.setTTSAnalyser(analyser),
+    // 真口型 viseme 数据流：app.js 每帧按音频进度推当前 viseme；null 表示无数据（退回音量模拟）
+    setViseme: (code) => {
+      renderer.setViseme?.(code);
+      wake.pushViseme?.(code); // 同步给悬浮球窗口（经 IPC）
+    },
+    // 说话内容（TTS 播报文本）→ 渲染器用于定位卦象
+    setSpeakingText: (text) => renderer.setSpeakingText?.(text),
     pttStart: ptt.pttStart,
     pttEnd: ptt.pttEnd,
   };

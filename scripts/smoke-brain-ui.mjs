@@ -190,6 +190,16 @@ function createServer() {
       return
     }
 
+    if (url.pathname === '/workbench' || url.pathname === '/workbench/reviews') {
+      sendJson(res, { ok: true, snapshot: { pending: 0, done: 0, recentDone: [] }, pending: [], done: [], reviews: [], currentWeekKey: '2026-W33' })
+      return
+    }
+
+    if (url.pathname.startsWith('/workbench/todos') || url.pathname.startsWith('/workbench/reviews')) {
+      sendJson(res, { ok: true })
+      return
+    }
+
     if (url.pathname === '/social/wechat-clawbot/qr') {
       sendJson(res, { ok: true, qr: null, status: 'unavailable' })
       return
@@ -261,7 +271,10 @@ try {
   if (!vendorResponse?.ok()) throw new Error('local d3 vendor route failed')
 
   await page.goto(`${baseUrl}/brain-ui`, { waitUntil: 'domcontentloaded' })
-  await page.waitForSelector('#graph circle', { timeout: 5000 })
+  await page.waitForFunction(() => {
+    const g = document.getElementById('graph')
+    return g && g.width > 0 && g.height > 0
+  }, { timeout: 8000 })
   await page.waitForFunction(() => window.d3 && document.querySelector('#agent-brand-name')?.textContent.includes('SmokeLongma'))
   await page.fill('#msg-input', '马云是谁')
   await page.click('#send-btn')
@@ -283,8 +296,9 @@ try {
 
   const snapshot = await page.evaluate(() => ({
     d3: Boolean(window.d3),
-    nodes: document.querySelectorAll('#graph circle').length,
-    links: document.querySelectorAll('#graph line').length,
+    graphCanvas: Boolean(document.getElementById('graph')),
+    graphW: document.getElementById('graph')?.width || 0,
+    graphH: document.getElementById('graph')?.height || 0,
     acuiHost: Boolean(document.getElementById('acui-host')),
     personCard: document.querySelector('#pc-name')?.textContent || '',
     personSummary: document.querySelector('#pc-summary')?.textContent || '',
@@ -295,7 +309,8 @@ try {
   }))
 
   if (!snapshot.d3) throw new Error('d3 global missing')
-  if (snapshot.nodes < 2) throw new Error(`expected at least 2 graph nodes, saw ${snapshot.nodes}`)
+  if (!snapshot.graphCanvas) throw new Error('memory graph canvas missing')
+  if (snapshot.graphW < 2 || snapshot.graphH < 2) throw new Error(`memory graph canvas not initialized (${snapshot.graphW}x${snapshot.graphH})`)
   if (!snapshot.acuiHost) throw new Error('ACUI host was not bootstrapped')
   if (!snapshot.personCard.includes('马云')) throw new Error('person card did not render the requested person')
   if (!snapshot.personSummary.includes('阿里巴巴集团创始人')) throw new Error('person card did not absorb assistant summary')

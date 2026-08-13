@@ -35,3 +35,14 @@ export function buildAutonomousTickDirections({
 
   return parts.join('\n')
 }
+
+// 每日一次的记忆沉淀提醒（hermes "periodic nudge to persist knowledge" 的本地版）。
+// 低频、软引导：不要求干活，只提示把今天真正可复用的经验写下来。
+// 由 index.js 在每天第一次心跳时调用一次（配合 shouldRunMemoryNudgeToday 节流）。
+export function buildMemoryNudge() {
+  return [
+    `Daily reflection moment (first heartbeat of a new day): review what happened since yesterday and persist anything genuinely reusable — a procedure, a lesson learned, a user preference, or a repeatable workflow.`,
+    `Ways to persist: upsert_memory (mem_id naming per its rules; kind:procedure / kind:failure_lesson / fact_user_*), improve_skill (append a lesson to an existing skill), or learn_skill (distill a whole multi-step workflow into a SKILL.md).`,
+    `This is a low-frequency maintenance moment, not an obligation to do work. Persist only what is genuinely reusable; skip trivia and silence is still a valid outcome.`,
+  ].join('\n')
+}

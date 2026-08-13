@@ -1192,6 +1192,8 @@ ipcMain.on('wake:orb-frame', (_e, payload) => { sendToOrb('orb:frame', payload) 
 
 ipcMain.on('wake:orb-text', (_e, payload) => { sendToOrb('orb:text', payload) })
 
+ipcMain.on('wake:orb-viseme', (_e, code) => { sendToOrb('orb:viseme', code) })
+
 ipcMain.on('wake:orb-exit', () => { sendToOrb('orb:exit') })
 
 // 球窗:退场动画播完 → 真正隐藏(保活,下次唤醒复用)

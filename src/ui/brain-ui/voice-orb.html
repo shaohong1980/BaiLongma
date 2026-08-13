@@ -19,7 +19,8 @@
     will-change: opacity, transform;
   }
   #orb-wrap.visible { opacity: 1; transform: scale(1) translateY(0); }
-  #orb-canvas { width: 264px; height: 264px; display: block; }
+  #orb-canvas, #orb-fallback-canvas { width: 264px; height: 264px; display: block; }
+  #orb-canvas[hidden], #orb-fallback-canvas[hidden] { display: none !important; }
   /* 识别文字:半透明深色胶囊,衬在透明窗上保证可读;最多两行,超出渐隐截断 */
   #orb-text {
     margin-top: 4px;
@@ -49,18 +50,22 @@
 <body>
 <div id="orb-wrap">
   <canvas id="orb-canvas"></canvas>
+  <canvas id="orb-fallback-canvas" hidden></canvas>
   <div id="orb-text"></div>
 </div>
+<script src="/src/ui/brain-ui/vendor/rive/rive.js"></script>
 <script type="module">
-  // 悬浮语音球的「脸」:复用 voice-core 的点阵球渲染(不开麦、不连 ASR)。
+  // 悬浮语音球的「脸」:用 OpenHuman 的 Rive 小助手(mascot)替代原有点阵球(不开麦、不连 ASR)。
   // 真正的开麦/识别/对话/TTS 在主窗口跑;主窗口每帧把 {状态 sk, 真实音量 vol} + 识别文字
-  // 经 IPC 推过来,本窗口注入 voice-core(setStatus + setExternalVol)→ 球的跳动与 brain-ui 一致。
-  import { createVoiceCore } from './voice-core.js';
+  // 经 IPC 推过来,本窗口注入 voice-rive(setStatus + setExternalVol)→ 助手的姿势/口型与 brain-ui 一致。
+  import { createVoiceRive } from './voice-rive.js';
+  import { getLaunchColor } from './launch-color.js';
 
   const wrap = document.getElementById('orb-wrap');
   const canvas = document.getElementById('orb-canvas');
+  const fallbackCanvas = document.getElementById('orb-fallback-canvas'); // Rive 失败时的 2D 占位
   const textEl = document.getElementById('orb-text');
-  const core = createVoiceCore({ canvas }); // 只用渲染部分
+  const core = createVoiceRive({ canvas, fallbackCanvas, ...getLaunchColor() }); // 只用渲染部分
 
   let exiting = false;
   let curText = '';
@@ -111,6 +116,10 @@
     else if (cmd === 'text') {
       if (exiting) return;
       setText((payload && payload.text) || '', !!(payload && payload.thinking));
+    }
+    else if (cmd === 'viseme') {
+      if (exiting) return;
+      core.setViseme(payload || null);
     }
     else if (cmd === 'exit') { exit(); }
   });

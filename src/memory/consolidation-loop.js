@@ -1,5 +1,8 @@
 import { getCandidateEntitiesForConsolidation, getMemoriesByEntity } from '../db.js'
 import { runConsolidator } from './consolidator.js'
+import { maybeSyncVault } from './vault.js'
+import { maybeGenerateBriefing } from '../runtime/briefing.js'
+import { maybeRebuildGlobalSummaryTree } from './global-summary-tree.js'
 
 const RUN_INTERVAL_MS = 30 * 60 * 1000  // 30 分钟
 const BATCH_SIZE = 20                   // 上限让 LLM 一次能看全实体的近期记忆
@@ -12,6 +15,8 @@ async function tick() {
     const candidates = getCandidateEntitiesForConsolidation(10)
     if (candidates.length === 0) {
       console.log('[整合循环] 无候选实体（fact/person 记忆数均 <3）')
+      maybeSyncVault() // 无候选也顺带同步一次 vault（记忆整理 ≠ 实体整合）
+      maybeRebuildGlobalSummaryTree() // 顺带刷新全局记忆鸟瞰树
       return
     }
     const pick = candidates[cursor % candidates.length]
@@ -23,9 +28,13 @@ async function tick() {
     }
     console.log(`[整合循环] 开始整合 entity=${pick.entity} (候选总数=${candidates.length})`)
     await runConsolidator({ entity: pick.entity, memories })
+    maybeSyncVault() // 整合后同步 Obsidian vault（有节流）
+    maybeRebuildGlobalSummaryTree() // 顺带刷新全局记忆鸟瞰树
   } catch (err) {
     console.error('[整合循环] 失败:', err)
   }
+  // 每天早上首次：生成晨间简报（幂等，当天已有则跳过）
+  try { await maybeGenerateBriefing() } catch (err) { console.error('[简报] 触发失败:', err?.message || err) }
 }
 
 let started = false

@@ -1,4 +1,4 @@
-import { savePrefetchCache, clearExpiredPrefetchCache, getEnabledPrefetchTasks } from '../db.js'
+import { savePrefetchCache, clearExpiredPrefetchCache, getEnabledPrefetchTasks, isPrefetchCacheFresh } from '../db.js'
 
 // 解析 wttr.in JSON，提取完整天气信息
 function parseWttrJson(data, cityName) {
@@ -115,16 +115,23 @@ function buildDbTasks() {
 
 // 执行预热
 // taskSources: string[] 指定只跑哪些 source，不传则全跑
-export async function runPrefetch(taskSources = null) {
+// opts.skipFresh: true（默认）时跳过 TTL 内仍新鲜的缓存——周期调度不会反复打外部 API，
+//   只有缓存过期/未拉过才真正请求；显式手动触发可传 { skipFresh: false } 强制重拉。
+export async function runPrefetch(taskSources = null, { skipFresh = true } = {}) {
   clearExpiredPrefetchCache()
 
   const allTasks = [...TASKS, ...customTasks, ...buildDbTasks()]
-  const targets = taskSources
+  const candidates = taskSources
     ? allTasks.filter(t => taskSources.includes(t.source))
     : allTasks
 
+  const targets = skipFresh
+    ? candidates.filter(task => !isPrefetchCacheFresh(task.source))
+    : candidates
+
   if (targets.length === 0) {
-    console.log('[预热] 没有匹配的任务')
+    if (candidates.length > 0) console.log('[预热] 全部命中新鲜缓存，跳过重拉')
+    else console.log('[预热] 没有匹配的任务')
     return []
   }
 

@@ -10,9 +10,11 @@ import { initWorldcup, toggleWorldcup, setWorldcupMode } from "./worldcup.js";
 import { initTyphoon, toggleTyphoon, setTyphoonMode } from "./typhoon.js";
 import { enrichVisiblePersonCardFromText, initPersonCard, setPersonCardMode, showPersonCardByName } from "./person-card.js";
 import { initDocPanel, setDocPanelMode } from "./doc.js";
+import { initMapPanel } from "./map-panel.js";
 import { initWechatPopup, showWechatPopup } from "./wechat-popup.js";
 import { initFeishuPopup, showFeishuPopup } from "./feishu-popup.js";
 import { attachJarvisAudioGraph, attachJarvisFx, isFxEnabledForVoice, setFxEnabledForVoice, getJarvisFxParams, setJarvisFxParams, resetJarvisFxParams, isFxUnlocked, tryUnlockFx } from "./tts-fx.js";
+import { buildVisemeTimeline, getVisemeAt } from "./viseme.js";
 import { initAudioOutputRouting, applyOutputSink, listOutputDevices, getOutputPreference, setOutputPreference } from "./audio-output.js";
 renderBrainUiApp(document.body);
 const THEME_KEY = "jarvis-brain-ui-theme";
@@ -275,58 +277,17 @@ nodeSizeSlider.addEventListener("input", () => {
 let W = window.innerWidth;
 let H = window.innerHeight;
 
-const svg = d3.select("#graph").attr("width", W).attr("height", H);
-const tip = d3.select("#tip");
+const tip = document.getElementById("tip");
 
-const defs = svg.append("defs");
-defs.html(`
-  <filter id="neb-glow" x="-70%" y="-70%" width="240%" height="240%">
-    <feGaussianBlur stdDeviation="3.2" result="blur"/>
-    <feMerge>
-      <feMergeNode in="blur"/>
-      <feMergeNode in="SourceGraphic"/>
-    </feMerge>
-  </filter>
-`);
-
-const world = svg.append("g");
-const gLink = world.append("g").attr("stroke-linecap", "round");
-const gNode = world.append("g");
-
-const zoom = d3.zoom()
-  .scaleExtent([0.1, 5])
-  .filter(event => event.type === "wheel")
-  .on("zoom", event => world.attr("transform", event.transform));
-
-svg.call(zoom);
-svg.on("wheel.zoom", null);
-svg.on("dblclick.zoom", null);
-
-svg.node().addEventListener("wheel", event => {
-  event.preventDefault();
-  const current = d3.zoomTransform(svg.node());
-  const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
-  const nextScale = Math.max(0.1, Math.min(5, current.k * factor));
-  const k = nextScale / current.k;
-  const px = W / 2, py = H / 2;
-  const nextX = px - (px - current.x) * k;
-  const nextY = py - (py - current.y) * k;
-  svg.call(zoom.transform, d3.zoomIdentity.translate(nextX, nextY).scale(nextScale));
-}, { passive: false });
-
-function resetZoom() {
-  svg.transition().duration(420).call(
-    zoom.transform,
-    d3.zoomIdentity
-  );
-}
-
-const glowSet = new Map();
-const usePulseSet = new Map();
-let linkData = [];
 let nodeData = [];
-let linkSel = gLink.selectAll("line");
-let nodeSel = gNode.selectAll("circle");
+let linkData = [];
+let sphere = null;
+let sphereReady = false;
+let _sphereInitPromise = null;
+
+// 兼容 applyTheme() 里的空指针检查：渲染已由 3D 球体接管
+const nodeSel = { empty: () => !sphereReady || !nodeData.length };
+const linkSel = { attr: () => linkSel };
 
 const nodeCountEl = document.getElementById("node-count");
 const linkCountEl = document.getElementById("link-count");
@@ -344,317 +305,50 @@ function setConnectionState(text, live = true) {
   connStateEl.classList.toggle("live", live);
 }
 
-function isGlowing(nid) {
-  const expiry = glowSet.get(nid);
-  if (!expiry) return false;
-  if (Date.now() > expiry) { glowSet.delete(nid); return false; }
-  return true;
-}
+// 图谱节点按 event_type 分类着色（每个类型一个色相）
+const NODE_TYPE_COLORS = {
+  knowledge:            "#4f8cff", // 知识
+  fact:                 "#4ad1c0", // 事实
+  self_constraint:      "#ff9f1c", // 自我约束
+  focus_conclusion:     "#b898f8", // 焦点结论
+  hotspot_event:        "#ff5c8a", // 热点事件
+  system:               "#778397", // 系统
+  task_complete:        "#6fcf97", // 任务完成
+  person:               "#f2c94c", // 人物
+  opinion_expressed:    "#e879f9", // 观点
+  impressive_statement: "#56ccf2", // 亮点话语
+  behavioral_constraint: "#eb5757", // 行为约束
+  task_knowledge:       "#9b51e0", // 任务知识
+  conversation:         "#ffffff", // 对话（通常走 source_ref=session_* 判定，这里兜底）
+};
+const NODE_TYPE_LABELS = {
+  knowledge: "知识", fact: "事实", self_constraint: "自我约束",
+  focus_conclusion: "焦点结论", hotspot_event: "热点事件", system: "系统",
+  task_complete: "任务完成", person: "人物", opinion_expressed: "观点",
+  impressive_statement: "亮点话语", behavioral_constraint: "行为约束",
+  task_knowledge: "任务知识",
+  conversation: "对话",
+};
+const NODE_TYPE_DEFAULT = "#8b95a5";
 
-function highlightNodes(nids, duration = 2400) {
-  if (!MEMORY_GRAPH_ENABLED || !sim) return;
-  if (!nids || !nids.length) return;
-  const now = Date.now();
-  const expiry = now + duration;
-  nids.forEach(nid => {
-    const key = String(nid);
-    glowSet.set(key, expiry);
-    usePulseSet.set(key, { start: now, end: expiry });
-  });
-  refreshNodeVisuals();
-  sim.alpha(Math.max(sim.alpha(), 2)).restart();
-  setTimeout(() => {
-    nids.forEach(nid => {
-      const key = String(nid);
-      glowSet.delete(key);
-      usePulseSet.delete(key);
-    });
-    refreshNodeVisuals();
-  }, duration + 80);
-}
-
-function nodeUseProgress(nid) {
-  const key = String(nid);
-  const pulse = usePulseSet.get(key);
-  if (!pulse) return 0;
-  const now = Date.now();
-  if (now >= pulse.end) {
-    usePulseSet.delete(key);
-    return 0;
-  }
-  const total = Math.max(1, pulse.end - pulse.start);
-  return 1 - ((now - pulse.start) / total);
-}
-
-function nodeStrength(d) {
-  if (typeof d._strength !== "number") {
-    const deg = Math.min(1, (d._deg || 0) / 12);
-    d._strength = 0.35 + deg * 0.55;
-  }
-  return d._strength;
+// 对话记忆：来源是会话（source_ref=session_*），单独一类，白色
+function isConversationMemory(n) {
+  return typeof (n && n.source_ref) === "string" && n.source_ref.startsWith("session_");
 }
 
 function nodeColor(d) {
-  if (d._core) return themeColors.warm || "#d39872";
-  const age = (Date.now() - (d._ts || Date.now())) / 18000;
-  const fade = Math.max(0.25, 1 - age);
-  const t = 0.18 + nodeStrength(d) * 0.5 * fade;
-  const interp = d3.interpolateRgb(themeColors.nodeLow || "#3a556e", themeColors.nodeHigh || "#cfe3f5");
-  let color = interp(Math.min(1, t));
-  const base = d3.color(color);
-  if (base) color = base.darker(0.55) + "";
-  const useBoost = nodeUseProgress(d._nid);
-  if (isGlowing(d._nid) || useBoost > 0) {
-    const c = d3.color(color);
-    if (c) return c.brighter(2 + useBoost * 2) + "";
-  }
-  return color;
+  // 核心节点（自身）用暖色高亮
+  if (d._core) return themeColors.warm || "#ff9f1c";
+  // 对话记忆（与小白龙的会话产生）单独一类，白色
+  if (isConversationMemory(d)) return "#ffffff";
+  // 其余按 event_type 分类着色
+  return NODE_TYPE_COLORS[d.event_type] || NODE_TYPE_DEFAULT;
 }
 
 function nodeRadius(d) {
   const base = d._core ? 9 : 3.4 + Math.min((d._deg || 0) * 0.9, 5.4);
   const childScale = 1 + Math.min(1.5, (d._childCount || 0) * 0.18);
-  const useBoost = nodeUseProgress(d._nid);
-  const glowScale = isGlowing(d._nid) ? 1.08 : 1;
-  const pulseScale = 1 + (Math.sin((1 - useBoost) * Math.PI * 3) * 0.04 + useBoost * 0.12);
-  const scaledBase = base * physicsSettings.nodeSize;
-  return Math.min(scaledBase * 2.5, scaledBase * childScale * glowScale * Math.max(1, pulseScale));
-}
-
-const sim = MEMORY_GRAPH_ENABLED
-  ? d3.forceSimulation()
-    .force("link", d3.forceLink().id(d => d._nid))
-    .force("charge", d3.forceManyBody())
-    .force("center", d3.forceCenter(W / 2, H / 2 - 10))
-    .force("x", d3.forceX(W / 2))
-    .force("y", d3.forceY(H / 2 - 10))
-    .force("radial", d3.forceRadial(180, W / 2, H / 2 - 10))
-    .force("collision", d3.forceCollide())
-    .alphaDecay(0.028)
-    .alphaMin(0.02) // 肉眼已静止后别再空烧 GPU（默认 0.001 要多跑约 2 秒）
-    .velocityDecay(0.3)
-    .on("tick", tick)
-    .on("end", writeGraphDom)
-  : null;
-
-function linkDistance(link) {
-  const countFactor = Math.min(34, Math.sqrt(Math.max(1, nodeData.length)) * 4.2);
-  if (link._kind === "visual_parent") return 82 + countFactor * 0.45;
-  if (link._kind === "visual_random") return 108 + countFactor;
-  return 76 + countFactor * 0.55;
-}
-
-function linkStrength(link) {
-  if (link._kind === "visual_parent") return 0.2;
-  if (link._kind === "visual_random") return 0.035;
-  return 0.16;
-}
-
-function chargeStrength(node) {
-  const countBoost = Math.min(76, Math.sqrt(Math.max(1, nodeData.length)) * 3.5);
-  const baseCharge = -92 - countBoost * 0.4 - (node._deg || 0) * 2.4 - (node._childCount || 0) * 1.2;
-  return baseCharge * physicsSettings.repulsion;
-}
-
-function radialStrength() {
-  const baseSpread = nodeData.length > 36 ? 0.1 : 0.1;
-  return baseSpread * physicsSettings.gravity;
-}
-
-function centerPullStrength() {
-  const basePull = nodeData.length > 36 ? 0.04 : 0.055;
-  return basePull * physicsSettings.gravity;
-}
-
-function collisionRadius(node) {
-  const countPadding = nodeData.length > 36 ? 6 : 4;
-  return nodeRadius(node) + countPadding;
-}
-
-function updateSimulationForces() {
-  if (!MEMORY_GRAPH_ENABLED || !sim) return;
-  sim.force("link")
-    .distance(linkDistance)
-    .strength(linkStrength);
-
-  sim.force("charge")
-    .strength(chargeStrength);
-
-  sim.force("x")
-    .x(W / 2)
-    .strength(centerPullStrength());
-
-  sim.force("y")
-    .y(H / 2 - 10)
-    .strength(centerPullStrength());
-
-  sim.force("radial")
-    .radius(Math.min(Math.max(24, Math.sqrt(Math.max(1, nodeData.length)) * 6), 64))
-    .x(W / 2)
-    .y(H / 2 - 10)
-    .strength(radialStrength());
-
-  sim.force("collision")
-    .radius(collisionRadius)
-    .strength(0.82)
-    .iterations(nodeData.length > 40 ? 2 : 1);
-}
-
-function applyPhysicsSettings(restartAlpha = 2) {
-  updatePhysicsReadout();
-  if (!MEMORY_GRAPH_ENABLED || !sim) {
-    savePhysicsSettings();
-    return;
-  }
-  updateSimulationForces();
-  refreshNodeVisuals();
-  sim.alpha(Math.max(sim.alpha(), restartAlpha)).restart();
-  savePhysicsSettings();
-}
-
-function refreshNodeVisuals() {
-  if (!MEMORY_GRAPH_ENABLED) return;
-  if (!nodeSel || nodeSel.empty()) return;
-  nodeSel
-    .attr("r", nodeRadius)
-    .attr("fill", nodeColor)
-    .attr("filter", d => (d._core || isGlowing(d._nid) || nodeUseProgress(d._nid) > 0) ? "url(#neb-glow)" : null)
-    .style("animation", d => nodeUseProgress(d._nid) > 0 ? "neb-node-use 10s ease-out" : null);
-}
-
-function dampTangentialMotion() {
-  if (!MEMORY_GRAPH_ENABLED || !sim) return;
-  const cx = W / 2;
-  const cy = H / 2 - 10;
-  const twitching = sim.alpha() > 0.45;
-
-  nodeData.forEach(node => {
-    if (!node || node.fx != null || node.fy != null) return;
-
-    const dx = (node.x ?? cx) - cx;
-    const dy = (node.y ?? cy) - cy;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 0.001) return;
-
-    const rx = dx / dist;
-    const ry = dy / dist;
-    const tx = -ry;
-    const ty = rx;
-    const vx = node.vx || 0;
-    const vy = node.vy || 0;
-    const radialVelocity = vx * rx + vy * ry;
-    const tangentialVelocity = vx * tx + vy * ty;
-    const tangentialDamping = twitching ? 0.14 : 0.24;
-
-    node.vx = radialVelocity * rx + tangentialVelocity * tangentialDamping * tx;
-    node.vy = radialVelocity * ry + tangentialVelocity * tangentialDamping * ty;
-  });
-}
-
-function naturalTwitch(big = Math.random() < 0.3) {
-  if (!MEMORY_GRAPH_ENABLED || !sim) return;
-  if (nodeData.length < 2) {
-    sim.alpha(1).restart();
-    return;
-  }
-
-  const nodeById = new Map(nodeData.map(node => [String(node._nid), node]));
-  const anchorMap = new Map();
-  linkData.forEach(link => {
-    if (link._kind !== "visual_parent" && link._kind !== "visual_random") return;
-    const sourceId = typeof link.source === "object" ? String(link.source._nid) : String(link.source);
-    const targetId = typeof link.target === "object" ? String(link.target._nid) : String(link.target);
-    if (!anchorMap.has(sourceId) && nodeById.has(targetId)) {
-      anchorMap.set(sourceId, nodeById.get(targetId));
-    }
-  });
-
-  // 小抽动（常态）只动少数节点低热度；大波（偶发）才整片涌动
-  const ratio = big ? 0.3 : 0.1;
-  const twitchCount = Math.max(big ? 6 : 3, Math.floor(nodeData.length * ratio));
-  const candidates = shuffleArray(nodeData.filter(node => !node._core)).slice(0, twitchCount);
-
-  candidates.forEach(node => {
-    const anchor = anchorMap.get(String(node._nid)) || nodeData[deterministicIndex(node._nid, nodeData.length)];
-    if (!anchor) return;
-
-    const anchorX = anchor.x ?? (W / 2);
-    const anchorY = anchor.y ?? (H / 2 - 10);
-    const angle = Math.random() * Math.PI * 2;
-    const offset = 36 + Math.random() * 52;
-    const nextX = anchorX + Math.cos(angle) * offset;
-    const nextY = anchorY + Math.sin(angle) * offset;
-    const currentX = node.x ?? nextX;
-    const currentY = node.y ?? nextY;
-
-    node.x = currentX * 0.7 + nextX * 0.3;
-    node.y = currentY * 0.7 + nextY * 0.3;
-    node.vx = (node.vx || 0) + (nextX - currentX) * 0.14;
-    node.vy = (node.vy || 0) + (nextY - currentY) * 0.14;
-  });
-
-  sim.alpha(big ? 0.6 : 0.35).restart();
-}
-
-let tickParity = 0;
-function tick() {
-  if (!MEMORY_GRAPH_ENABLED) return;
-  dampTangentialMotion();
-  // 非拖拽时 DOM 写入降到 30fps：力计算照跑，重绘减半；拖拽（alphaTarget>0）保持满帧
-  tickParity ^= 1;
-  if (tickParity && sim.alphaTarget() === 0) return;
-  writeGraphDom();
-}
-
-function writeGraphDom() {
-  if (!MEMORY_GRAPH_ENABLED || !linkSel || !nodeSel) return;
-
-  linkSel
-    .attr("x1", d => d.source.x)
-    .attr("y1", d => d.source.y)
-    .attr("x2", d => d.target.x)
-    .attr("y2", d => d.target.y);
-
-  nodeSel
-    .attr("cx", d => d.x)
-    .attr("cy", d => d.y);
-}
-
-function computeDegrees() {
-  const nodeById = new Map(nodeData.map(n => [n._nid, n]));
-  nodeData.forEach(n => {
-    n._deg = 0;
-    n._childCount = 0;
-  });
-  linkData.forEach(l => {
-    const s = typeof l.source === "object" ? l.source : nodeById.get(String(l.source));
-    const t = typeof l.target === "object" ? l.target : nodeById.get(String(l.target));
-    if (s) s._deg = (s._deg || 0) + 1;
-    if (t) t._deg = (t._deg || 0) + 1;
-  });
-
-  nodeData.forEach(node => {
-    const childTargets = semanticChildTargets(node);
-    if (childTargets.size) {
-      node._childCount = childTargets.size;
-      return;
-    }
-
-    const selfId = String(node._nid || "");
-    node._childCount = nodeData.reduce((count, candidate) => (
-      candidate.parent_id != null && String(candidate.parent_id) === selfId ? count + 1 : count
-    ), 0);
-  });
-}
-
-function showTip(event, d) {
-  const label = d.title || (d.content || "").slice(0, 120) || d._nid;
-  const type = d._core ? "self" : (d.event_type || "memory");
-  tip
-    .style("display", "block")
-    .style("left", `${event.clientX + 14}px`)
-    .style("top", `${event.clientY + 12}px`)
-    .html(`<span class="tip-type">${type}</span><div>${label}</div>`);
+  return base * childScale * physicsSettings.nodeSize;
 }
 
 function parseEntities(raw) {
@@ -682,6 +376,32 @@ function semanticChildTargets(node) {
   return targets;
 }
 
+function computeDegrees() {
+  const nodeById = new Map(nodeData.map(n => [n._nid, n]));
+  nodeData.forEach(n => {
+    n._deg = 0;
+    n._childCount = 0;
+  });
+  linkData.forEach(l => {
+    const s = typeof l.source === "object" ? l.source : nodeById.get(String(l.source));
+    const t = typeof l.target === "object" ? l.target : nodeById.get(String(l.target));
+    if (s) s._deg = (s._deg || 0) + 1;
+    if (t) t._deg = (t._deg || 0) + 1;
+  });
+
+  nodeData.forEach(node => {
+    const childTargets = semanticChildTargets(node);
+    if (childTargets.size) {
+      node._childCount = childTargets.size;
+      return;
+    }
+    const selfId = String(node._nid || "");
+    node._childCount = nodeData.reduce((count, candidate) => (
+      candidate.parent_id != null && String(candidate.parent_id) === selfId ? count + 1 : count
+    ), 0);
+  });
+}
+
 function markCore() {
   nodeData.forEach(n => { n._core = false; });
   const core = nodeData.find(n => parseEntities(n.entities).includes("agent:jarvis"))
@@ -692,17 +412,25 @@ function markCore() {
 function renderLegend() {
   const el = document.getElementById("legend");
   if (!el) return;
-  const total = nodeData.length;
-  const active = nodeData.filter(n => (Date.now() - (n._ts || 0)) < 15000).length;
-  const known = Math.max(0, total - active - 1);
-  const decayed = nodeData.filter(n => (Date.now() - (n._ts || 0)) > 60000).length;
-
-  const items = [
-    { name: "Constraint", count: 1, color: themeColors.warm },
-    { name: "Memory", count: total, color: themeColors.nodeHigh },
-    { name: "Knowledge", count: known, color: themeColors.cool },
-    { name: "Decayed", count: decayed, color: themeColors.dim },
-  ];
+  const counts = new Map();
+  nodeData.forEach(n => {
+    let t;
+    if (n._core) t = "self";
+    else if (isConversationMemory(n)) t = "conversation";
+    else t = n.event_type || "default";
+    counts.set(t, (counts.get(t) || 0) + 1);
+  });
+  const items = Array.from(counts.entries())
+    .map(([type, count]) => ({
+      name: type === "self" ? "自身"
+        : type === "conversation" ? "对话"
+        : (NODE_TYPE_LABELS[type] || type),
+      count,
+      color: type === "self" ? (themeColors.warm || "#ff9f1c")
+        : type === "conversation" ? "#ffffff"
+        : (NODE_TYPE_COLORS[type] || NODE_TYPE_DEFAULT),
+    }))
+    .sort((a, b) => b.count - a.count);
 
   el.innerHTML = items.map(i =>
     `<div class="legend-item">
@@ -711,65 +439,6 @@ function renderLegend() {
       <span class="legend-count">${i.count}</span>
     </div>`
   ).join("");
-}
-
-function renderGraph(restartAlpha = 2) {
-  if (!MEMORY_GRAPH_ENABLED || !sim) {
-    updateStats();
-    renderLegend();
-    return;
-  }
-  computeDegrees();
-  markCore();
-  updateStats();
-  renderLegend();
-
-  linkSel = linkSel.data(linkData, d => d._lid);
-  linkSel.exit().remove();
-  linkSel = linkSel.enter().append("line")
-    .attr("stroke", themeColors.linkStroke || "rgba(143,182,216,0.18)")
-    .attr("stroke-width", 0.6)
-    .merge(linkSel);
-
-  nodeSel = nodeSel.data(nodeData, d => d._nid);
-  nodeSel.exit().transition().duration(280).attr("r", 0).remove();
-
-  const enter = nodeSel.enter().append("circle")
-    .attr("r", 0)
-    .attr("fill", nodeColor)
-    .style("cursor", "pointer")
-    .call(d3.drag()
-      .on("start", (event, d) => {
-        if (!event.active) sim.alphaTarget(2).restart();
-        d.fx = d.x; d.fy = d.y;
-      })
-      .on("drag", (event, d) => {
-        d.fx = event.x; d.fy = event.y;
-      })
-      .on("end", (event, d) => {
-        if (!event.active) sim.alphaTarget(0);
-        d.fx = null; d.fy = null;
-      }))
-    .on("mouseover", showTip)
-    .on("mousemove", event => {
-      tip.style("left", `${event.clientX + 14}px`)
-         .style("top", `${event.clientY + 12}px`);
-    })
-    .on("mouseout", () => tip.style("display", "none"))
-    .on("click", (event, d) => {
-      d._ts = Date.now();
-      d._strength = Math.min(1, (d._strength || 0.5) + 0.25);
-      highlightNodes([d._nid], 900);
-    });
-
-  enter.transition().duration(360).attr("r", nodeRadius);
-  nodeSel = enter.merge(nodeSel);
-
-  sim.nodes(nodeData);
-  sim.force("link").links(linkData);
-  updateSimulationForces();
-  sim.alpha(0.5).restart();
-  refreshNodeVisuals();
 }
 
 function deterministicIndex(seed, mod) {
@@ -903,14 +572,169 @@ function findAnchorNode(memory, nodeMap) {
     || null;
 }
 
+function showTip(d, clientX, clientY) {
+  if (!d) { tip.style.display = "none"; return; }
+  const label = d.title || (d.content || "").slice(0, 120) || d._nid;
+  const type = d._core ? "自身" : (isConversationMemory(d) ? "对话" : (NODE_TYPE_LABELS[d.event_type] || d.event_type || "其他"));
+  tip.style.display = "block";
+  tip.style.left = `${clientX + 14}px`;
+  tip.style.top = `${clientY + 12}px`;
+  tip.innerHTML = `<span class="tip-type">${type}</span><div>${label}</div>`;
+}
+
+// ── 3D 球体渲染与力学 ─────────────────────────────────────
+
+function refreshNodeVisuals() {
+  if (!sphereReady) return;
+  sphere.refreshVisuals();
+}
+
+function highlightNodes(nids, duration = 2400) {
+  if (!sphereReady || !nids || !nids.length) return;
+  sphere.highlight(nids, duration);
+}
+
+function naturalTwitch(big = Math.random() < 0.3) {
+  if (!sphereReady) return;
+  if (nodeData.length < 2) { sphere.nudgeAll(); return; }
+  const ratio = big ? 0.3 : 0.1;
+  const twitchCount = Math.max(big ? 6 : 3, Math.floor(nodeData.length * ratio));
+  const candidates = shuffleArray(nodeData.filter(node => !node._core)).slice(0, twitchCount);
+  sphere.nudge(candidates);
+}
+
+function updateSimulationForces() {
+  if (!sphereReady) return;
+  sphere.setPhysics(physicsSettings);
+}
+
+function applyPhysicsSettings(restartAlpha = 2) {
+  updatePhysicsReadout();
+  savePhysicsSettings();
+  if (!sphereReady) return;
+  updateSimulationForces();
+  refreshNodeVisuals();
+  sphere.alpha = Math.max(sphere.alpha, Math.min(1, restartAlpha));
+}
+
+function resetZoom() {
+  if (sphereReady) sphere.resetView();
+}
+
+async function initKnowledgeSphere() {
+  if (sphereReady || !MEMORY_GRAPH_ENABLED || !graphEl) return;
+  if (_sphereInitPromise) return _sphereInitPromise;
+  // 立即显示画布层（避免初始化期间被 CSS display:none 遮挡）
+  graphEl.style.display = "block";
+  _sphereInitPromise = (async () => {
+    const opts = {
+      getNodeColor: nodeColor,
+      getNodeRadius: nodeRadius,
+      getTheme: () => themeColors,
+      onHover: showTip,
+      onClick: (d) => { if (d) highlightNodes([d._nid], 1400); },
+    };
+    try {
+      // 首选 WebGL 3D 球体；无 GPU / 远程桌面等环境 WebGL 不可用时报错，回退到 2D
+      const { KnowledgeSphere } = await import("./knowledge-sphere.js");
+      sphere = new KnowledgeSphere(graphEl, opts);
+      await sphere.init();
+      sphereReady = true;
+      window.__knowledgeSphere = sphere; // 调试用
+      console.info("[graph] 已启用 3D 球形图谱（WebGL）");
+    } catch (err) {
+      console.warn("[graph] WebGL 3D 球体初始化失败，回退 2D 渲染:", err);
+      try {
+        const { KnowledgeSphere2D } = await import("./knowledge-sphere.js");
+        sphere = new KnowledgeSphere2D(graphEl, opts);
+        await sphere.init();
+        sphereReady = true;
+        window.__knowledgeSphere = sphere; // 调试用
+        console.info("[graph] 已启用 2D 球形图谱（Canvas 回退）");
+      } catch (err2) {
+        console.warn("[graph] 图谱初始化失败（3D 与 2D 均不可用）:", err2);
+        sphere = null;
+        sphereReady = false;
+        // 兜底：直接画一个静态球体 + 错误信息，保证画面中央始终有内容可看
+        drawStaticSphereFallback(graphEl, err2);
+      }
+    } finally {
+      _sphereInitPromise = null;
+    }
+  })();
+  return _sphereInitPromise;
+}
+
+// 纯 2D canvas 兜底球体：即使 WebGL / 3D / 2D 渲染全部不可用，也在画布中央画出
+// 一个带光环的静态球体，并把失败原因显示出来便于排查。不依赖任何模块。
+function drawStaticSphereFallback(canvas, err) {
+  try {
+    const ctx = canvas.getContext("2d");
+    const w = window.innerWidth || canvas.clientWidth;
+    const h = window.innerHeight || canvas.clientHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cx = w / 2, cy = h / 2;
+    const R = Math.min(w, h) * 0.2;
+
+    // 大气辉光
+    const atmo = ctx.createRadialGradient(cx, cy, R * 0.5, cx, cy, R * 1.35);
+    atmo.addColorStop(0, "rgba(79,140,255,0.10)");
+    atmo.addColorStop(1, "rgba(79,140,255,0)");
+    ctx.fillStyle = atmo;
+    ctx.fillRect(cx - R * 1.5, cy - R * 1.5, R * 3, R * 3);
+
+    // 球体本体
+    const ball = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R);
+    ball.addColorStop(0, "rgba(120,190,255,0.38)");
+    ball.addColorStop(0.55, "rgba(50,110,200,0.26)");
+    ball.addColorStop(1, "rgba(12,32,70,0.20)");
+    ctx.fillStyle = ball;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 轨道环
+    ctx.strokeStyle = "rgba(79,140,255,0.42)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, R * 1.35, R * 0.5, -0.4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 错误信息（便于排查）
+    if (err) {
+      ctx.fillStyle = "rgba(170,180,200,0.8)";
+      ctx.font = "12px 'Inter', sans-serif";
+      ctx.textAlign = "center";
+      const msg = "图谱渲染失败：" + String(err && err.message || err).slice(0, 80);
+      ctx.fillText(msg, cx, cy + R + 40);
+    }
+  } catch { /* 兜底也失败则保持空白，不抛错 */ }
+}
+
+function renderGraph(restartAlpha = 2) {
+  if (!MEMORY_GRAPH_ENABLED || !sphereReady) {
+    updateStats();
+    renderLegend();
+    return;
+  }
+  computeDegrees();
+  markCore();
+  updateStats();
+  renderLegend();
+  sphere.setData(nodeData, linkData, restartAlpha);
+}
+
 async function loadMemories() {
   if (!MEMORY_GRAPH_ENABLED) return;
   try {
-    const rows = await fetch(`${API}/memories?limit=120`).then(r => r.json());
+    const rows = await fetch(`${API}/memories?limit=500`).then(r => r.json());
     if (!Array.isArray(rows)) return;
 
     const prevPositions = new Map(nodeData.map(n => [n._nid, {
-      x: n.x, y: n.y, vx: n.vx, vy: n.vy, fx: n.fx, fy: n.fy,
+      x: n.x, y: n.y, z: n.z, vx: n.vx, vy: n.vy, vz: n.vz,
     }]));
 
     nodeData = rows.map(row => {
@@ -920,12 +744,15 @@ async function loadMemories() {
         ...row,
         _nid: nid,
         _ts: prev ? Date.now() : Date.now() - Math.random() * 8000,
-        x: prev ? prev.x : W / 2 + (Math.random() - 0.5) * 180,
-        y: prev ? prev.y : H / 2 + (Math.random() - 0.5) * 180,
+        x: prev ? prev.x : null,
+        y: prev ? prev.y : null,
+        z: prev ? prev.z : null,
         vx: prev ? prev.vx : 0,
         vy: prev ? prev.vy : 0,
+        vz: prev ? prev.vz : 0,
         fx: prev ? prev.fx : null,
         fy: prev ? prev.fy : null,
+        fz: prev ? prev.fz : null,
       };
     });
 
@@ -933,7 +760,10 @@ async function loadMemories() {
     linkData = [];
     addRandomVisualLinks(linkSet);
 
-    renderGraph(1.1);
+    if (!sphereReady) {
+      await initKnowledgeSphere();
+    }
+    if (sphereReady) renderGraph(1.1);
   } catch (error) {
     console.warn("[graph] load failed:", error.message);
     setConnectionState("未连接", false);
@@ -941,15 +771,14 @@ async function loadMemories() {
 }
 
 function addNewNodes(memories) {
-  if (!MEMORY_GRAPH_ENABLED) return;
+  if (!MEMORY_GRAPH_ENABLED || !sphereReady) return;
   const nodeMap = new Map(nodeData.map(n => [n._nid, n]));
   const newNids = [];
   memories.forEach(memory => {
     const nid = memory.mem_id || memory.id;
     if (!nid || nodeMap.has(String(nid))) return;
     const anchor = findAnchorNode(memory, nodeMap);
-    const anchorX = anchor?.x ?? W / 2;
-    const anchorY = anchor?.y ?? (H / 2 - 10);
+    const ax = anchor?.x ?? 0, ay = anchor?.y ?? 0, az = anchor?.z ?? 0;
     const node = {
       ...memory,
       _nid: String(nid),
@@ -957,9 +786,11 @@ function addNewNodes(memories) {
       event_type: memory.event_type || memory.type || "fact",
       _ts: Date.now(),
       _strength: 0.85,
-      x: anchorX + (Math.random() - 0.5) * 72,
-      y: anchorY + (Math.random() - 0.5) * 72,
-      vx: 0, vy: 0,
+      x: ax + (Math.random() - 0.5) * 44,
+      y: ay + (Math.random() - 0.5) * 44,
+      z: az + (Math.random() - 0.5) * 44,
+      vx: 0, vy: 0, vz: 0,
+      fx: null, fy: null, fz: null,
     };
     nodeData.push(node);
     nodeMap.set(node._nid, node);
@@ -984,7 +815,12 @@ if (MEMORY_GRAPH_ENABLED) {
   };
   scheduleTwitch();
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) naturalTwitch(true); // 回到前台来一发大波当欢迎
+    if (document.hidden) {
+      sphere?.pause();
+    } else {
+      sphere?.resume();
+      naturalTwitch(true); // 回到前台来一发大波当欢迎
+    }
   });
   setInterval(() => { nodeData.forEach(n => { if (n._strength) n._strength *= 0.97; }); }, 2500);
 }
@@ -1253,6 +1089,52 @@ function flashFocusCompressed() {
   }
 }
 
+// 晨间简报卡片：把内容渲染进 #brief-card 并展开（供 SSE briefing_show 事件调用）。
+// 模块级函数，handle（connectSSE 内）与设置区按钮共用。
+function showBriefingCard(content, date) {
+  const body = document.getElementById("brief-body");
+  const card = document.getElementById("brief-card");
+  if (!body || !content) return;
+  const esc = String(content).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  body.innerHTML = esc.split("\n").map(line => {
+    if (/^### /.test(line)) return '<div class="brief-h3">' + line.slice(4) + "</div>";
+    if (/^## /.test(line)) return '<div class="brief-h2">' + line.slice(3) + "</div>";
+    if (/^[-*] /.test(line)) return '<div class="brief-li">' + line.slice(2) + "</div>";
+    if (line.trim() === "") return '<div class="brief-sp"></div>';
+    return '<div class="brief-p">' + line + "</div>";
+  }).join("").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  if (card) {
+    card.hidden = false;
+    localStorage.removeItem("bailongma.brief.closed");
+    try { card.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch {}
+  }
+}
+
+// 复杂任务完成后的技能沉淀建议卡：轻提示、可关闭、不打断对话。
+let skillSuggestionTimer = null;
+function showSkillSuggestionCard(task, suggestion) {
+  const esc = String(suggestion || "").replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let el = document.getElementById("skill-suggestion-card");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "skill-suggestion-card";
+    el.className = "skill-suggestion-card";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<div class="skill-suggestion-icon">🧩</div>
+    <div class="skill-suggestion-body">
+      <div class="skill-suggestion-title">任务已完成，要不要沉淀成技能？</div>
+      <div class="skill-suggestion-text">${esc}</div>
+    </div>
+    <button class="skill-suggestion-close" type="button" title="关闭">✕</button>`;
+  el.classList.add("show");
+  el.querySelector(".skill-suggestion-close").addEventListener("click", () => {
+    el.classList.remove("show");
+  });
+  clearTimeout(skillSuggestionTimer);
+  skillSuggestionTimer = setTimeout(() => el.classList.remove("show"), 12000);
+}
+
 function connectSSE() {
   setConnectionState("连接中", true);
   const es = new EventSource(`${API}/events`);
@@ -1357,6 +1239,8 @@ function handle({ type, data = {} }) {
     case "response":
       // Round complete — stop all animations
       currentStream().end();
+      // 语音轮结束：解除自动弹出抑制，后续自主消息恢复正常的自动弹出（连续语音的下一句会重新置上）。
+      chat.clearAutoOpenSuppression();
       // 兜底：本轮结束时（response 必在 message 之后发）若流式合成会话仍开着——极少见，模型只调了工具
       // 没产出可投递正文、message 未到达——标记正文已尽让队列放完即恢复麦克风，避免麦克风一直挂起。
       // 正常情况 message 已 finalize 过，此处幂等无副作用，不会打断仍在播放的尾句。
@@ -1366,6 +1250,7 @@ function handle({ type, data = {} }) {
       break;
     case "processing_preempted":
       currentStream().end();
+      chat.clearAutoOpenSuppression();
       break;
     case "llm_retry": {
       currentStream().startThinkingSession();
@@ -1437,6 +1322,20 @@ function handle({ type, data = {} }) {
         addNewNodes(data.memories);
       }
       break;
+    case "briefing_show":
+      // Agent 在对话框中调 show_briefing 后 → 展开侧栏晨间简报卡片
+      showBriefingCard(data?.content, data?.date);
+      break;
+    case "workbench_updated":
+      // 工作台数据变化（Agent 工具/UI 操作）→ 刷新右侧栏工作台
+      if (typeof window.__refreshWorkbench === "function") {
+        window.__refreshWorkbench().catch(() => {});
+      }
+      break;
+    case "skill_suggestion":
+      // 复杂任务完成后 → 弹一张"要不要沉淀成技能"的轻提示卡
+      showSkillSuggestionCard(data?.task, data?.suggestion);
+      break;
     case "message":
       if (data.from === "consciousness") {
         lastJarvisContent = data.content;
@@ -1494,6 +1393,9 @@ function handle({ type, data = {} }) {
       break;
     case "typhoon_mode":
       setTyphoonMode(!!data.active || data.action === "show" || data.action === "open", { source: "agent_event" });
+      break;
+    case "map_mode":
+      window.dispatchEvent(new CustomEvent("bailongma:map-mode", { detail: data }));
       break;
     case "doc_panel_mode":
       setDocPanelMode(!!data.active || data.action === "open", { topicId: data.topic || null, source: "agent_event" });
@@ -1703,7 +1605,54 @@ function clearTTSAudioGraph(graph) {
     try { ttsAudioGraph.teardown?.(); } catch {}
     ttsAudioGraph = null;
   }
+  stopTTSVisemeLoop();
   window.bailongmaVoice?.setTTSAnalyser?.(null);
+}
+
+// ── TTS 口型 viseme 同步（文本驱动真口型）─────────────────────────────────────────
+// 每次音频播放时，按当前句文本生成 viseme 时间轴，播放中每帧按
+// audio.currentTime/duration 取当前 viseme，推给 window.bailongmaVoice.setViseme
+// → voice-panel 转发 Rive 助手（主窗口 + 悬浮球 IPC）。无文本/停止时置 null 退回音量模拟。
+let ttsVisemeTimeline = [];
+let ttsVisemeRaf = 0;
+let ttsVisemeLastCode = '';
+
+function ttsVisemeText() {
+  return ttsStreamingMode ? (sttsCurSeg || '') : (ttsCurrentText || '');
+}
+
+function setTTSVisemeCode(code) {
+  if (code === ttsVisemeLastCode) return;
+  ttsVisemeLastCode = code;
+  window.bailongmaVoice?.setViseme?.(code);
+}
+
+function startTTSVisemeLoop() {
+  ttsVisemeTimeline = buildVisemeTimeline(ttsVisemeText());
+  // 说话内容 → 语音球太极八卦图（用于定位卦象）
+  window.bailongmaVoice?.setSpeakingText?.(ttsVisemeText());
+  if (ttsVisemeRaf) { cancelAnimationFrame(ttsVisemeRaf); ttsVisemeRaf = 0; }
+  const loop = () => {
+    const audio = ttsAudioEl;
+    if (!audio || audio.paused) { ttsVisemeRaf = 0; return; }
+    if (!(audio.duration > 0) || !ttsVisemeTimeline.length) {
+      // duration 未就绪（流式加载中）→ 保持闭嘴，下一帧再试
+      setTTSVisemeCode('sil');
+      ttsVisemeRaf = requestAnimationFrame(loop);
+      return;
+    }
+    setTTSVisemeCode(getVisemeAt(ttsVisemeTimeline, audio.currentTime / audio.duration));
+    ttsVisemeRaf = requestAnimationFrame(loop);
+  };
+  ttsVisemeRaf = requestAnimationFrame(loop);
+}
+
+function stopTTSVisemeLoop() {
+  if (ttsVisemeRaf) { cancelAnimationFrame(ttsVisemeRaf); ttsVisemeRaf = 0; }
+  ttsVisemeTimeline = [];
+  ttsVisemeLastCode = '';
+  window.bailongmaVoice?.setViseme?.(null); // null → 退回音量模拟
+  window.bailongmaVoice?.setSpeakingText?.(''); // 停止播报 → 清掉内容卦
 }
 
 // 接管一个 <audio> 元素开始播放：叠加音色音效、挂起 ASR、注册结束/出错清理。
@@ -1736,12 +1685,14 @@ function startTTSAudio(audioEl, revokeUrl, opts = {}) {
   // setSinkId 是异步的，但对流式 TTS，首个音频样本要等网络首包到达才流出，
   // 这点路由耗时（毫秒级）远在出声之前完成 → 不必 await，也不会让首音漏到默认设备。
   applyOutputSink(audioEl).catch(() => {});
-  audioEl.play().catch(() => {
-    clearTTSAudioGraph(audioGraph);
-    if (ttsAudioEl !== audioEl) return;
-    if (onComplete) { ttsAudioEl = null; onComplete(); return; }
-    if (manageMic) window.bailongmaVoice?.resumeAfterMedia();
-  });
+  audioEl.play()
+    .then(() => { startTTSVisemeLoop(); })
+    .catch(() => {
+      clearTTSAudioGraph(audioGraph);
+      if (ttsAudioEl !== audioEl) return;
+      if (onComplete) { ttsAudioEl = null; onComplete(); return; }
+      if (manageMic) window.bailongmaVoice?.resumeAfterMedia();
+    });
 }
 
 // 流式播放：把 /tts/stream 的分块响应喂进 MediaSource，首包到达即出声。
@@ -1989,25 +1940,9 @@ physicsControl.addEventListener("wheel", event => event.stopPropagation(), { pas
 window.addEventListener("resize", () => {
   W = window.innerWidth;
   H = window.innerHeight;
-  svg.attr("width", W).attr("height", H);
-  if (!MEMORY_GRAPH_ENABLED || !sim) return;
-  sim.force("center", d3.forceCenter(W / 2, H / 2 - 10))
-     .force("x", d3.forceX(W / 2))
-     .force("y", d3.forceY(H / 2 - 10))
-     .force("radial", d3.forceRadial(180, W / 2, H / 2 - 10));
-  updateSimulationForces();
-  sim.alpha(5).restart();
 });
 
-let _lastVisualRefresh = 0;
-d3.timer(() => {
-  if (!MEMORY_GRAPH_ENABLED) return true;
-  if (glowSet.size === 0 && usePulseSet.size === 0) return;
-  const now = Date.now();
-  if (now - _lastVisualRefresh < 48) return;
-  _lastVisualRefresh = now;
-  refreshNodeVisuals();
-});
+
 
 const PERSON_CARD_NON_PERSON_SUBJECT_RE = /(?:项目|功能|系统|工具|代码|文件|文档|文章|报告|方案|计划|任务|流程|架构|设计|页面|网站|应用|app|接口|api|正则|问题|bug|卡片|面板|按钮|图片|视频|音乐|游戏|天气|热点|热搜)/i;
 const PERSON_CARD_GENERIC_SUBJECT_RE = /^(?:这个人|那个人|这人|那人|这位|那位|某个人|某位|有人|谁|哪位|什么人|人物|人物卡|人物卡片)$/;
@@ -2105,7 +2040,7 @@ chat = initChat({
 });
 chat.applyActivationWarmupLock();
 if (MEMORY_GRAPH_ENABLED) {
-  if (graphEl) graphEl.style.display = "block";
+  initKnowledgeSphere();
   loadMemories();
   setInterval(() => {
     loadMemories();
@@ -2467,10 +2402,18 @@ function initTTSSettings() {
       if (tab === "social") loadSocialSettings();
       if (tab === "security") loadSecuritySettings();
       if (tab === "web-search") loadWebSearchSettings();
+      if (tab === "skills") loadSkillsSettings();
+      if (tab === "mcp") loadMcpSettings();
+      if (tab === "insights") loadInsightsSettings();
       if (tab === "advanced") loadMapSettings();
       if (tab === "update") loadUpdateSettings();
     });
   });
+
+  // 技能 / MCP / 用量 的刷新按钮
+  document.getElementById("skills-refresh-btn")?.addEventListener("click", () => loadSkillsSettings());
+  document.getElementById("mcp-refresh-btn")?.addEventListener("click", () => loadMcpSettings());
+  document.getElementById("insights-refresh-btn")?.addEventListener("click", () => loadInsightsSettings());
 
   function showFeedback(el, msg, isError = false) {
     if (!el) return;
@@ -2739,6 +2682,197 @@ function initTTSSettings() {
         saveWebSearchBtn.disabled = false;
       }
     });
+  }
+
+  // ── 技能 tab ──
+  function skillStateBadge(state) {
+    const label = { active: "活跃", stale: "闲置", archived: "归档" }[state] || state || "活跃";
+    const cls = state === "stale" ? "stale" : (state === "archived" ? "archived" : "active");
+    return `<span class="settings-badge settings-badge-${cls}">${label}</span>`;
+  }
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  }
+  async function loadSkillsSettings() {
+    const listEl = document.getElementById("skills-list");
+    if (!listEl) return;
+    try {
+      const { skills } = await fetch(`${API}/skills`).then(r => r.json());
+      if (!Array.isArray(skills) || !skills.length) {
+        listEl.innerHTML = '<div class="settings-hint">还没有安装技能。可以跟 AI 说「把刚才的流程学成一个技能」。</div>';
+        return;
+      }
+      listEl.innerHTML = skills.map(s => {
+        const state = s.usage?.state || "active";
+        const count = s.usage?.use_count || 0;
+        const srcLabel = s.source === "bundled" ? "内置" : (s.source === "sandbox" ? "沙箱" : "用户");
+        return `<div class="settings-list-item">
+          <div class="settings-list-item-main">
+            <div class="settings-list-item-title">${escHtml(s.name)}
+              ${skillStateBadge(state)}
+              <span class="settings-badge settings-badge-src">${srcLabel}</span>
+            </div>
+            <div class="settings-list-item-desc">${escHtml(s.description)}</div>
+            <div class="settings-list-item-meta">id: ${escHtml(s.id)} · 使用 ${count} 次</div>
+          </div>
+          <div class="settings-list-item-actions">
+            <button class="settings-mini-btn" data-skill-view="${escHtml(s.id)}" type="button">查看</button>
+            <button class="settings-mini-btn danger" data-skill-del="${escHtml(s.id)}" type="button" ${s.source === "bundled" ? "disabled title='内置技能不可删除'" : ""}>删除</button>
+          </div>
+        </div>`;
+      }).join("");
+      listEl.querySelectorAll("[data-skill-view]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.skillView;
+          try {
+            const r = await fetch(`${API}/skills/${encodeURIComponent(id)}`).then(x => x.json());
+            const raw = r?.skill?.raw || "";
+            const lang = /^---\n/.test(raw) ? "markdown" : "text";
+            const blob = new Blob([raw], { type: "text/markdown;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = `${id}-SKILL.md`; a.click();
+            URL.revokeObjectURL(url);
+            showFeedback(document.getElementById("skills-feedback"), "已导出 " + id);
+          } catch { showFeedback(document.getElementById("skills-feedback"), "查看失败", true); }
+        });
+      });
+      listEl.querySelectorAll("[data-skill-del]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.skillDel;
+          if (!window.confirm(`确定删除技能「${id}」？`)) return;
+          try {
+            const r = await fetch(`${API}/skills/${encodeURIComponent(id)}`, { method: "DELETE" }).then(x => x.json());
+            showFeedback(document.getElementById("skills-feedback"), r.ok ? "已删除 " + id : (r.error || "删除失败"), !r.ok);
+            loadSkillsSettings();
+          } catch { showFeedback(document.getElementById("skills-feedback"), "删除失败", true); }
+        });
+      });
+    } catch { listEl.innerHTML = '<div class="settings-hint">技能列表加载失败</div>'; }
+  }
+
+  // ── MCP tab ──
+  // 常用 MCP 服务器模板（官方 @modelcontextprotocol/server-* 系列）。
+  // filesystem 需要路径参数，作为可变占位符。
+  const MCP_PRESETS = [
+    { name: "filesystem", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "<路径，如 D:\\notes>"], desc: "文件系统访问（读/写/管理文件）" },
+    { name: "memory", command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"], desc: "持久化知识图谱记忆" },
+    { name: "fetch", command: "npx", args: ["-y", "@modelcontextprotocol/server-fetch"], desc: "抓取网页内容转 Markdown" },
+    { name: "git", command: "npx", args: ["-y", "@modelcontextprotocol/server-git"], desc: "Git 仓库操作（提交/分支/日志）" },
+    { name: "time", command: "npx", args: ["-y", "@modelcontextprotocol/server-time"], desc: "时间与时区查询" },
+    { name: "sequential-thinking", command: "npx", args: ["-y", "@modelcontextprotocol/server-sequential-thinking"], desc: "结构化分步推理" },
+    { name: "everything", command: "npx", args: ["-y", "@modelcontextprotocol/server-everything"], desc: "测试服务器（全工具示例）" },
+  ];
+
+  function initMcpPresets() {
+    const container = document.getElementById("mcp-presets");
+    if (!container) return;
+    container.innerHTML = MCP_PRESETS.map(p => `
+      <button class="mcp-preset" type="button" data-mcp-preset="${escHtml(p.name)}">
+        <span class="mcp-preset-name">${escHtml(p.name)}</span>
+        <span class="mcp-preset-desc">${escHtml(p.desc)}</span>
+      </button>`).join("");
+    container.querySelectorAll("[data-mcp-preset]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const preset = MCP_PRESETS.find(p => p.name === btn.dataset.mcpPreset);
+        if (!preset) return;
+        const nameEl = document.getElementById("mcp-new-name");
+        const cmdEl = document.getElementById("mcp-new-command");
+        const argsEl = document.getElementById("mcp-new-args");
+        if (nameEl) nameEl.value = preset.name;
+        if (cmdEl) cmdEl.value = preset.command;
+        if (argsEl) argsEl.value = JSON.stringify(preset.args);
+        showFeedback(document.getElementById("mcp-feedback"), "已填入模板，检查参数后点「添加」", false);
+        nameEl?.focus();
+      });
+    });
+  }
+  initMcpPresets();
+
+  async function loadMcpSettings() {
+    const listEl = document.getElementById("mcp-list");
+    if (!listEl) return;
+    try {
+      const { servers } = await fetch(`${API}/mcp/servers`).then(r => r.json());
+      const names = Object.keys(servers || {});
+      if (!names.length) {
+        listEl.innerHTML = '<div class="settings-hint">还没有配置 MCP 服务器。填下面的名称/命令/参数添加一个（如 npx @modelcontextprotocol/server-filesystem）。</div>';
+        return;
+      }
+      listEl.innerHTML = names.map(name => {
+        const s = servers[name];
+        const argText = Array.isArray(s.args) && s.args.length ? s.args.join(" ") : "";
+        return `<div class="settings-list-item">
+          <div class="settings-list-item-main">
+            <div class="settings-list-item-title">${escHtml(name)}
+              <span class="settings-badge ${s.enabled ? "settings-badge-active" : "settings-badge-archived"}">${s.enabled ? "启用" : "禁用"}</span>
+            </div>
+            <div class="settings-list-item-meta">${escHtml(s.command)}${argText ? " " + escHtml(argText) : ""}</div>
+          </div>
+          <div class="settings-list-item-actions">
+            <button class="settings-mini-btn danger" data-mcp-del="${escHtml(name)}" type="button">删除</button>
+          </div>
+        </div>`;
+      }).join("");
+      listEl.querySelectorAll("[data-mcp-del]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const name = btn.dataset.mcpDel;
+          if (!window.confirm(`确定删除 MCP 服务器「${name}」？`)) return;
+          try {
+            const r = await fetch(`${API}/mcp/servers/${encodeURIComponent(name)}`, { method: "DELETE" }).then(x => x.json());
+            showFeedback(document.getElementById("mcp-feedback"), r.ok ? "已删除 " + name : "删除失败", !r.ok);
+            loadMcpSettings();
+          } catch { showFeedback(document.getElementById("mcp-feedback"), "删除失败", true); }
+        });
+      });
+    } catch { listEl.innerHTML = '<div class="settings-hint">MCP 列表加载失败</div>'; }
+  }
+
+  const mcpAddBtn = document.getElementById("mcp-add-btn");
+  if (mcpAddBtn) {
+    mcpAddBtn.addEventListener("click", async () => {
+      const name = (document.getElementById("mcp-new-name")?.value || "").trim();
+      const command = (document.getElementById("mcp-new-command")?.value || "").trim();
+      const argsRaw = (document.getElementById("mcp-new-args")?.value || "").trim();
+      if (!name || !command) { showFeedback(document.getElementById("mcp-feedback"), "名称和命令必填", true); return; }
+      let args = [];
+      if (argsRaw) {
+        try { args = JSON.parse(argsRaw); if (!Array.isArray(args)) throw 0; }
+        catch { showFeedback(document.getElementById("mcp-feedback"), "参数需为 JSON 数组，如 [\"-y\",\"...\"]", true); return; }
+      }
+      try {
+        const r = await fetch(`${API}/mcp/servers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, command, args }),
+        }).then(x => x.json());
+        showFeedback(document.getElementById("mcp-feedback"), r.ok ? "已添加 " + name : (r.error || "添加失败"), !r.ok);
+        if (r.ok) {
+          document.getElementById("mcp-new-name").value = "";
+          document.getElementById("mcp-new-command").value = "";
+          document.getElementById("mcp-new-args").value = "";
+          loadMcpSettings();
+        }
+      } catch { showFeedback(document.getElementById("mcp-feedback"), "添加失败", true); }
+    });
+  }
+
+  // ── 用量 tab ──
+  async function loadInsightsSettings() {
+    const reportEl = document.getElementById("insights-report");
+    if (!reportEl) return;
+    try {
+      const r = await fetch(`${API}/insights?days=7`).then(x => x.json());
+      const text = r?.report || "暂无用量记录";
+      const esc = escHtml(text);
+      // report 是 markdown 风格文本：`### ` → 小标题，`- ` → 列表行
+      const html = esc.split("\n").map(line => {
+        if (/^### /.test(line)) return `<div class="settings-list-item-title" style="margin-top:6px;">${line.slice(4)}</div>`;
+        if (/^[-*] /.test(line)) return `<div style="padding:2px 0 2px 10px;border-left:2px solid var(--line-strong);margin:2px 0;">${line.slice(2)}</div>`;
+        return `<div>${line}</div>`;
+      }).join("");
+      reportEl.innerHTML = `<div class="settings-report-text">${html}</div>`;
+    } catch { reportEl.innerHTML = '<div class="settings-hint">用量数据加载失败</div>'; }
   }
 
   async function loadSecuritySettings() {
@@ -3144,6 +3278,20 @@ function initTTSSettings() {
     });
   }
 
+  const testMapBtn = document.getElementById("settings-test-map");
+  if (testMapBtn) {
+    testMapBtn.addEventListener("click", async () => {
+      const data = await fetch(`${API}/map-service/config`).then(r => r.json()).catch(() => ({}));
+      if (!data?.map?.configured) {
+        showFeedback(mapFeedback, "请先保存高德 Key 与安全密钥", true);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("bailongma:map-mode", {
+        detail: { action: "show", location: "", title: "地图 · 测试", markers: [] },
+      }));
+    });
+  }
+
   if (clearMapBtn) {
     clearMapBtn.addEventListener("click", async () => {
       clearMapBtn.disabled = true;
@@ -3337,6 +3485,106 @@ function initTTSSettings() {
     });
   }
 
+  // ── Obsidian 记忆库：导出 / 打开 / 状态 ──
+  const vaultStatusEl = document.getElementById("vault-status");
+  const vaultFeedback = document.getElementById("vault-feedback");
+  async function refreshVaultStatus() {
+    try {
+      const s = await fetch(`${API}/memories/vault`).then(r => r.json());
+      if (vaultStatusEl && s?.ok) {
+        vaultStatusEl.textContent = s.exists
+          ? `路径：${s.path} · ${s.files} 个文件`
+          : "尚未导出（点击「导出记忆库」）";
+      }
+    } catch {}
+  }
+  document.getElementById("vault-export-btn")?.addEventListener("click", async () => {
+    if (!vaultFeedback) return;
+    vaultFeedback.textContent = "导出中…";
+    try {
+      const r = await fetch(`${API}/memories/vault/export`, { method: "POST" }).then(x => x.json());
+      vaultFeedback.textContent = r?.ok ? `已导出 ${r.files} 个文件 · ${r.total} 条记忆` : "导出失败";
+    } catch { vaultFeedback.textContent = "导出失败"; }
+    vaultFeedback.className = "settings-feedback";
+    setTimeout(() => { if (vaultFeedback) vaultFeedback.textContent = ""; }, 4000);
+    refreshVaultStatus();
+  });
+  document.getElementById("vault-open-btn")?.addEventListener("click", async () => {
+    if (!vaultFeedback) return;
+    try {
+      const r = await fetch(`${API}/memories/vault/open`, { method: "POST" }).then(x => x.json());
+      vaultFeedback.textContent = r?.ok ? "已打开文件夹" : "打开失败";
+    } catch { vaultFeedback.textContent = "打开失败"; }
+    vaultFeedback.className = "settings-feedback";
+    setTimeout(() => { if (vaultFeedback) vaultFeedback.textContent = ""; }, 4000);
+  });
+  refreshVaultStatus();
+
+  // ── 晨间简报 + 活跃目标 ──
+  const briefCard = document.getElementById("brief-card");
+  const briefBody = document.getElementById("brief-body");
+  const briefGoals = document.getElementById("brief-goals");
+  const BRIEF_CLOSED_KEY = "bailongma.brief.closed";
+  const BRIEF_ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+  function renderMarkdown(md) {
+    const esc = String(md || '').replace(/[&<>"]/g, c => BRIEF_ESCAPE[c]);
+    return esc.split("\n").map(line => {
+      if (/^### /.test(line)) return '<div class="brief-h3">' + line.slice(4) + "</div>";
+      if (/^## /.test(line)) return '<div class="brief-h2">' + line.slice(3) + "</div>";
+      if (/^[-*] /.test(line)) return '<div class="brief-li">' + line.slice(2) + "</div>";
+      if (line.trim() === "") return '<div class="brief-sp"></div>';
+      return '<div class="brief-p">' + line + "</div>";
+    }).join("").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+  }
+  function renderBriefing(content) {
+    if (briefBody && content) briefBody.innerHTML = renderMarkdown(content);
+  }
+  async function loadBriefing() {
+    try {
+      const r = await fetch(`${API}/briefing`).then(x => x.json());
+      const b = r?.briefing;
+      if (b?.content) {
+        renderBriefing(b.content);
+        if (briefCard && localStorage.getItem(BRIEF_CLOSED_KEY) !== "1") briefCard.hidden = false;
+      }
+    } catch {}
+    try {
+      const g = await fetch(`${API}/goals?status=active`).then(x => x.json());
+      const goals = g?.goals || [];
+      if (briefGoals) {
+        briefGoals.textContent = "";
+        if (goals.length) {
+          const head = document.createElement("div");
+          head.className = "brief-goals-head";
+          head.textContent = "🎯 活跃目标";
+          briefGoals.appendChild(head);
+          for (const goal of goals) {
+            const row = document.createElement("div");
+            row.className = "brief-goal-row";
+            row.textContent = `${goal.title} · ${goal.progress || 0}%`;
+            briefGoals.appendChild(row);
+          }
+        }
+      }
+    } catch {}
+  }
+  document.getElementById("brief-gen")?.addEventListener("click", async () => {
+    if (!briefBody) return;
+    briefBody.textContent = "生成中…";
+    try {
+      const r = await fetch(`${API}/briefing/generate`, { method: "POST" }).then(x => x.json());
+      if (r?.ok && r?.content) renderBriefing(r.content);
+      else if (r?.cached && r?.content) renderBriefing(r.content);
+      else briefBody.textContent = "生成失败";
+    } catch { briefBody.textContent = "生成失败"; }
+    if (briefCard) briefCard.hidden = false;
+    loadBriefing();
+  });
+  document.getElementById("brief-close")?.addEventListener("click", () => {
+    if (briefCard) { briefCard.hidden = true; localStorage.setItem(BRIEF_CLOSED_KEY, "1"); }
+  });
+  loadBriefing();
+
   function openSettings(tab = null) {
     overlay.hidden = false;
     loadSettings();
@@ -3350,6 +3598,9 @@ function initTTSSettings() {
       });
       if (tab === "social") loadSocialSettings();
       if (tab === "web-search") loadWebSearchSettings();
+      if (tab === "skills") loadSkillsSettings();
+      if (tab === "mcp") loadMcpSettings();
+      if (tab === "insights") loadInsightsSettings();
       if (tab === "update") loadUpdateSettings();
     }
   }
@@ -3747,6 +3998,346 @@ function initTTSSettings() {
   });
 })();
 
+// ── Workbench（工作台）──
+// 右侧栏下半部分：待办事项 / 完成事项 / 每周复盘。数据由本地 API 提供，
+// Agent 通过 manage_todo / weekly_review 工具以对话方式操作，SSE workbench_updated 事件驱动刷新。
+(function initWorkbench() {
+  const workbench = document.getElementById("workbench");
+  if (!workbench) return;
+
+  const pendingCountEl = document.getElementById("wb-pending-count");
+  const doneCountEl = document.getElementById("wb-done-count");
+  const toggleBtn = document.getElementById("workbench-toggle");
+  const tabs = document.querySelectorAll(".wb-tab");
+  const todoInput = document.getElementById("wb-todo-input");
+  const todoAddBtn = document.getElementById("wb-todo-add");
+  const todoList = document.getElementById("wb-todo-list");
+  const doneList = document.getElementById("wb-done-list");
+  const reviewWeekEl = document.getElementById("wb-review-week");
+  const reviewMoodEl = document.getElementById("wb-review-mood");
+  const reviewContentEl = document.getElementById("wb-review-content");
+  const reviewHistoryEl = document.getElementById("wb-review-history");
+  const reviewEditBtn = document.getElementById("wb-review-edit");
+
+  let state = { pending: [], done: [], reviews: [], currentWeekKey: "" };
+  let activeTab = "todo";
+  let reviewEditor = null;
+
+  function escapeHtml(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function parseTags(tags) {
+    try { const arr = JSON.parse(tags || "[]"); return Array.isArray(arr) ? arr.map(String) : []; }
+    catch { return []; }
+  }
+
+  function shortDate(iso) {
+    if (!iso) return "";
+    const s = String(iso);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}.${m[2]}.${m[3]}`;
+    return s.slice(0, 10);
+  }
+
+  function renderTodoItem(todo) {
+    const el = document.createElement("div");
+    el.className = `wb-item${todo.status === "done" ? " done" : ""}`;
+    el.dataset.id = todo.id;
+
+    const check = document.createElement("button");
+    check.className = "wb-item-check";
+    check.type = "button";
+    check.textContent = "✓";
+    check.title = todo.status === "done" ? "标记为待办" : "标记完成";
+    check.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const target = todo.status === "done" ? "pending" : "done";
+      await apiPatch(`/workbench/todos/${todo.id}`, { status: target });
+      await refresh();
+    });
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "wb-item-body";
+    const title = document.createElement("div");
+    title.className = "wb-item-title";
+    title.textContent = todo.title;
+
+    bodyEl.appendChild(title);
+
+    const metaParts = [];
+    if (todo.detail) {
+      const detail = document.createElement("div");
+      detail.className = "wb-item-detail";
+      detail.textContent = todo.detail;
+      bodyEl.appendChild(detail);
+    }
+    if (todo.priority > 1) {
+      const pri = document.createElement("span");
+      pri.className = "wb-pri";
+      pri.textContent = "★".repeat(Math.min(5, Math.max(0, Number(todo.priority) || 0)));
+      metaParts.push(pri);
+    }
+    for (const tag of parseTags(todo.tags)) {
+      const tg = document.createElement("span");
+      tg.className = "wb-tag";
+      tg.textContent = tag;
+      metaParts.push(tg);
+    }
+    if (todo.completed_at || todo.created_at) {
+      const dt = document.createElement("span");
+      dt.className = "wb-item-date";
+      dt.textContent = shortDate(todo.completed_at || todo.created_at);
+      metaParts.push(dt);
+    }
+    if (metaParts.length) {
+      const meta = document.createElement("div");
+      meta.className = "wb-item-meta";
+      metaParts.forEach(p => meta.appendChild(p));
+      bodyEl.appendChild(meta);
+    }
+
+    const del = document.createElement("button");
+    del.className = "wb-item-del";
+    del.type = "button";
+    del.textContent = "✕";
+    del.title = "删除";
+    del.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await apiDelete(`/workbench/todos/${todo.id}`);
+      await refresh();
+    });
+
+    el.appendChild(check);
+    el.appendChild(bodyEl);
+    el.appendChild(del);
+    return el;
+  }
+
+  function renderTodoList() {
+    todoList.innerHTML = "";
+    if (!state.pending.length) {
+      const empty = document.createElement("div");
+      empty.className = "wb-list-empty";
+      empty.textContent = "暂无待办事项 — 可以点上方输入框添加，或直接对话告诉我。";
+      todoList.appendChild(empty);
+      return;
+    }
+    for (const todo of state.pending) todoList.appendChild(renderTodoItem(todo));
+  }
+
+  function renderDoneList() {
+    doneList.innerHTML = "";
+    if (!state.done.length) {
+      const empty = document.createElement("div");
+      empty.className = "wb-list-empty";
+      empty.textContent = "暂无完成事项。";
+      doneList.appendChild(empty);
+      return;
+    }
+    for (const todo of state.done.slice(0, 30)) doneList.appendChild(renderTodoItem(todo));
+  }
+
+  function renderReview() {
+    const weekKey = state.currentWeekKey;
+    reviewWeekEl.textContent = weekKey ? `本周 ${weekKey}` : "每周复盘";
+    const review = state.reviews.find(r => r.week_key === weekKey);
+    reviewMoodEl.textContent = review?.mood || "";
+    reviewMoodEl.style.display = review?.mood ? "" : "none";
+    if (review?.content) {
+      reviewContentEl.textContent = review.content;
+      reviewContentEl.style.display = "";
+    } else {
+      reviewContentEl.style.display = "none";
+    }
+
+    const others = state.reviews.filter(r => r.week_key !== weekKey);
+    reviewHistoryEl.innerHTML = "";
+    if (others.length) {
+      const title = document.createElement("div");
+      title.className = "wb-review-history-title";
+      title.textContent = "历史复盘";
+      reviewHistoryEl.appendChild(title);
+      for (const r of others.slice(0, 5)) {
+        const item = document.createElement("div");
+        item.className = "wb-review-hist-item";
+        const head = document.createElement("b");
+        head.textContent = r.week_key;
+        item.appendChild(head);
+        if (r.mood) {
+          const mood = document.createElement("span");
+          mood.className = "wb-review-hist-mood";
+          mood.textContent = " · " + r.mood;
+          item.appendChild(mood);
+        }
+        const text = document.createElement("span");
+        text.className = "wb-review-hist-text";
+        text.textContent = String(r.content || "").slice(0, 120);
+        item.appendChild(text);
+        reviewHistoryEl.appendChild(item);
+      }
+    }
+  }
+
+  function render() {
+    pendingCountEl.textContent = String(state.pending.length);
+    doneCountEl.textContent = String(state.done.length);
+    renderTodoList();
+    renderDoneList();
+    renderReview();
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch(`${API}/workbench`);
+      if (!res.ok) return;
+      const data = await res.json();
+      state = {
+        pending: data.pending || [],
+        done: data.done || [],
+        reviews: data.reviews || [],
+        currentWeekKey: data.currentWeekKey || "",
+      };
+      render();
+    } catch {}
+  }
+
+  // 供 SSE workbench_updated 事件触发的全局刷新入口
+  window.__refreshWorkbench = refresh;
+
+  function apiPatch(url, body) {
+    return fetch(`${API}${url}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+  }
+  function apiDelete(url) {
+    return fetch(`${API}${url}`, { method: "DELETE" });
+  }
+
+  // ── 交互 ──
+  function toggleCollapsed() {
+    workbench.classList.toggle("collapsed");
+    toggleBtn.setAttribute("aria-expanded", String(!workbench.classList.contains("collapsed")));
+  }
+  toggleBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleCollapsed();
+  });
+  workbench.querySelector(".workbench-head").addEventListener("click", toggleCollapsed);
+
+  for (const tab of tabs) {
+    tab.addEventListener("click", () => {
+      activeTab = tab.dataset.tab;
+      tabs.forEach(t => t.classList.toggle("active", t === tab));
+      document.querySelectorAll(".wb-pane").forEach(pane => {
+        pane.classList.toggle("active", pane.dataset.pane === activeTab);
+      });
+    });
+  }
+
+  async function addTodo() {
+    const title = todoInput.value.trim();
+    if (!title) return;
+    todoInput.value = "";
+    await fetch(`${API}/workbench/todos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    await refresh();
+  }
+  todoAddBtn.addEventListener("click", addTodo);
+  todoInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addTodo(); }
+  });
+
+  // 每周复盘编辑弹层
+  function openReviewEditor() {
+    closeReviewEditor();
+    const weekKey = state.currentWeekKey || "";
+    const existing = state.reviews.find(r => r.week_key === weekKey);
+
+    const overlay = document.createElement("div");
+    overlay.className = "wb-review-editor-overlay";
+    const editor = document.createElement("div");
+    editor.className = "wb-review-editor";
+
+    const head = document.createElement("div");
+    head.className = "wb-review-editor-head";
+    const week = document.createElement("span");
+    week.className = "wb-review-week";
+    week.textContent = weekKey ? `每周复盘 · ${weekKey}` : "每周复盘";
+    const close = document.createElement("button");
+    close.className = "wb-review-editor-close";
+    close.type = "button";
+    close.textContent = "×";
+    close.title = "关闭";
+    head.appendChild(week);
+    head.appendChild(close);
+
+    const moodInput = document.createElement("input");
+    moodInput.type = "text";
+    moodInput.placeholder = "本周心情 / 一句话总结（可选）";
+    moodInput.value = existing?.mood || "";
+
+    const contentTextarea = document.createElement("textarea");
+    contentTextarea.placeholder = "这周完成了什么？有什么收获和不足？下周计划做什么？…";
+    contentTextarea.value = existing?.content || "";
+
+    const actions = document.createElement("div");
+    actions.className = "wb-review-editor-actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "取消";
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "wb-save";
+    save.textContent = "保存";
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+
+    editor.appendChild(head);
+    editor.appendChild(moodInput);
+    editor.appendChild(contentTextarea);
+    editor.appendChild(actions);
+    overlay.appendChild(editor);
+    document.body.appendChild(overlay);
+    reviewEditor = overlay;
+
+    close.addEventListener("click", closeReviewEditor);
+    cancel.addEventListener("click", closeReviewEditor);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeReviewEditor(); });
+    save.addEventListener("click", async () => {
+      await fetch(`${API}/workbench/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ week_key: weekKey, content: contentTextarea.value, mood: moodInput.value }),
+      });
+      closeReviewEditor();
+      await refresh();
+    });
+    setTimeout(() => contentTextarea.focus(), 0);
+  }
+
+  function closeReviewEditor() {
+    if (reviewEditor) {
+      reviewEditor.remove();
+      reviewEditor = null;
+    }
+  }
+
+  reviewEditBtn.addEventListener("click", openReviewEditor);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && reviewEditor) closeReviewEditor();
+  });
+
+  refresh();
+})();
+
 // ── Voice panel ──
 initVoicePanel({
   btnId:      "voice-btn",
@@ -3773,6 +4364,9 @@ initHotspot().catch((err) => console.warn('[Hotspot] init failed:', err));
 // ── Worldcup mode ──
 initWorldcup().catch((err) => console.warn('[Worldcup] init failed:', err));
 initTyphoon();
+
+// ── Map panel（高德地图，对话里 map_mode 打开）──
+initMapPanel();
 
 // ── Media modes (video / image) ──
 (function initMediaModes() {

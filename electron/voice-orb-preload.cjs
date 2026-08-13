@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('voiceOrb', {
     ipcRenderer.on('orb:frame', (_e, payload) => handler('frame', payload))
     // 识别文字 / "思考中"
     ipcRenderer.on('orb:text', (_e, payload) => handler('text', payload))
+    // 真口型 viseme（TTS 文本驱动）
+    ipcRenderer.on('orb:viseme', (_e, code) => handler('viseme', code))
     ipcRenderer.on('orb:exit', () => handler('exit'))
   },
   // 退场过渡结束 → 通知主进程真正隐藏窗口(动画播完才隐藏,见决策 C)

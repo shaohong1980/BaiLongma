@@ -1,8 +1,9 @@
 import OpenAI from 'openai'
-import { config, MIMO_PROVIDER, ZHIPU_PROVIDER, getProviderModelFallbacks, shouldOmitSamplingForProviderModel, shouldSendThinkingDisabledForProviderModel, shouldUseMaxCompletionTokensForProviderModel, switchModel } from './config.js'
+import { config, MIMO_PROVIDER, ZHIPU_PROVIDER, getProviderModelFallbacks, getToolCompressionConfig, shouldOmitSamplingForProviderModel, shouldSendThinkingDisabledForProviderModel, shouldUseMaxCompletionTokensForProviderModel, switchModel } from './config.js'
 import { executeTool } from './capabilities/executor.js'
 import { getToolSchemas } from './capabilities/schemas.js'
 import { recordUsage, shouldThrottle } from './quota.js'
+import { recordUsageEvent } from './runtime/insights.js'
 import { insertActionLog } from './db.js'
 import { isTerminalInternalToolRound } from './runtime/tool-protocol.js'
 import { sanitizeAssistantReplyForDelivery, createAssistantReplyStreamSanitizer } from './runtime/markers.js'
@@ -11,6 +12,8 @@ import { createMergedAbortSignal } from './capabilities/abort-utils.js'
 import { filterStrictEvaluationTools, isToolForbiddenInStrictEvaluation, makeStrictForbiddenToolResult } from './runtime/strict-evaluation.js'
 import { streamWriteFileArgumentPreview, streamXmlFileWriteArgumentPreview } from './write-file-preview.js'
 import { actionContractToolSucceeded, containsUnsupportedCompletionClaim } from './runtime/action-contract.js'
+import { compressToolResultForModel, cleanupOldToolOutputs } from './runtime/tool-result-compressor.js'
+import { paths } from './paths.js'
 
 // 单轮流式调用的「空闲超时」：从开始到第一个 token、以及每两个 token 之间，
 // 若超过这个时长没有任何增量到达，判定为 provider 连接卡死（连接开着却不吐字节）。
@@ -171,6 +174,8 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
   let thinkDone = false
   let streamStarted = false
   let usageTokens = 0
+  let usageInputTokens = 0
+  let usageOutputTokens = 0
   let cacheHitTokens = 0
   let cacheMissTokens = 0
   const textStreamSanitizer = createAssistantReplyStreamSanitizer()
@@ -195,6 +200,8 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
     if (signal?.aborted) break
     if (chunk.usage?.total_tokens) {
       usageTokens = chunk.usage.total_tokens
+      usageInputTokens = chunk.usage.prompt_tokens || chunk.usage.input_tokens || 0
+      usageOutputTokens = chunk.usage.completion_tokens || chunk.usage.output_tokens || 0
       cacheHitTokens = chunk.usage.prompt_cache_hit_tokens || 0
       cacheMissTokens = chunk.usage.prompt_cache_miss_tokens || 0
     }
@@ -326,6 +333,16 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
   if (streamStarted) onStream?.({ event: 'end' })
   if (usageTokens > 0) {
     recordUsage(usageTokens)
+    // 用量洞察：持久化本轮 token 消耗（供每日/每周报告）。best-effort。
+    try {
+      recordUsageEvent({
+        provider: config.provider,
+        model: config.model || args.model,
+        inputTokens: usageInputTokens || usageTokens,
+        outputTokens: usageOutputTokens,
+        source: 'llm',
+      })
+    } catch { /* 用量记录失败不影响调用链 */ }
     const promptTotal = cacheHitTokens + cacheMissTokens
     const cacheStr = promptTotal > 0
       ? ` (prompt cache: ${cacheHitTokens}/${promptTotal} = ${(cacheHitTokens/promptTotal*100).toFixed(1)}%)`
@@ -536,6 +553,20 @@ function summarizeToolCall(name, args = {}) {
       const when = kind === 'once' ? (args.due_at || '?') : `${kind} ${args.time || '?'}`
       return `manage_reminder(create ${when}: ${String(args.task || '?').slice(0, 30)})`
     }
+    case 'manage_todo': {
+      const action = args.action || 'list'
+      if (action === 'list') return 'manage_todo(list)'
+      if (action === 'complete') return `manage_todo(complete #${args.id || '?'})`
+      if (action === 'delete') return `manage_todo(delete #${args.id || '?'})`
+      if (action === 'update') return `manage_todo(update #${args.id || '?'})`
+      return `manage_todo(add: ${String(args.title || '?').slice(0, 30)})`
+    }
+    case 'weekly_review': {
+      const action = args.action || 'show'
+      if (action === 'write') return `weekly_review(write ${args.week_key || '本周'})`
+      if (action === 'list') return 'weekly_review(list)'
+      return `weekly_review(show ${args.week_key || '本周'})`
+    }
     case 'write_file':
       return `write_file(${args.path || args.filename || args.file_path || '?'})`
     case 'delete_file':
@@ -701,6 +732,8 @@ function isParallelSafeTool(name, args = {}) {
   if (PARALLEL_SAFE_TOOLS.has(name)) return true
   if (name === 'manage_reminder') return args.action === 'list'
   if (name === 'manage_prefetch_task') return args.action === 'list'
+  if (name === 'manage_todo') return args.action === 'list'
+  if (name === 'weekly_review') return args.action === 'show' || args.action === 'list'
   return false
 }
 
@@ -1445,7 +1478,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       const firstPrepared = prepareToolCall(effectiveToolCalls[callIndex])
       if (firstPrepared.tc.name === 'send_message' && deferredOutboundTargets.has(firstPrepared.normalizedArgs.target_id)) {
         const result = makeDeferredOutboundResult(firstPrepared.normalizedArgs, outboundMessages.at(-1))
-        toolResults.push({ id: firstPrepared.tc.id, name: firstPrepared.tc.name, result })
+        toolResults.push({ id: firstPrepared.tc.id, name: firstPrepared.tc.name, args: firstPrepared.normalizedArgs, result })
         if (onToolCall) onToolCall(firstPrepared.tc.name, firstPrepared.normalizedArgs, result)
         callIndex += 1
         continue
@@ -1466,7 +1499,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         if (preparedBatch.length > 1) {
           console.log(`[工具并行] ${preparedBatch.map(item => item.tc.name).join(', ')}`)
           const batchResults = await Promise.all(preparedBatch.map(item => runPreparedToolCall(item)))
-          toolResults.push(...batchResults.map(({ id, name, result }) => ({ id, name, result })))
+          toolResults.push(...batchResults.map(({ id, name, args, result }) => ({ id, name, args, result })))
           const lastBatchResult = batchResults[batchResults.length - 1]
           if (lastBatchResult) {
             lastToolResult = {
@@ -1479,14 +1512,14 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           callIndex += preparedBatch.length
         } else {
           const result = await runPreparedToolCall(firstPrepared)
-          toolResults.push({ id: result.id, name: result.name, result: result.result })
+          toolResults.push({ id: result.id, name: result.name, args: result.args, result: result.result })
           if (result.outboundSent) deferredOutboundTargets.add(result.args.target_id)
           toolLoopStopReason = result.stopReason
           callIndex += 1
         }
       } else {
         const result = await runPreparedToolCall(firstPrepared)
-        toolResults.push({ id: result.id, name: result.name, result: result.result })
+        toolResults.push({ id: result.id, name: result.name, args: result.args, result: result.result })
         if (result.outboundSent) deferredOutboundTargets.add(result.args.target_id)
         toolLoopStopReason = result.stopReason
         callIndex += 1
@@ -1497,6 +1530,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           toolResults.push({
             id: skipped.id,
             name: skipped.name,
+            args: {},
             result: makeToolLoopStoppedResult(skipped.name, `skipped because previous tool call stopped the loop: ${toolLoopStopReason}`),
           })
         }
@@ -1517,12 +1551,23 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
     // 若是 XML 解析的工具调用，assistant 消息用文本形式（避免 MiniMax 不支持 tool_calls 格式回放）
     const terminalInternalRound = isTerminalInternalToolRound(effectiveToolCalls, { mustReply })
     const isXmlRound = toolCalls.length === 0 && effectiveToolCalls.length > 0
+    // 工具结果压缩配置：每轮取一次（config 读取带缓存，且不影响性能）。
+    // 大工具结果（read_file / exec / web_search…）压成一行摘要 + 全文路径，模型需要细节时 read_file 按需取回。
+    const compressionCfg = getToolCompressionConfig()
+    const compressForModel = (tr) => compressToolResultForModel(tr.name, tr.args || {}, tr.result, {
+      enabled: compressionCfg.enabled,
+      threshold: compressionCfg.threshold,
+      maxSaved: compressionCfg.maxSaved,
+      dataDir: paths?.dataDir ?? null,
+    })
     if (isXmlRound) {
       // XML 工具调用：assistant 消息为纯文本，工具结果作为 user 消息注入
       if (content) messages.push({ role: 'assistant', content })
-      const resultSummary = toolResults.map(tr =>
-        `[Tool result] ${tr.name}: ${tr.result.slice(0, 300)}`
-      ).join('\n')
+      const resultSummary = toolResults.map(tr => {
+        const c = compressForModel(tr)
+        const body = c.summarized ? c.content : tr.result.slice(0, 300)
+        return `[Tool result] ${tr.name}: ${body}`
+      }).join('\n')
       // 同主路径：以 sentMessage（本轮最后一个动作是否是 send_message）为收尾依据，
       // 而不是只看本轮有没有出现过 send_message。
       if (!terminalInternalRound) {
@@ -1548,12 +1593,14 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       if (reasoningContent) assistantMsg.reasoning_content = reasoningContent
       messages.push(assistantMsg)
 
-      // 将工具结果加入对话
+      // 将工具结果加入对话（大工具结果经 TokenJuice 压缩成摘要 + 全文路径；细节可按需 read_file 取回）
+      cleanupOldToolOutputs({ dataDir: paths?.dataDir ?? null })
       for (const tr of toolResults) {
+        const compressed = compressForModel(tr)
         messages.push({
           role: 'tool',
           tool_call_id: tr.id,
-          content: String(tr.result)
+          content: compressed.content
         })
       }
       if (terminalInternalRound) break

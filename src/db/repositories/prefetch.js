@@ -26,6 +26,20 @@ export function getValidPrefetchCache() {
   `).all(now)
 }
 
+// 取单个 source 的缓存（含过期），用于判断"是否还需要重拉"。
+export function getPrefetchCacheBySource(source) {
+  const db = getDB()
+  return db.prepare(`SELECT * FROM prefetch_cache WHERE source = ?`).get(source) || null
+}
+
+// 该 source 的缓存是否仍在 TTL 内（新鲜 → 跳过重拉，避免周期调度反复打外部 API）
+export function isPrefetchCacheFresh(source) {
+  const row = getPrefetchCacheBySource(source)
+  if (!row) return false
+  const exp = Date.parse(row.expires_at)
+  return Number.isFinite(exp) && exp > Date.now()
+}
+
 export function clearExpiredPrefetchCache() {
   const db = getDB()
   const now = new Date().toISOString()

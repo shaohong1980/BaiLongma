@@ -104,6 +104,7 @@ export function contentTypeFor(filePath) {
     case '.htm':
       return 'text/html; charset=utf-8'
     case '.js':
+    case '.mjs':
       return 'text/javascript; charset=utf-8'
     case '.css':
       return 'text/css; charset=utf-8'
@@ -118,6 +119,13 @@ export function contentTypeFor(filePath) {
       return 'image/jpeg'
     case '.webp':
       return 'image/webp'
+    case '.wasm':
+      return 'application/wasm'
+    case '.riv':
+    case '.woff':
+    case '.woff2':
+    case '.ttf':
+      return 'application/octet-stream'
     default:
       return 'text/plain; charset=utf-8'
   }

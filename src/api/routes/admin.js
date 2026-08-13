@@ -5,7 +5,7 @@ import { emitEvent as defaultEmitEvent } from '../../events.js'
 import { paths } from '../../paths.js'
 import { startLoop as defaultStartLoop, stopLoop as defaultStopLoop } from '../../control.js'
 import { clearTraces, getTrace, getTraces, getTraceStatus } from '../../runtime/turn-trace.js'
-import { jsonResponse } from '../utils.js'
+import { jsonResponse, readJsonBody } from '../utils.js'
 
 function contextFunction(context, name, fallback) {
   const source = context || {}
@@ -113,6 +113,23 @@ export async function handleAdminRoutes(req, res, url, context = {}) {
     clearSandboxFiles(admin.sandboxPath)
     admin.emitEvent('admin', { action: 'reset-files' })
     jsonResponse(res, 200, { ok: true })
+    return true
+  }
+
+  // 清空某用户的对话历史（"新对话"）：让 Agent 摆脱被污染的上下文锚定。
+  // 只删 conversations，不动 memories / 用户画像。
+  if (req.method === 'POST' && url.pathname === '/admin/clear-conversation') {
+    try {
+      const body = await readJsonBody(req)
+      const fromId = String(body?.from_id || '').trim()
+      if (!fromId) { jsonResponse(res, 400, { ok: false, error: 'from_id 必填' }); return true }
+      const db = admin.getDB()
+      const r = db.prepare('DELETE FROM conversations WHERE from_id = ?').run(fromId)
+      admin.emitEvent('conversation_cleared', { from_id: fromId })
+      jsonResponse(res, 200, { ok: true, cleared: r.changes })
+    } catch (err) {
+      jsonResponse(res, 400, { ok: false, error: err.message })
+    }
     return true
   }
 

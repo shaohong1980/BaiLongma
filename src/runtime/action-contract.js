@@ -44,6 +44,18 @@ const CONTRACTS = [
     pattern: /(?:提醒我|帮我提醒|设(?:置|一个).{0,12}提醒|取消.{0,12}提醒|删除.{0,12}提醒|remind me|set (?:a )?reminder)/i,
   },
   {
+    id: 'workbench_todo',
+    label: '操作工作台待办',
+    tools: ['manage_todo'],
+    pattern: /(?:帮我|请|给我|记得|要|需要).{0,16}(?:记(?:一下|起来|住)?|加(?:一个|到)?|添加|加入).{0,24}(?:待办|任务|事情|事项|清单|工作台)|(?:把|将).{0,24}(?:标记|标为|设为|完成).{0,12}(?:待办|任务|事项|todo)|(?:完成|删除|删掉|取消|查看|看看|列出|列表).{0,16}(?:待办|任务|事项|清单|工作台)|(?:add|complete|delete|finish|mark)\s+(?:a\s+|the\s+)?(?:todo|task|item)/i,
+  },
+  {
+    id: 'weekly_review',
+    label: '写每周复盘',
+    tools: ['weekly_review'],
+    pattern: /(?:写|写一下|写个|做|做一下|生成|更新|看看|查看).{0,16}(?:周复盘|每周复盘|周总结|周报|本周总结)|(?:summarize|write|review).{0,16}(?:the\s+)?(?:week|weekly)/i,
+  },
+  {
     id: 'memory_write',
     label: '保存记忆',
     tools: ['upsert_memory'],

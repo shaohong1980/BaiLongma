@@ -6,7 +6,7 @@ import { createDocPanel } from './doc-panel.js';
 
 const createGraphStage = () => `
 <div class="grid-overlay"></div>
-<svg id="graph" aria-label="Longma 记忆节点图"></svg>
+<canvas id="graph" aria-label="Longma 记忆节点图"></canvas>
 `;
 
 const createPrimaryPanel = () => `
@@ -14,7 +14,6 @@ const createPrimaryPanel = () => `
   <header class="panel-identity">
     <div class="brand-mark"></div>
     <div class="brand-copy">
-      <div class="eyebrow">认知界面</div>
       <div class="brand-title" id="agent-brand-name">Longma AI Agent</div>
     </div>
     <button class="voice-btn" id="voice-btn" title="麦克风 开/关" type="button">🎤</button>
@@ -40,6 +39,17 @@ const createPrimaryPanel = () => `
   </div>
 
   ${createVoicePanel()}
+
+  <!-- 晨间简报：每天早上自动生成，可手动刷新；下方展示活跃目标 -->
+  <div class="brief-card" id="brief-card" hidden>
+    <div class="brief-head">
+      <span class="brief-title">🌅 晨间简报</span>
+      <button class="brief-close" id="brief-close" type="button" title="关闭">×</button>
+    </div>
+    <div class="brief-body" id="brief-body"></div>
+    <div class="brief-goals" id="brief-goals"></div>
+    <button class="brief-gen" id="brief-gen" type="button">生成 / 刷新简报</button>
+  </div>
 
   <div class="legend" id="legend"></div>
 
@@ -87,48 +97,101 @@ const createPrimaryPanel = () => `
 
 const createSecondaryPanel = () => `
 <aside id="panel-l2" class="panel">
-  <header class="panel-stats">
-    <div class="stat">
-      <span class="stat-label">状态</span>
-      <div class="stat-value live" id="conn-state"><span class="live-dot"></span>Token流</div>
+  <div class="l2-top">
+    <header class="panel-stats">
+      <div class="stat">
+        <span class="stat-label">状态</span>
+        <div class="stat-value live" id="conn-state"><span class="live-dot"></span>Token流</div>
+      </div>
+      <div class="stat">
+        <span class="stat-label">节点</span>
+        <div class="stat-value" id="node-count">0</div>
+      </div>
+      <div class="stat">
+        <span class="stat-label">连线</span>
+        <div class="stat-value" id="link-count">0</div>
+      </div>
+      <div class="stat">
+        <span class="stat-label">tok/s</span>
+        <div class="stat-value" id="tok-rate">—</div>
+      </div>
+      <div class="stat" id="mem-recall-stat" title="近 1 小时记忆召回次数 / 平均拉取条数。点击查看明细">
+        <span class="stat-label">召回/h</span>
+        <div class="stat-value" id="mem-recall-rate">—</div>
+      </div>
+      <div class="stat" id="mem-extract-stat" title="近 1 小时记忆抽取次数 / 平均写入条数。点击查看明细">
+        <span class="stat-label">抽取/h</span>
+        <div class="stat-value" id="mem-extract-rate">—</div>
+      </div>
+    </header>
+
+    <!-- 专注帧 UI 已隐藏（后端 focus stack 仍在工作，给 LLM 注入上下文）。
+         要恢复观察面板时把对应 HTML 还原即可——app.js 渲染逻辑保留着，靠 getElementById 返回 null 自动 no-op。 -->
+
+    <div class="stream-meta">
+      <div>
+        <div class="stream-title-text">自主行动机制 · Tick</div>
+        <div class="stream-subtitle">心跳 · 思考 · 工具</div>
+      </div>
+      <span class="pill pill-warm" id="pill-l2">流式传输</span>
     </div>
-    <div class="stat">
-      <span class="stat-label">节点</span>
-      <div class="stat-value" id="node-count">0</div>
+
+    <div class="stream">
+      <div class="stream-inner" id="si-l2"></div>
     </div>
-    <div class="stat">
-      <span class="stat-label">连线</span>
-      <div class="stat-value" id="link-count">0</div>
-    </div>
-    <div class="stat">
-      <span class="stat-label">tok/s</span>
-      <div class="stat-value" id="tok-rate">—</div>
-    </div>
-    <div class="stat" id="mem-recall-stat" title="近 1 小时记忆召回次数 / 平均拉取条数。点击查看明细">
-      <span class="stat-label">召回/h</span>
-      <div class="stat-value" id="mem-recall-rate">—</div>
-    </div>
-    <div class="stat" id="mem-extract-stat" title="近 1 小时记忆抽取次数 / 平均写入条数。点击查看明细">
-      <span class="stat-label">抽取/h</span>
-      <div class="stat-value" id="mem-extract-rate">—</div>
-    </div>
+  </div>
+
+  ${createWorkbenchPanel()}
+</aside>
+`;
+
+const createWorkbenchPanel = () => `
+<section class="workbench" id="workbench">
+  <header class="workbench-head">
+    <span class="workbench-title">▦ 工作台</span>
+    <span class="workbench-counts">
+      <span class="wb-count" data-count="pending" title="待办事项">待办 <b id="wb-pending-count">0</b></span>
+      <span class="wb-count" data-count="done" title="完成事项">完成 <b id="wb-done-count">0</b></span>
+    </span>
+    <button class="workbench-toggle" id="workbench-toggle" type="button" title="展开 / 收起工作台" aria-expanded="true">▾</button>
   </header>
 
-  <!-- 专注帧 UI 已隐藏（后端 focus stack 仍在工作，给 LLM 注入上下文）。
-       要恢复观察面板时把对应 HTML 还原即可——app.js 渲染逻辑保留着，靠 getElementById 返回 null 自动 no-op。 -->
+  <div class="workbench-body" id="workbench-body">
+    <nav class="workbench-tabs">
+      <button class="wb-tab active" data-tab="todo" type="button">待办事项</button>
+      <button class="wb-tab" data-tab="done" type="button">完成事项</button>
+      <button class="wb-tab" data-tab="review" type="button">每周复盘</button>
+    </nav>
 
-  <div class="stream-meta">
-    <div>
-      <div class="stream-title-text">自主行动机制 · Tick</div>
-      <div class="stream-subtitle">心跳 · 思考 · 工具</div>
+    <div class="workbench-content">
+      <!-- 待办事项 -->
+      <div class="wb-pane active" data-pane="todo" id="wb-pane-todo">
+        <div class="wb-add-row">
+          <input id="wb-todo-input" type="text" placeholder="添加待办…（回车确认）" autocomplete="off" spellcheck="false" />
+          <button id="wb-todo-add" type="button" title="添加待办">＋</button>
+        </div>
+        <div class="wb-list" id="wb-todo-list"></div>
+      </div>
+
+      <!-- 完成事项 -->
+      <div class="wb-pane" data-pane="done" id="wb-pane-done">
+        <div class="wb-list" id="wb-done-list"></div>
+      </div>
+
+      <!-- 每周复盘 -->
+      <div class="wb-pane" data-pane="review" id="wb-pane-review">
+        <div class="wb-review-head">
+          <span class="wb-review-week" id="wb-review-week">—</span>
+          <span class="wb-review-spacer"></span>
+          <button class="wb-review-edit" id="wb-review-edit" type="button" title="写 / 更新本周复盘">✎ 本周复盘</button>
+        </div>
+        <div class="wb-review-mood" id="wb-review-mood"></div>
+        <div class="wb-review-content" id="wb-review-content"></div>
+        <div class="wb-review-history" id="wb-review-history"></div>
+      </div>
     </div>
-    <span class="pill pill-warm" id="pill-l2">流式传输</span>
   </div>
-
-  <div class="stream">
-    <div class="stream-inner" id="si-l2"></div>
-  </div>
-</aside>
+</section>
 `;
 
 const createConsole = () => `
@@ -179,6 +242,9 @@ const createSettingsModal = () => `
         <button class="settings-nav-item" data-tab="voice" type="button">语音对话</button>
         <button class="settings-nav-item" data-tab="web-search" type="button">上网搜索</button>
         <button class="settings-nav-item" data-tab="security" type="button">安全沙箱</button>
+        <button class="settings-nav-item" data-tab="skills" type="button">技能</button>
+        <button class="settings-nav-item" data-tab="mcp" type="button">MCP</button>
+        <button class="settings-nav-item" data-tab="insights" type="button">用量</button>
         <button class="settings-nav-item" data-tab="advanced" type="button">高级功能</button>
         <button class="settings-nav-item" data-tab="update" type="button">更新</button>
       </nav>
@@ -210,6 +276,29 @@ const createSettingsModal = () => `
               <label class="settings-label" for="settings-memory-graph-toggle">显示记忆节点图</label>
               <input id="settings-memory-graph-toggle" type="checkbox" style="width:auto;flex:none;">
               <span class="settings-feedback" id="settings-memory-graph-feedback" style="margin-left:8px;"></span>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Obsidian 记忆库</div>
+            <p class="settings-hint">把记忆导出为 Obsidian Vault（每个实体一个 Markdown 文件，双链互连），可用 Obsidian 打开阅读、编辑 AI 的记忆。记忆整理循环会自动同步。</p>
+            <div class="vault-card">
+              <div class="vault-actions">
+                <button id="vault-export-btn" type="button" class="settings-action-btn" title="导出为 Obsidian Vault">
+                  <span class="sab-icon">📤</span>
+                  <span class="sab-text">导出记忆库</span>
+                </button>
+                <button id="vault-open-btn" type="button" class="settings-action-btn" title="在文件管理器中打开记忆库目录">
+                  <span class="sab-icon">📂</span>
+                  <span class="sab-text">打开文件夹</span>
+                </button>
+              </div>
+              <div class="vault-status-line">
+                <span class="vault-status-label">记忆库状态</span>
+                <span class="settings-hint" id="vault-status" style="margin:0;">—</span>
+              </div>
+              <div class="vault-feedback-line">
+                <span class="settings-feedback" id="vault-feedback"></span>
+              </div>
             </div>
           </div>
         </div>
@@ -742,6 +831,68 @@ const createSettingsModal = () => `
           </div>
         </div>
 
+        <!-- ── 技能 tab ── -->
+        <div class="settings-tab" data-tab="skills">
+          <div class="settings-section">
+            <div class="settings-section-label">Agent Skills（技能包）</div>
+            <p class="settings-hint">可复用的 SKILL.md 工作流包。让 AI 用 <code>learn_skill</code> 从经验里学新技能，或用 <code>improve_skill</code> 在使用中改进。此处查看/删除已安装技能。</p>
+            <div class="settings-row">
+              <button id="skills-refresh-btn" type="button" class="settings-save-btn">刷新列表</button>
+              <span class="settings-feedback" id="skills-feedback" style="margin-left:8px;"></span>
+            </div>
+            <div id="skills-list" class="settings-list"><div class="settings-hint">加载中…</div></div>
+          </div>
+        </div>
+
+        <!-- ── MCP tab ── -->
+        <div class="settings-tab" data-tab="mcp">
+          <div class="settings-section">
+            <div class="settings-section-label">MCP 服务器</div>
+            <p class="settings-hint">Model Context Protocol 服务器白名单（存于 <code>data/mcp-servers.json</code>）。配置后可用 <code>mcp_list_servers</code> / <code>mcp_call</code> 调用外部服务。只会运行这里显式列出的服务器。</p>
+            <div class="settings-row">
+              <button id="mcp-refresh-btn" type="button" class="settings-save-btn">刷新列表</button>
+              <span class="settings-feedback" id="mcp-feedback" style="margin-left:8px;"></span>
+            </div>
+            <div id="mcp-list" class="settings-list"><div class="settings-hint">加载中…</div></div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">常用模板</div>
+            <p class="settings-hint">点击一个模板即可填入下方的添加表单，确认后点击「添加」。filesystem 模板需要额外填写一个路径参数。</p>
+            <div class="mcp-presets" id="mcp-presets"></div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">添加服务器</div>
+            <div class="settings-row">
+              <label class="settings-label" for="mcp-new-name">名称</label>
+              <input class="settings-input" id="mcp-new-name" type="text" placeholder="如 filesystem" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="mcp-new-command">命令</label>
+              <input class="settings-input" id="mcp-new-command" type="text" placeholder="如 npx / node / python" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="mcp-new-args">参数</label>
+              <input class="settings-input" id="mcp-new-args" type="text" placeholder="JSON 数组，如 [\"-y\",\"@modelcontextprotocol/server-filesystem\"]" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="settings-row-action">
+              <button class="settings-save-btn" id="mcp-add-btn" type="button">添加</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── 用量 tab ── -->
+        <div class="settings-tab" data-tab="insights">
+          <div class="settings-section">
+            <div class="settings-section-label">用量洞察</div>
+            <p class="settings-hint">最近 7 天的 LLM 调用、token 消耗、估算成本与常用工具。数据来自每次 LLM 调用持久化的用量记录。</p>
+            <div class="settings-row">
+              <button id="insights-refresh-btn" type="button" class="settings-save-btn">刷新</button>
+              <span class="settings-feedback" id="insights-feedback" style="margin-left:8px;"></span>
+            </div>
+            <div id="insights-report" class="settings-list"><div class="settings-hint">加载中…</div></div>
+          </div>
+        </div>
+
         <!-- ── 高级功能 tab ── -->
         <div class="settings-tab" data-tab="advanced">
           <div class="settings-section">
@@ -766,9 +917,10 @@ const createSettingsModal = () => `
               <label class="settings-label" for="settings-amap-security">安全密钥</label>
               <input class="settings-input" id="settings-amap-security" type="password" placeholder="securityJsCode，留空保持不变" autocomplete="new-password" spellcheck="false">
             </div>
-            <p class="settings-hint">请在高德开放平台创建“Web端（JS API）”Key。安全密钥只在本地代理请求中使用，地图页面无法读取其明文。</p>
+            <p class="settings-hint">请在高德开放平台创建“Web端（JS API）”Key。安全密钥只在本地代理请求中使用，地图页面无法读取其明文。配置好后在对话里说「打开地图看看北京」即可调用。</p>
             <div class="settings-row-action" style="gap:8px;flex-wrap:wrap;">
               <button class="settings-save-btn" id="settings-save-map" type="button">保存地图配置</button>
+              <button class="settings-save-btn" id="settings-test-map" type="button" style="width:auto;padding:0 14px;">测试地图</button>
               <button class="settings-save-btn" id="settings-clear-map" type="button" style="width:auto;padding:0 14px;background:transparent;border:1px solid var(--line);color:var(--ink2);">清除</button>
               <a href="https://console.amap.com/dev/key/app" target="_blank" rel="noreferrer" class="settings-map-link">申请高德 Key ↗</a>
               <span class="settings-feedback" id="settings-map-feedback"></span>
@@ -829,6 +981,7 @@ const createSettingsModal = () => `
 const createVoicePanel = () => `
 <div class="voice-panel" id="voice-panel">
   <canvas id="voice-canvas" width="160" height="160"></canvas>
+  <canvas id="voice-fallback-canvas" width="160" height="160" hidden></canvas>
   <div class="voice-transcript" id="voice-transcript"></div>
 </div>
 `;
@@ -977,6 +1130,19 @@ const createImagePanel = () => `
 </div>
 `;
 
+const createMapPanel = () => `
+<div class="map-panel" id="map-panel" hidden>
+  <div class="map-panel-head">
+    <span class="map-panel-title" id="map-panel-title">地图</span>
+    <span class="map-panel-status" id="map-status"></span>
+    <button class="map-panel-exit" id="map-panel-exit" type="button" title="关闭地图">×</button>
+  </div>
+  <div class="map-panel-body">
+    <div class="map-canvas" id="map-canvas"></div>
+  </div>
+</div>
+`;
+
 const createPanelTabs = () => `
 <button id="panel-l1-tab" class="panel-tab panel-tab-left" aria-label="切换左面板" title="切换左面板 [ "></button>
 <button id="panel-l2-tab" class="panel-tab panel-tab-right" aria-label="切换右面板" title="切换右面板 ] "></button>
@@ -994,6 +1160,7 @@ export function createBrainUiMarkup() {
     createAIVideoPanel(),
     createMusicPanel(),
     createImagePanel(),
+    createMapPanel(),
     createHotspotPanel(),
     createWorldcupPanel(),
     createTyphoonPanel(),

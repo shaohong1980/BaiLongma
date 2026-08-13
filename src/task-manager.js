@@ -1,3 +1,5 @@
+import { evaluateTask } from './memory/self-evolution.js'
+
 export const TASK_IDLE_TICK_LIMIT = 5
 
 export function createTaskManager({
@@ -37,6 +39,26 @@ export function createTaskManager({
     }
   }
 
+  // 任务完成时自动触发自我评估
+  function triggerSelfEval(taskDesc, reason) {
+    try {
+      const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      const result = evaluateTask({
+        taskId,
+        taskDesc: taskDesc || '(未命名任务)',
+        accuracy: 5,
+        efficiency: 5,
+        satisfaction: 5,
+        note: `自动评估（原因: ${reason || '任务完成'}）。审视分身尚未介入，默认中等分，后续可由审视分身覆盖。`,
+      })
+      if (result) {
+        console.log(`[self-evolution] 自动评估完成: ${result.mem_id} | 综合 ${result.scores.average}/10`)
+      }
+    } catch (err) {
+      console.error('[self-evolution] 自动评估失败:', err.message)
+    }
+  }
+
   function autoCompleteTask(reason) {
     const clearedTask = state.task
     state.task = null
@@ -56,6 +78,7 @@ export function createTaskManager({
         entities: [], concepts: [], tags: ['task_complete'],
         timestamp: nowTimestamp(),
       })
+      triggerSelfEval(clearedTask, reason)
     }
   }
 
@@ -88,6 +111,7 @@ export function createTaskManager({
         entities: [], concepts: [], tags: ['task_complete'],
         timestamp: nowTimestamp(),
       })
+      triggerSelfEval(clearedTask, summary || '任务完成')
     }
   }
 
@@ -139,6 +163,7 @@ export function createTaskManager({
         entities: [], concepts: [], tags: ['task_complete'],
         timestamp: nowTimestamp(),
       })
+      triggerSelfEval(clearedTask, 'CLEAR_TASK')
     }
   }
 

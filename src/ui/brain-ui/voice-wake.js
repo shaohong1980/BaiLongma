@@ -180,9 +180,16 @@ export function createWakeFlow(core) {
   orb?.onHit(onHit);
   setupSSE();
 
+  // 真口型 viseme：主窗口 TTS 播放时逐帧推来，同步给悬浮球窗口（IPC orbViseme）
+  function pushViseme(code) {
+    if (!active) return;
+    orb?.orbViseme?.(code);
+  }
+
   return {
     onFrame,
     onTranscript,
+    pushViseme,
     // 愿景留口(条件一/二):Agent 每轮自判「该退下了」时调用,走同一套退场动画
     requestDismiss: dismiss,
     isActive: () => active,

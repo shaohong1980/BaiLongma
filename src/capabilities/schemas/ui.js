@@ -49,6 +49,27 @@ export const uiSchemas = {
     }
   },
 
+  map_mode: {
+    type: 'function',
+    function: {
+      name: 'map_mode',
+      description: 'Control the interactive map panel (Amap / Gaode). Open it when the user wants to see a place, find a location, get an address, or explore a city / nearby POIs on a map — for example "打开地图看看北京", "天安门在哪", "帮我查一下杭州的西湖", "看看我家附近有没有咖啡店". The map centers on a city / address / "lng,lat" coordinates, can mark multiple locations, and can search nearby POIs around a keyword. Close it when asked. status checks current state. Requires the map service (Settings → 高级功能 → 地图服务) to be configured; if it is not, say so and point the user to the settings page.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['show', 'open', 'hide', 'close', 'toggle', 'status'], description: 'show/open opens the map panel; hide/close closes it; toggle switches it; status only checks state.' },
+          location: { type: 'string', description: 'For show: the place to center the map on — a city name, an address, or "lng,lat" coordinates (e.g. "北京", "天安门", "116.397,39.909"). If omitted, keeps the current or last used center.' },
+          title: { type: 'string', description: 'For show: optional panel title, e.g. "北京城区地图".' },
+          zoom: { type: 'number', minimum: 3, maximum: 18, description: 'For show: optional zoom level. City ~11, district ~13, address/street ~15-16, default 12.' },
+          markers: { type: 'array', items: { type: 'string' }, description: 'For show: optional list of places to mark on the map, e.g. ["北京西站", "天安门", "颐和园"].' },
+          keyword: { type: 'string', description: 'For show: optional POI keyword to search around the center (e.g. "咖啡", "加油站", "地铁站"), shown as markers.' },
+          reason: { type: 'string', description: 'Optional short reason for opening or closing.' },
+        },
+        required: ['action']
+      }
+    }
+  },
+
   hotspot_mode: {
     type: 'function',
     function: {

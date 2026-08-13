@@ -18,6 +18,7 @@ import { getInstalledToolNames } from '../capabilities/marketplace/index.js'
 import { PRIMARY_USER_ID, isExternalChannel } from '../identity.js'
 import { extractKeywords } from './keywords.js'
 import { stripTemporalWords } from './temporal-parser.js'
+import { getMainlineSummary } from './conv-compress.js'
 import { selectTools } from './tool-router.js'
 import { computeSelfPerception, computeSelfSnapshot } from './self-perception.js'
 import { selectActivePolicies } from './active-policies.js'
@@ -89,6 +90,7 @@ export async function runInjector({ message, state, hint = '', currentChannel = 
   let conversationWindow = []
   let senderMemories = []
 
+  let mainlineSummary = ''
   if (senderId) {
     personMemory = getPersonMemory(senderId)
     userProfile = getUserProfile(senderId)
@@ -101,17 +103,28 @@ export async function runInjector({ message, state, hint = '', currentChannel = 
     senderMemories = getMemoriesByEntity(PRIMARY_USER_ID, 10)
   }
 
+  // 主线会话窗口外历史压缩：窗口只装最近 N 条，更早的旧对话压成一句主线摘要随上下文注入
+  // （参考 hermes context_compressor 的 compaction；focus-compress 管子主题，这里管主线）。
+  // 热路径内联但有 6s 超时 + 缓存 + 失败节流，且只在窗口溢出足够多时才触发——短会话零开销。
+  if (conversationWindow.length > 0) {
+    try {
+      const { callLLM } = await import('../llm.js')
+      const r = await getMainlineSummary({ senderId, callLLM })
+      mainlineSummary = r?.summary || ''
+    } catch { /* 压缩失败不影响主流程 */ }
+  }
+
   // 时间词触发的轮廓注入：除 TICK 心跳外都跑。
   // 用 isTick 而不是 senderId 判断——这样外部渠道未带 [ID:...] 前缀的裸消息也能触发；
   // agent 自言自语不走 runInjector，不必担心循环放大。
   const temporalRecall = isTickMessage ? null : gatherTemporalRecall(messageBody)
 
   const hintText = hint ? hint.replace(/<think>[\s\S]*?<\/think>/gi, '').slice(0, 800) : ''
-  const conversationText = conversationWindow
-    .map(item => item.content || '')
-    .filter(Boolean)
-    .join(' ')
-    .slice(0, 4000)
+  // 窗口外历史摘要放在最前，召回和上下文都能看到"窗口之前发生了什么"。
+  const conversationText = [
+    mainlineSummary ? `[窗口前主线摘要] ${mainlineSummary}` : '',
+    ...conversationWindow.map(item => item.content || '').filter(Boolean),
+  ].filter(Boolean).join(' ').slice(0, 4000)
 
   // messageBody 在送进 FTS5 关键词抽取前，先把"昨天/前天/今天"等时间词剥掉。
   // 否则跨边界 ngram（如"昨天我"）会进入字面搜索，召回所有 content 含"昨天我"的旧记忆，
@@ -287,6 +300,7 @@ export async function runInjector({ message, state, hint = '', currentChannel = 
     activePolicies,
     recallMemories,
     conversationWindow,
+    mainlineSummary,
     personMemory,
     userProfile,
     directions,

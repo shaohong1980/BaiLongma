@@ -1,5 +1,4 @@
 import http from 'http'
-import fs from 'fs'
 import crypto from 'crypto'
 import { WebSocketServer } from 'ws'
 import { handleSceneConnection, setSceneIntentHandler } from './scene/scene-server.js'
@@ -7,8 +6,7 @@ import { sceneStore } from './scene/scene-store.js'
 import { pushMessage } from './inbound-message.js'
 import { getConfig, insertUISignal } from './db.js'
 import { emitEvent, setStickyEvent } from './events.js'
-import { getNetworkConfig, getSecurity, setSecurity } from './config.js'
-import { paths } from './paths.js'
+import { getNetworkConfig, getSecurity, getVoiceRuntimeConfig, setSecurity } from './config.js'
 import { createCloudASRSession } from './voice/cloud-asr.js'
 import { jsonResponse } from './api/utils.js'
 import { handleActivationRoutes } from './api/routes/activation.js'
@@ -24,6 +22,7 @@ import { handleSettingsRoutes } from './api/routes/settings.js'
 import { handleSocialRoutes } from './api/routes/social.js'
 import { handleStaticRoutes } from './api/routes/static.js'
 import { handleTTSRoutes } from './api/routes/tts.js'
+import { handleWorkbenchRoutes } from './api/routes/workbench.js'
 import {
   attachWebSocketIdleTimeout,
   authorizeWebSocketUpgrade,
@@ -127,6 +126,7 @@ async function dispatchHttpRoutes(req, res, url, context) {
   if (await handleMapRoutes(req, res, url, context)) return true
   if (await handleActivationRoutes(req, res, url, context)) return true
   if (await handleSettingsRoutes(req, res, url, context)) return true
+  if (await handleWorkbenchRoutes(req, res, url)) return true
   if (await handleEmbeddingRoutes(req, res, url)) return true
   if (await handleAdminRoutes(req, res, url, context)) return true
   if (await handleTTSRoutes(req, res, url)) return true
@@ -144,11 +144,18 @@ function attachCloudASR() {
     let session = null
     let configured = false
     let cleanedUp = false
+    let diagAudioChunks = 0
+    let diagTranscriptCount = 0
+    let diagPeak = 0
+    let diagLastPeakLog = 0
+    let diagWsId = Math.random().toString(16).slice(2, 8)
+    console.log(`[voice-ws] #${diagWsId} 连接建立`)
     const cleanup = () => {
       if (cleanedUp) return
       cleanedUp = true
       session?.close()
       session = null
+      console.log(`[voice-ws] #${diagWsId} 关闭 | 收到音频块=${diagAudioChunks} 转录=${diagTranscriptCount}`)
     }
     attachWebSocketIdleTimeout(ws, 60 * 1000, cleanup)
 
@@ -157,15 +164,21 @@ function attachCloudASR() {
         try {
           const msg = JSON.parse(raw.toString())
           if (msg.type !== 'config') return
-          let rawCfg = {}
-          try { rawCfg = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.voice || {} } catch {}
-          const provider = rawCfg.voiceProvider || msg.provider || 'aliyun'
+          // 运行时凭证按服务商分文件存储（voice/<provider>.json + active.json），
+          // 必须用 getVoiceRuntimeConfig 读取；旧实现只读 config.json→voice 遗留块，
+          // 迁移后该块已为空，导致任何云端 ASR 都报"未配置 xxx Key"。
+          const rawCfg = getVoiceRuntimeConfig(msg.provider || null)
+          const provider = rawCfg.provider || msg.provider || 'aliyun'
+          console.log(`[voice-ws] #${diagWsId} config → provider=${provider} lang=${msg.lang || 'zh'} | xunfei=${!!rawCfg.xunfeiAppId}/${!!rawCfg.xunfeiApiKey} aliyun=${!!rawCfg.aliyunApiKey} volc=${!!rawCfg.volcAsrApiKey}`)
           session = createCloudASRSession(
             { provider, lang: msg.lang || 'zh', ...rawCfg },
             (text, isFinal, seg) => {
+              diagTranscriptCount++
+              console.log(`[voice-ws] #${diagWsId} 转录#${diagTranscriptCount} isFinal=${isFinal} seg=${seg} → ${String(text).slice(0, 50)}`)
               try { ws.send(JSON.stringify({ type: 'transcript', text, is_final: isFinal, seg })) } catch {}
             },
             (errMsg) => {
+              console.warn(`[voice-ws] #${diagWsId} ASR错误: ${errMsg}`)
               try { ws.send(JSON.stringify({ type: 'error', message: errMsg })) } catch {}
             },
             () => { try { ws.close() } catch {} },
@@ -179,11 +192,27 @@ function attachCloudASR() {
       }
 
       if (raw instanceof Buffer) {
+        diagAudioChunks++
+        // 峰值幅度分析：判断浏览器发的 PCM 是否真的有声音（0=静音；数百~数千=正常人声）
+        try {
+          const samples = new Int16Array(raw.buffer, raw.byteOffset, raw.byteLength >> 1)
+          for (let i = 0; i < samples.length; i += 4) {
+            const v = Math.abs(samples[i])
+            if (v > diagPeak) diagPeak = v
+          }
+        } catch {}
+        if (diagAudioChunks % 20 === 0 || (diagPeak > 0 && diagAudioChunks - diagLastPeakLog >= 60)) {
+          diagLastPeakLog = diagAudioChunks
+          console.log(`[voice-ws] #${diagWsId} 音频块=${diagAudioChunks} (${(diagAudioChunks * 4096 / 16000 / 1000 * 1000).toFixed(0)}ms 音频) 峰值=${diagPeak}`)
+        }
         session?.sendAudio(raw)
       } else {
         try {
           const msg = JSON.parse(raw.toString())
-          if (msg.type === 'flush') session?.flush()
+          if (msg.type === 'flush') {
+            console.log(`[voice-ws] #${diagWsId} flush`)
+            session?.flush()
+          }
         } catch {}
       }
     })

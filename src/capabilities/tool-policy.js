@@ -18,6 +18,8 @@ const TOOL_RISK = {
   manage_reminder: 'medium',
   schedule_reminder: 'medium',
   manage_prefetch_task: 'medium',
+  manage_todo: 'low',
+  weekly_review: 'low',
   manage_rule: 'medium',
   ui_set: 'medium',
   capability_demo: 'medium',
@@ -26,6 +28,7 @@ const TOOL_RISK = {
   media_mode: 'low',
   hotspot_mode: 'low',
   worldcup_mode: 'low',
+  map_mode: 'low',
   open_doc_panel: 'low',
   person_card_mode: 'low',
   music: 'low',
@@ -40,6 +43,7 @@ const TOOL_RISK = {
   delete_file: 'high',
   install_software: 'high',
   exec_command: 'high',
+  run_node_script: 'high',
   exec_quick_command: 'medium',
   exec_task_command: 'high',
   exec_background_command: 'high',
@@ -57,6 +61,14 @@ const TOOL_RISK = {
   analyze_image: 'high',
   manage_api_capability: 'high',
   set_security: 'high',
+  // 技能 / MCP（本次移植新增）
+  list_skills: 'low',
+  view_skill: 'low',
+  learn_skill: 'medium',
+  improve_skill: 'medium',
+  delete_skill: 'high',
+  mcp_list_servers: 'low',
+  mcp_call: 'high',
 }
 
 // Audit risk and autonomous authority are related but not identical. Several
@@ -86,6 +98,9 @@ const AUTONOMOUS_USER_AUTH_REQUIRED = new Set([
   'run_capability',
   'run_api_capability',
   'analyze_image',
+  // 本次移植：MCP 调用外部工具、删除技能包，都要求显式用户上下文
+  'mcp_call',
+  'delete_skill',
 ])
 export function classifyTool(name) {
   return TOOL_RISK[name] || 'medium'

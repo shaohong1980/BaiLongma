@@ -39,6 +39,7 @@ import { execManageTodo, execWeeklyReview } from './tools/workbench.js'
 import { execAdoptRole } from './tools/roles.js'
 import { execCaptureScreen } from './tools/capture.js'
 import { execSpawnSubagents } from './tools/spawn.js'
+import { execJunjichu } from '../multi-agent/control.js'
 import { getMapServiceSettings } from '../map-service.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
@@ -328,6 +329,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execAdoptRole(args)
       case 'spawn_subagents':
         return await execSpawnSubagents(args, context)
+      case 'junjichu':
+        return await execJunjichu(args)
       case 'weekly_review':
         return execWeeklyReview(args)
       case 'list_skills':

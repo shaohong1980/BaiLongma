@@ -151,6 +151,27 @@ export const systemSchemas = {
     }
   },
 
+  junjichu: {
+    type: 'function',
+    function: {
+      name: 'junjichu',
+      description: 'Control the 军机处 (multi-agent meeting room with 8 imperial court ministers). Use when the user wants to open/close the 军机处 panel, issue an edict/command to the room (which runs the three-provinces-six-ministries pipeline: 分拣→规划→审议→派发→执行→回奏), ask a specific minister a question, check task status on the kanban, or control/review a task. Examples: "打开军机处"→open; "下旨：做一个CRM系统"→edict; "问问工部尚书怎么设计登录页"→ask with agent=coder; "军机处有什么任务"→status; "暂停任务task_001"→task_control.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['open', 'close', 'status', 'edict', 'ask', 'task_control', 'review'], description: 'open/close toggles the panel; status lists tasks; edict runs the three-provinces-six-ministries pipeline on content; ask has a minister respond (optionally agent); task_control pauses/cancels/resumes a task; review approves/rejects a task.' },
+          content: { type: 'string', description: 'For edict: the 旨意/command content. For ask: the question to the room or a specific minister.' },
+          agent: { type: 'string', description: 'For ask: optional minister id or name to address (coder=工部尚书, admin=礼部尚书, hubu=户部, bingbu=兵部, xingbu=刑部, libu=吏部, gm=军机大臣, host=掌印).' },
+          task_id: { type: 'string', description: 'For task_control/review: the task id, e.g. task_001.' },
+          control: { type: 'string', enum: ['pause', 'cancel', 'resume'], description: 'For task_control: the control action.' },
+          pass: { type: 'boolean', description: 'For review: true to approve, false to reject (封驳).' },
+          note: { type: 'string', description: 'For review: optional reason.' },
+        },
+        required: ['action']
+      }
+    }
+  },
+
   spawn_subagents: {
     type: 'function',
     function: {

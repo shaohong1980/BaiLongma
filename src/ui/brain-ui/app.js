@@ -11,7 +11,7 @@ import { initTyphoon, toggleTyphoon, setTyphoonMode } from "./typhoon.js";
 import { enrichVisiblePersonCardFromText, initPersonCard, setPersonCardMode, showPersonCardByName } from "./person-card.js";
 import { initDocPanel, setDocPanelMode } from "./doc.js";
 import { initMapPanel } from "./map-panel.js";
-import { initMultiAgentPanel, openMultiAgentPanel } from "./multi-agent-panel.js";
+import { initMultiAgentPanel, openMultiAgentPanel, closeMultiAgentPanel, refreshJunjichuKanban } from "./multi-agent-panel.js";
 import { initWechatPopup, showWechatPopup } from "./wechat-popup.js";
 import { initFeishuPopup, showFeishuPopup } from "./feishu-popup.js";
 import { attachJarvisAudioGraph, attachJarvisFx, isFxEnabledForVoice, setFxEnabledForVoice, getJarvisFxParams, setJarvisFxParams, resetJarvisFxParams, isFxUnlocked, tryUnlockFx } from "./tts-fx.js";
@@ -1499,6 +1499,15 @@ function handle({ type, data = {} }) {
       break;
     case "map_mode":
       window.dispatchEvent(new CustomEvent("bailongma:map-mode", { detail: data }));
+      break;
+    case "junjichu_mode":
+      // 小白龙对话/语音调动军机处：打开/关闭面板
+      if (data?.active === false) closeMultiAgentPanel();
+      else openMultiAgentPanel();
+      break;
+    case "edict_task":
+      // 军机处任务状态变化 → 刷新看板（若已打开）
+      refreshJunjichuKanban();
       break;
     case "doc_panel_mode":
       setDocPanelMode(!!data.active || data.action === "open", { topicId: data.topic || null, source: "agent_event" });

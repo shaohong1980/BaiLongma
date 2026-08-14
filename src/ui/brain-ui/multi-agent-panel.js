@@ -342,3 +342,10 @@ export function openMultiAgentPanel() {
   if (!agents.length) loadAgents()
   loadRoom()
 }
+export function closeMultiAgentPanel() {
+  const panel = $('multiagent-panel')
+  if (panel) panel.hidden = true
+}
+export function refreshJunjichuKanban() {
+  if ($('ma-kanban') && !$('ma-kanban').hidden) loadKanban()
+}

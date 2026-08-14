@@ -55,6 +55,13 @@ const TASK_CTRL_OPENER  = ['set_task']  // 没任务时只暴露 set_task
 // 无任务的临时成果，靠下面这组触发词 / find_tool 主动拉进来。
 const REVIEW_TOOLS      = ['review_work']
 
+// 军机处：用户要求打开/下旨/点将/看板时注入 junjichu 工具
+const JUNJICHU_TOOLS = ['junjichu']
+const JUNJICHU_TRIGGERS = [
+  '军机处', '三省六部', '下旨', '点将', '工部尚书', '礼部尚书', '户部尚书', '兵部尚书', '刑部尚书', '吏部尚书',
+  '掌印大臣', '军机大臣', '开个会', '会议室', '让工部', '让礼部', 'junjichu',
+]
+
 // 多 Agent 并行：复杂任务/多角度分析/同时做几件事时注入 spawn_subagents
 const SPAWN_TOOLS = ['spawn_subagents']
 const SPAWN_TRIGGERS = [
@@ -310,6 +317,7 @@ export const TOOL_GROUPS = [
   { triggers: ASK_MEMORY_TRIGGERS,    tools: ASK_MEMORY_TOOLS },
   { triggers: CAPTURE_SCREEN_TRIGGERS, tools: CAPTURE_SCREEN_TOOLS },
   { triggers: SPAWN_TRIGGERS,          tools: SPAWN_TOOLS },
+  { triggers: JUNJICHU_TRIGGERS,       tools: JUNJICHU_TOOLS },
 ]
 
 // 通用辅助：消息正文里是否含有给定触发词之一（lower-case 包含）。
@@ -507,6 +515,9 @@ export function selectTools(ctx = {}) {
   }
   if (hits(body, SPAWN_TRIGGERS)) {
     for (const t of SPAWN_TOOLS) out.add(t)
+  }
+  if (hits(body, JUNJICHU_TRIGGERS)) {
+    for (const t of JUNJICHU_TOOLS) out.add(t)
   }
   // Tick 不再因为"它是 Tick"就预先装载 web/filesystem/reminder/prefetch/hotspot。
   // 主模型先判断要做什么，再通过常驻 find_tool 加载所需能力。记忆和 cadence

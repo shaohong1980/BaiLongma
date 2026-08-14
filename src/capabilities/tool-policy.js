@@ -24,6 +24,7 @@ const TOOL_RISK = {
   ask_memory: 'low',
   capture_screen: 'low',
   spawn_subagents: 'medium',
+  junjichu: 'medium',
   manage_rule: 'medium',
   ui_set: 'medium',
   capability_demo: 'medium',

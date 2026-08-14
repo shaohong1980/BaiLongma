@@ -1170,36 +1170,68 @@ const createPanelTabs = () => `
 <button id="panel-l2-tab" class="panel-tab panel-tab-right" aria-label="切换右面板" title="切换右面板 ] "></button>
 `;
 
-// 多 Agent 办公室面板（P2 扩展）：一排有形象的 Agent，可单独对话 / 布置任务
+// 多 Agent 会议室（数字员工）：所有 Agent 在座有形象；老板发言全员可听，点名某位才响应。
 const createMultiAgentPanel = () => `
 <div class="multiagent-panel" id="multiagent-panel" hidden>
   <div class="multiagent-head">
-    <span class="multiagent-title">🏢 多 Agent 办公室</span>
-    <span class="multiagent-subtitle">选择一位 Agent 对话，或布置任务</span>
-    <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭办公室">×</button>
+    <span class="multiagent-title">🏢 会议室</span>
+    <span class="multiagent-subtitle">你是董事长 · 发言全员可听 · 点名某位（如"主持人，开会：…""白龙马，怎么看"）他才回应</span>
+    <span class="ma-round" id="ma-round" title="会议轮次（上限20）">轮次 0/20</span>
+    <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭会议室">×</button>
   </div>
   <div class="multiagent-body">
-    <!-- 左侧：Agent 列表 -->
-    <div class="multiagent-roster" id="multiagent-roster">
-      <div class="multiagent-roster-hint">加载中…</div>
+    <!-- 在座的数字员工（形象） -->
+    <div class="ma-seats" id="ma-seats">
+      <div class="ma-seats-hint">员工就座中…</div>
     </div>
-    <!-- 右侧：对话区 -->
-    <div class="multiagent-chat" id="multiagent-chat">
-      <div class="ma-chat-placeholder" id="ma-chat-placeholder">👈 点左侧一位 Agent 开始对话或布置任务</div>
-      <div class="ma-chat-head" id="ma-chat-head" hidden>
-        <span class="ma-avatar" id="ma-avatar">🤖</span>
-        <div class="ma-head-copy">
-          <div class="ma-name" id="ma-name">Agent</div>
-          <div class="ma-role" id="ma-role">角色</div>
-        </div>
-        <span class="ma-cap" id="ma-cap"></span>
-        <button class="ma-reset" id="ma-reset" type="button" title="清空该 Agent 对话">清空</button>
+    <!-- 会议室对话流 -->
+    <div class="ma-messages" id="ma-messages"></div>
+    <!-- 老板发言区 -->
+    <div class="ma-input-row">
+      <span class="ma-boss-tag">老板</span>
+      <textarea id="ma-input" rows="1" placeholder="对会议室说话… 可点名如「林策，你怎么看」「让架构师设计」"></textarea>
+      <button id="ma-send" type="button" title="发言（全员可听，点名者响应）">发言</button>
+    </div>
+  </div>
+
+  <!-- Agent 配置弹层：形象 / 语音 / 引擎 / 大模型 -->
+  <div class="ma-config-overlay" id="ma-config-overlay" hidden>
+    <div class="ma-config-modal">
+      <div class="ma-config-head">
+        <span id="ma-config-title">Agent 配置</span>
+        <button class="ma-config-close" id="ma-config-close" type="button">×</button>
       </div>
-      <div class="ma-messages" id="ma-messages"></div>
-      <div class="ma-input-row">
-        <textarea id="ma-input" rows="1" placeholder="给这位 Agent 发消息…（Shift+Enter 换行）"></textarea>
-        <button id="ma-send" type="button">发送</button>
-        <button id="ma-task" type="button" title="布置任务（给这位 Agent 派活）">布置任务</button>
+      <div class="ma-config-body">
+        <label>形象 emoji <input id="cfg-avatar" type="text" maxlength="4"></label>
+        <label>形象图片 URL（可选）<input id="cfg-avatar-image" type="text" placeholder="https://… 或本地路径"></label>
+        <label>名字 <input id="cfg-name" type="text"></label>
+        <label>角色 <input id="cfg-role" type="text"></label>
+        <label>引擎
+          <select id="cfg-engine">
+            <option value="internal">internal（白龙马主模型+人格）</option>
+            <option value="custom">custom（自定义 OpenAI 兼容端点）</option>
+            <option value="cli">cli（Claude Code / Codex / Hermes 等）</option>
+          </select>
+        </label>
+        <div id="cfg-custom-fields">
+          <label>Base URL <input id="cfg-base-url" type="text" placeholder="https://api.xxx.com/v1"></label>
+          <label>API Key <input id="cfg-api-key" type="password" placeholder="留空保持现有"></label>
+          <label>模型 <input id="cfg-model" type="text" placeholder="如 gpt-4o / deepseek-chat"></label>
+        </div>
+        <div id="cfg-cli-fields" hidden>
+          <label>CLI 命令 <input id="cfg-cli-command" type="text" placeholder="如 claude -p \'{prompt}\' 或 codex exec \'{prompt}\'"></label>
+        </div>
+        <label>温度 <input id="cfg-temperature" type="number" min="0" max="2" step="0.1" value="0.5"></label>
+        <label class="ma-cfg-check"><input id="cfg-voice-enabled" type="checkbox"> 语音回复（TTS）</label>
+        <label>语音音色（可选）<input id="cfg-voice-id" type="text" placeholder="如 zh_female_xiaohe"></label>
+        <label>私有记忆（仅该员工自己可见）
+          <textarea id="cfg-private-memory" rows="3" placeholder="存放演算草稿、内部清单、历史沉淀…"></textarea>
+        </label>
+      </div>
+      <div class="ma-config-actions">
+        <button class="ma-config-save" id="ma-config-save" type="button">保存</button>
+        <button class="ma-config-cancel" id="ma-config-cancel" type="button">取消</button>
+        <button class="ma-config-task" id="ma-config-task" type="button">布置任务</button>
       </div>
     </div>
   </div>

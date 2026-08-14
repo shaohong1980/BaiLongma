@@ -23,6 +23,7 @@ import { handleSocialRoutes } from './api/routes/social.js'
 import { handleStaticRoutes } from './api/routes/static.js'
 import { handleTTSRoutes } from './api/routes/tts.js'
 import { handleWorkbenchRoutes } from './api/routes/workbench.js'
+import { handleAgentRoutes } from './api/routes/agents.js'
 import {
   attachWebSocketIdleTimeout,
   authorizeWebSocketUpgrade,
@@ -127,6 +128,7 @@ async function dispatchHttpRoutes(req, res, url, context) {
   if (await handleActivationRoutes(req, res, url, context)) return true
   if (await handleSettingsRoutes(req, res, url, context)) return true
   if (await handleWorkbenchRoutes(req, res, url)) return true
+  if (await handleAgentRoutes(req, res, url)) return true
   if (await handleEmbeddingRoutes(req, res, url)) return true
   if (await handleAdminRoutes(req, res, url, context)) return true
   if (await handleTTSRoutes(req, res, url)) return true

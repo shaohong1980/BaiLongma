@@ -38,6 +38,7 @@ const createPrimaryPanel = () => `
       <div class="brand-title" id="agent-brand-name">Longma AI Agent</div>
     </div>
     <button class="voice-btn" id="voice-btn" title="麦克风 开/关" type="button">🎤</button>
+    <button class="multiagent-btn" id="multiagent-btn" title="多 Agent 办公室" type="button">🤝</button>
     <button class="video-btn" id="video-btn" title="视频模式 (V)" type="button" hidden>⊞</button>
     <button class="music-btn" id="music-btn" title="音乐模式 (M)" type="button" hidden>♪</button>
     <button class="settings-btn" id="settings-btn" title="设置" type="button">⚙</button>
@@ -1169,6 +1170,42 @@ const createPanelTabs = () => `
 <button id="panel-l2-tab" class="panel-tab panel-tab-right" aria-label="切换右面板" title="切换右面板 ] "></button>
 `;
 
+// 多 Agent 办公室面板（P2 扩展）：一排有形象的 Agent，可单独对话 / 布置任务
+const createMultiAgentPanel = () => `
+<div class="multiagent-panel" id="multiagent-panel" hidden>
+  <div class="multiagent-head">
+    <span class="multiagent-title">🏢 多 Agent 办公室</span>
+    <span class="multiagent-subtitle">选择一位 Agent 对话，或布置任务</span>
+    <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭办公室">×</button>
+  </div>
+  <div class="multiagent-body">
+    <!-- 左侧：Agent 列表 -->
+    <div class="multiagent-roster" id="multiagent-roster">
+      <div class="multiagent-roster-hint">加载中…</div>
+    </div>
+    <!-- 右侧：对话区 -->
+    <div class="multiagent-chat" id="multiagent-chat">
+      <div class="ma-chat-placeholder" id="ma-chat-placeholder">👈 点左侧一位 Agent 开始对话或布置任务</div>
+      <div class="ma-chat-head" id="ma-chat-head" hidden>
+        <span class="ma-avatar" id="ma-avatar">🤖</span>
+        <div class="ma-head-copy">
+          <div class="ma-name" id="ma-name">Agent</div>
+          <div class="ma-role" id="ma-role">角色</div>
+        </div>
+        <span class="ma-cap" id="ma-cap"></span>
+        <button class="ma-reset" id="ma-reset" type="button" title="清空该 Agent 对话">清空</button>
+      </div>
+      <div class="ma-messages" id="ma-messages"></div>
+      <div class="ma-input-row">
+        <textarea id="ma-input" rows="1" placeholder="给这位 Agent 发消息…（Shift+Enter 换行）"></textarea>
+        <button id="ma-send" type="button">发送</button>
+        <button id="ma-task" type="button" title="布置任务（给这位 Agent 派活）">布置任务</button>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
 export function createBrainUiMarkup() {
   return [
     createGraphStage(),
@@ -1187,6 +1224,7 @@ export function createBrainUiMarkup() {
     createTyphoonPanel(),
     createPersonCardPanel(),
     createDocPanel(),
+    createMultiAgentPanel(),
   ].join("\n\n");
 }
 

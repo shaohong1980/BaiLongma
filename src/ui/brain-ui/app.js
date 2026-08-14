@@ -11,6 +11,7 @@ import { initTyphoon, toggleTyphoon, setTyphoonMode } from "./typhoon.js";
 import { enrichVisiblePersonCardFromText, initPersonCard, setPersonCardMode, showPersonCardByName } from "./person-card.js";
 import { initDocPanel, setDocPanelMode } from "./doc.js";
 import { initMapPanel } from "./map-panel.js";
+import { initMultiAgentPanel, openMultiAgentPanel } from "./multi-agent-panel.js";
 import { initWechatPopup, showWechatPopup } from "./wechat-popup.js";
 import { initFeishuPopup, showFeishuPopup } from "./feishu-popup.js";
 import { attachJarvisAudioGraph, attachJarvisFx, isFxEnabledForVoice, setFxEnabledForVoice, getJarvisFxParams, setJarvisFxParams, resetJarvisFxParams, isFxUnlocked, tryUnlockFx } from "./tts-fx.js";
@@ -4470,6 +4471,10 @@ initTyphoon();
 
 // ── Map panel（高德地图，对话里 map_mode 打开）──
 initMapPanel();
+
+// ── 多 Agent 办公室（可对话/布置任务）──
+initMultiAgentPanel();
+document.getElementById("multiagent-btn")?.addEventListener("click", openMultiAgentPanel);
 
 // ── Media modes (video / image) ──
 (function initMediaModes() {

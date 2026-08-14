@@ -29,7 +29,7 @@ import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
 import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
-import { execBrowserRead, execBrowserAct, execFetchUrl, execWebSearch } from './tools/web.js'
+import { execBrowserRead, execBrowserAct, execDeepResearch, execFetchUrl, execWebSearch } from './tools/web.js'
 import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory } from './tools/memory.js'
 import { execManageReminder } from './tools/reminders.js'
 import { execSetGoal, execListGoals, execUpdateGoal, execShowBriefing } from './tools/goals.js'
@@ -260,6 +260,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execBrowserRead(args, context)
       case 'browser_act':
         return await execBrowserAct(args, context)
+      case 'deep_research':
+        return await execDeepResearch(args, context)
       case 'search_memory':
         return await execSearchMemory(args)
       case 'probe_memory':

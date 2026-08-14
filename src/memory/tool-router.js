@@ -55,6 +55,13 @@ const TASK_CTRL_OPENER  = ['set_task']  // 没任务时只暴露 set_task
 // 无任务的临时成果，靠下面这组触发词 / find_tool 主动拉进来。
 const REVIEW_TOOLS      = ['review_work']
 
+// 深度研究：用户明确要"调研/研究/深度对比"时注入 deep_research（比单次搜索重，别常驻）
+const DEEP_RESEARCH_TOOLS = ['deep_research']
+const DEEP_RESEARCH_TRIGGERS = [
+  '调研', '研究一下', '深度研究', '深度调研', '查清楚', '全面了解', '系统了解一下',
+  '对比分析', '做个调研', '写个调研报告', 'deep research', 'deep research',
+]
+
 // WEB_TOOLS 由能力注册表提供（见顶部 import），并被 media / fallback 复用。WORLDCUP_TOOLS /
 // SOFTWARE_INSTALL_TOOLS 已随能力迁出本文件。
 const FILESYSTEM_TOOLS  = ['read_file', 'write_file', 'delete_file', 'list_dir', 'make_dir']
@@ -266,6 +273,7 @@ export const TOOL_GROUPS = [
   { triggers: MUSIC_GEN_TRIGGERS,    tools: [MM_GEN_TOOLS.music] },
   { triggers: IMAGE_GEN_TRIGGERS,    tools: [MM_GEN_TOOLS.image] },
   { triggers: REVIEW_TRIGGERS,       tools: REVIEW_TOOLS },
+  { triggers: DEEP_RESEARCH_TRIGGERS, tools: DEEP_RESEARCH_TOOLS },
 ]
 
 // 通用辅助：消息正文里是否含有给定触发词之一（lower-case 包含）。
@@ -448,6 +456,9 @@ export function selectTools(ctx = {}) {
   // 成果审视：有任务时已随 TASK_CTRL_FULL 注入；这里覆盖"无任务但用户明确要求检查/验收成果"的临时场景。
   if (hits(body, REVIEW_TRIGGERS)) {
     for (const t of REVIEW_TOOLS) out.add(t)
+  }
+  if (hits(body, DEEP_RESEARCH_TRIGGERS)) {
+    for (const t of DEEP_RESEARCH_TOOLS) out.add(t)
   }
   // Tick 不再因为"它是 Tick"就预先装载 web/filesystem/reminder/prefetch/hotspot。
   // 主模型先判断要做什么，再通过常驻 find_tool 加载所需能力。记忆和 cadence

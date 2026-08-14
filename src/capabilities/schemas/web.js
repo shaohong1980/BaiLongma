@@ -70,6 +70,23 @@ export const webSchemas = {
     }
   },
 
+  deep_research: {
+    type: 'function',
+    function: {
+      name: 'deep_research',
+      description: 'Run a structured deep-research pass on a topic: decompose the question into angles, search multiple sources, fetch the actual page content, and return grouped evidence with sources. Use when the user asks for thorough research, comparison, current info on a topic, or "调研/查一下/研究一下" something and a single search is not enough. The tool does the heavy lifting (multi-search + fetch + evidence collection) and returns structured evidence; YOU then write the final report/conclusion based on that evidence. Long evidence is saved to sandbox/research/ — read it via the report_path if you need the full detail.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The research question or topic, e.g. "2026年主流AI编程助手对比".' },
+          sources_per_angle: { type: 'number', description: 'Sources to fetch per search angle, default 3, max 6.' },
+          max_content: { type: 'number', description: 'Max content chars to keep per source, default 1200.' },
+        },
+        required: ['query']
+      }
+    }
+  },
+
   browser_act: {
     type: 'function',
     recognizer_highlights: ['title', 'url', 'screenshot_path'],

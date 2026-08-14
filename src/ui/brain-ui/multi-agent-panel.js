@@ -294,6 +294,49 @@ function toggleKanban(show) {
   if (show) loadKanban()
 }
 
+// 三省六部流水线实时过程 → 群聊式显示（每位臣工干活时冒泡）
+let currentPipelineTask = null
+function ensurePipelineStatus() {
+  const box = $('ma-messages')
+  if (box.querySelector('.ma-pipeline') && !box.querySelector('.ma-pipeline.done')) return
+  const s = document.createElement('div')
+  s.className = 'ma-msg ma-msg-hint ma-pipeline'
+  s.textContent = '⚙️ 三省六部流水线运行中（分拣→规划→审议→派发→执行→回奏）…'
+  box.appendChild(s)
+  box.scrollTop = box.scrollHeight
+}
+
+function renderEdictProgress(data) {
+  if (!data?.stage || !data?.agent) return
+  const box = $('ma-messages')
+  const isNewTask = data.taskId && data.taskId !== currentPipelineTask
+  if (isNewTask) {
+    currentPipelineTask = data.taskId
+    // 标记上一条流水线已结束
+    box.querySelectorAll('.ma-pipeline').forEach(el => { el.classList.add('done'); el.textContent += ' ✅' })
+  }
+  ensurePipelineStatus()
+  const div = document.createElement('div')
+  div.className = 'ma-msg ma-msg-pipeline'
+  const stageIcons = { '分拣': '🔀', '规划': '🗺️', '审议': '⚖️', '派发': '📮', '执行': '⚒️', '回奏': '📜', '异常': '⚠️' }
+  const icon = stageIcons[data.stage] || '·'
+  div.innerHTML = `<span class="ma-pipe-icon">${icon}</span><div class="ma-agent-msg-block"><span class="ma-agent-msg-name">${esc(data.stage)}·${esc(data.agent)}</span><div class="ma-bubble ma-pipe-bubble">${esc(String(data.content||'').slice(0, 200))}</div></div>`
+  box.appendChild(div)
+  box.scrollTop = box.scrollHeight
+}
+
+function renderEdictDone(data) {
+  if (!data?.id) return
+  const box = $('ma-messages')
+  box.querySelectorAll('.ma-pipeline').forEach(el => { el.classList.add('done'); if (!el.textContent.includes('✅')) el.textContent += ' ✅' })
+  const label = { done: '✅ 已完成', rejected: '❌ 已封驳', cancelled: '⛔ 已取消', paused: '⏸ 已暂停', error: '⚠️ 异常' }[data.status] || data.status
+  const div = document.createElement('div')
+  div.className = 'ma-msg ma-msg-hint'
+  div.textContent = `【${data.id}】${label}`
+  box.appendChild(div)
+  box.scrollTop = box.scrollHeight
+}
+
 export function initMultiAgentPanel() {
   $('multiagent-exit')?.addEventListener('click', () => { $('multiagent-panel').hidden = true })
   $('ma-send')?.addEventListener('click', bossSpeak)
@@ -312,6 +355,9 @@ export function initMultiAgentPanel() {
     localStorage.setItem('bailongma-junjichu-voice', voiceOn ? '1' : '0')
     syncVoiceBtn()
   })
+  // 流水线实时过程 + 完成事件
+  window.addEventListener('bailongma:edict-progress', (e) => renderEdictProgress(e.detail || {}))
+  window.addEventListener('bailongma:edict-task', (e) => renderEdictDone(e.detail || {}))
   syncVoiceBtn()
   loadAgents()
   loadRoom()
@@ -335,16 +381,29 @@ async function endMeeting() {
   box.scrollTop = box.scrollHeight
 }
 
+// 军机处语音：打开时接管空格 PTT 的识别文本（发到军机处而非主聊天）
+window.__junjichuVoice = (text) => {
+  const input = $('ma-input')
+  if (input) {
+    input.value = String(text || '')
+    bossSpeak()
+    return true
+  }
+  return false
+}
+
 export function openMultiAgentPanel() {
   const panel = $('multiagent-panel')
   if (!panel) return
   panel.hidden = false
+  window.__junjichuActive = true
   if (!agents.length) loadAgents()
   loadRoom()
 }
 export function closeMultiAgentPanel() {
   const panel = $('multiagent-panel')
   if (panel) panel.hidden = true
+  window.__junjichuActive = false
 }
 export function refreshJunjichuKanban() {
   if ($('ma-kanban') && !$('ma-kanban').hidden) loadKanban()

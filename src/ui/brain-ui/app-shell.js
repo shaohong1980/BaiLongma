@@ -1208,7 +1208,7 @@ const createMultiAgentPanel = () => `
   <!-- 董事长发言区 -->
   <div class="ma-input-row">
     <span class="ma-boss-tag">👑 皇上</span>
-    <textarea id="ma-input" rows="1" placeholder="下旨：… 或点名某位臣工，如「工部尚书，出个架构」「白龙马，统筹一下」"></textarea>
+    <textarea id="ma-input" rows="1" placeholder="下旨：… 或点名某位臣工 · 也可按住空格直接说话"></textarea>
     <button id="ma-send" type="button" title="发旨（点名者响应）">下旨</button>
   </div>
 

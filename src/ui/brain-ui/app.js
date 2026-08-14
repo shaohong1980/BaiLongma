@@ -1506,8 +1506,13 @@ function handle({ type, data = {} }) {
       else openMultiAgentPanel();
       break;
     case "edict_task":
-      // 军机处任务状态变化 → 刷新看板（若已打开）
+      // 军机处任务状态变化 → 刷新看板（若已打开）+ 通知面板显示完成
       refreshJunjichuKanban();
+      window.dispatchEvent(new CustomEvent("bailongma:edict-task", { detail: data }));
+      break;
+    case "edict_progress":
+      // 三省六部流水线每步进度 → 像群聊一样实时显示
+      window.dispatchEvent(new CustomEvent("bailongma:edict-progress", { detail: data }));
       break;
     case "doc_panel_mode":
       setDocPanelMode(!!data.active || data.action === "open", { topicId: data.topic || null, source: "agent_event" });
@@ -4464,7 +4469,13 @@ initVoicePanel({
   transcriptId: "voice-transcript",
   getChatInput:  () => document.getElementById("msg-input"),
   getSendBtn:    () => document.getElementById("send-btn"),
-  getSendMessage: (options) => chat?.send?.(options),
+  getSendMessage: (options) => {
+    // 军机处打开时，语音识别文本直接发给军机处（不是主聊天）
+    if (window.__junjichuActive && typeof window.__junjichuVoice === "function") {
+      return window.__junjichuVoice(options?.text || '')
+    }
+    return chat?.send?.(options);
+  },
   getLang:       () => localStorage.getItem("bailongma-voice-lang") || "zh-CN",
   getAutoSend:   () => localStorage.getItem("bailongma-voice-auto-send") !== "false",
   getAutoMic:    () => localStorage.getItem("bailongma-voice-auto-mic") === "true",

@@ -41,6 +41,14 @@ function log(t, stage, agent, content) {
   t.log.push({ stage, agent, content: String(content || '').slice(0, 2000), ts: new Date().toISOString() })
   t.updated_at = new Date().toISOString()
   save()
+  // 实时推给前端军机处，像群聊一样显示每位臣工的干活过程
+  try {
+    emitEvent('edict_progress', {
+      taskId: t.id, stage, agent,
+      content: String(content || '').slice(0, 300),
+      status: t.status, ts: new Date().toISOString(),
+    })
+  } catch {}
 }
 function setStatus(t, status) {
   t.status = status; t.updated_at = new Date().toISOString(); save()

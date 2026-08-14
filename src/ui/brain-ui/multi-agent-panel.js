@@ -30,13 +30,13 @@ async function loadAgents() {
 
 function renderSeats() {
   const seats = $('ma-seats')
-  seats.innerHTML = `<div class="ma-seats-label">在座的数字员工</div>` +
+  seats.innerHTML = `<span class="ma-seats-label">👥 在座成员（点击头像配置）</span>` +
     agents.map(a => `
-      <div class="ma-seat" data-id="${esc(a.id)}" title="${esc(a.name)} · ${esc(a.role)} · 点击配置">
+      <div class="ma-seat" data-id="${esc(a.id)}" title="${esc(a.name)} · ${esc(a.role)} · ${esc(a.engine)}引擎 · 点击配置">
         <span class="ma-seat-avatar" style="--ac:${esc(a.color)};background-image:${a.avatar_image ? `url('${esc(a.avatar_image)}')` : 'none'}">${a.avatar_image ? '' : esc(a.avatar)}</span>
+        <span class="ma-seat-online"></span>
         <span class="ma-seat-name">${esc(a.name)}</span>
         <span class="ma-seat-role">${esc(a.role)}</span>
-        <span class="ma-seat-engine" title="引擎:${esc(a.engine)}">${esc(a.engine)}</span>
       </div>`).join("")
   seats.querySelectorAll("[data-id]").forEach(el => el.addEventListener("click", () => openConfig(el.dataset.id)))
 }
@@ -56,24 +56,39 @@ async function loadRoom() {
   } catch { box.innerHTML = '<div class="ma-empty">会议室加载失败</div>' }
 }
 
+function fmtTime(ts) {
+  if (!ts) return ''
+  try {
+    const d = new Date(ts)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  } catch { return '' }
+}
+
 function renderRoomMsg(m) {
   const box = $('ma-messages')
   if (m.role === 'boss') {
     const div = document.createElement('div')
     div.className = 'ma-msg ma-msg-boss'
-    div.innerHTML = `<span class="ma-boss-label">老板</span><div class="ma-bubble">${esc(m.content)}</div>`
+    div.innerHTML = `
+      <div class="ma-boss-block">
+        <span class="ma-boss-label">👑 董事长</span><span class="ma-time">${fmtTime(m.ts)}</span>
+        <div class="ma-bubble">${esc(m.content)}</div>
+      </div>`
     box.appendChild(div)
   } else {
     const agent = agents.find(a => a.id === m.agentId)
     const avatar = (m.avatar || agent?.avatar || '🤖')
     const image = (agent?.avatar_image || '')
     const color = agent?.color || '#888'
+    const roleLabel = agent?.role || m.role || ''
     const div = document.createElement('div')
     div.className = 'ma-msg ma-msg-agent'
     div.innerHTML = `
       <span class="ma-bubble-avatar" style="--ac:${esc(color)};background-image:${image ? `url('${esc(image)}')` : 'none'}">${image ? '' : esc(avatar)}</span>
       <div class="ma-agent-msg-block">
         <span class="ma-agent-msg-name">${esc(m.agentName || '员工')}</span>
+        <span class="ma-agent-msg-role" style="--ac:${esc(color)}">${esc(roleLabel)}</span>
+        <span class="ma-time">${fmtTime(m.ts)}</span>
         <div class="ma-bubble">${esc(m.content)}</div>
       </div>`
     box.appendChild(div)
@@ -88,7 +103,7 @@ async function bossSpeak() {
   if (!text) return
   speaking = true
   input.value = ''
-  renderRoomMsg({ role: 'boss', content: text })
+  renderRoomMsg({ role: 'boss', content: text, ts: new Date().toISOString() })
   const loading = document.createElement('div')
   loading.className = 'ma-msg ma-msg-agent'
   loading.innerHTML = `<span class="ma-bubble-avatar">⏳</span><div class="ma-agent-msg-block"><span class="ma-agent-msg-name">在座的员工</span><div class="ma-bubble">（思考中…）</div></div>`
@@ -193,8 +208,27 @@ export function initMultiAgentPanel() {
   $('ma-config-save')?.addEventListener('click', saveConfig)
   $('ma-config-task')?.addEventListener('click', assignTaskFromConfig)
   $('cfg-engine')?.addEventListener('change', syncEngineFields)
+  $('ma-end-meet')?.addEventListener('click', endMeeting)
   loadAgents()
   loadRoom()
+}
+
+// 结束会议：写入终止标记 + 重置会议室
+async function endMeeting() {
+  const box = $('ma-messages')
+  const close = document.createElement('div')
+  close.className = 'ma-msg ma-msg-hint'
+  close.textContent = '【集团全部任务已闭环，本次虚拟办公室会议正式结束】'
+  box.appendChild(close)
+  try { await api('/room/reset', { method: 'POST' }) } catch {}
+  const roundEl = $('ma-round')
+  if (roundEl) roundEl.textContent = '轮次 0/20'
+  // 提示重新开会
+  const tip = document.createElement('div')
+  tip.className = 'ma-msg ma-msg-hint'
+  tip.textContent = '会议室已归档重置。有新的任务就说「主持人，开会：…」'
+  box.appendChild(tip)
+  box.scrollTop = box.scrollHeight
 }
 
 export function openMultiAgentPanel() {

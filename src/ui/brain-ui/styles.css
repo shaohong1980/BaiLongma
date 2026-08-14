@@ -1854,6 +1854,23 @@ body {
 .ma-config-task { margin-right: auto !important; color: var(--warm); }
 .ma-config-task:hover { border-color: var(--warm) !important; background: color-mix(in srgb, var(--warm) 12%, transparent); }
 .ma-round { margin-left: auto; font-size: 10px; color: var(--dim); font-family: monospace; background: color-mix(in srgb, var(--line-strong) 45%, transparent); padding: 3px 9px; border-radius: 6px; }
+.ma-end-meet { background: transparent; border: 1px solid var(--line-strong); color: var(--warm); font-size: 11px; padding: 4px 10px; border-radius: 7px; cursor: pointer; font-family: inherit; transition: border-color 0.18s ease, background 0.18s ease; }
+.ma-end-meet:hover { border-color: var(--warm); background: color-mix(in srgb, var(--warm) 14%, transparent); }
+.ma-seat-online { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: #45ddb1; border: 2px solid var(--bg-deep); box-shadow: 0 0 6px rgba(69, 221, 177, 0.8); }
+.ma-seat { position: relative; }
+.ma-time { font-size: 9px; color: var(--dim); font-family: monospace; margin-left: 4px; }
+.ma-boss-block { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.ma-boss-label { font-size: 10px; color: var(--warm); font-weight: 700; }
+.ma-agent-msg-block { display: flex; flex-direction: column; gap: 1px; align-items: flex-start; }
+.ma-agent-msg-name { font-size: 10px; font-weight: 700; color: var(--ink); }
+.ma-agent-msg-role { font-size: 8px; color: var(--ac, var(--cool)); font-family: monospace; border: 1px solid color-mix(in srgb, var(--ac, var(--cool)) 40%, transparent); border-radius: 4px; padding: 0 5px; }
+.ma-agent-msg-name, .ma-agent-msg-role { display: inline; }
+.ma-msg-boss { align-self: flex-end; }
+.ma-msg-agent { align-self: flex-start; }
+.ma-msg { align-items: flex-end; }
+.ma-msg-boss .ma-bubble { background: color-mix(in srgb, var(--warm) 14%, var(--panel)); border-color: color-mix(in srgb, var(--warm) 35%, transparent); }
+.ma-msg-agent .ma-bubble { background: color-mix(in srgb, var(--panel) 62%, transparent); }
+.ma-messages { background: color-mix(in srgb, var(--bg-deep) 40%, transparent); }
 .ma-config-body textarea { background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 7px; color: var(--ink); font-size: 12px; padding: 7px 9px; outline: none; font-family: inherit; resize: vertical; min-height: 60px; }
 .ma-config-body textarea:focus { border-color: var(--cool); }
 

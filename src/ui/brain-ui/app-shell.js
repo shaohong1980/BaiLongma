@@ -1170,31 +1170,33 @@ const createPanelTabs = () => `
 <button id="panel-l2-tab" class="panel-tab panel-tab-right" aria-label="切换右面板" title="切换右面板 ] "></button>
 `;
 
-// 多 Agent 会议室（数字员工）：所有 Agent 在座有形象；老板发言全员可听，点名某位才响应。
+// 多 Agent 虚拟集团会议室（群聊风格）：顶部成员头像，消息气泡带形象/名字/角色，董事长发言靠右。
 const createMultiAgentPanel = () => `
 <div class="multiagent-panel" id="multiagent-panel" hidden>
+  <!-- 顶部：会议室标题 + 成员 + 轮次 + 控制 -->
   <div class="multiagent-head">
-    <span class="multiagent-title">🏢 会议室</span>
-    <span class="multiagent-subtitle">你是董事长 · 发言全员可听 · 点名某位（如"主持人，开会：…""白龙马，怎么看"）他才回应</span>
+    <span class="multiagent-title">🏢 虚拟集团办公室</span>
     <span class="ma-round" id="ma-round" title="会议轮次（上限20）">轮次 0/20</span>
+    <button class="ma-end-meet" id="ma-end-meet" type="button" title="结束会议">结束会议</button>
     <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭会议室">×</button>
   </div>
-  <div class="multiagent-body">
-    <!-- 在座的数字员工（形象） -->
-    <div class="ma-seats" id="ma-seats">
-      <div class="ma-seats-hint">员工就座中…</div>
-    </div>
-    <!-- 会议室对话流 -->
-    <div class="ma-messages" id="ma-messages"></div>
-    <!-- 老板发言区 -->
-    <div class="ma-input-row">
-      <span class="ma-boss-tag">老板</span>
-      <textarea id="ma-input" rows="1" placeholder="对会议室说话… 可点名如「林策，你怎么看」「让架构师设计」"></textarea>
-      <button id="ma-send" type="button" title="发言（全员可听，点名者响应）">发言</button>
-    </div>
+
+  <!-- 在座成员（群头像） -->
+  <div class="ma-seats" id="ma-seats">
+    <div class="ma-seats-hint">员工就座中…</div>
   </div>
 
-  <!-- Agent 配置弹层：形象 / 语音 / 引擎 / 大模型 -->
+  <!-- 会议对话流 -->
+  <div class="ma-messages" id="ma-messages"></div>
+
+  <!-- 董事长发言区 -->
+  <div class="ma-input-row">
+    <span class="ma-boss-tag">👑 董事长</span>
+    <textarea id="ma-input" rows="1" placeholder="对会议室说话… 例如「主持人，开会：…」「Claude Code，出个架构」"></textarea>
+    <button id="ma-send" type="button" title="发言（点名者响应）">发言</button>
+  </div>
+
+  <!-- Agent 配置弹层 -->
   <div class="ma-config-overlay" id="ma-config-overlay" hidden>
     <div class="ma-config-modal">
       <div class="ma-config-head">

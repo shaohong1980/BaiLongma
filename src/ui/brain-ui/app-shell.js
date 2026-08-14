@@ -1177,6 +1177,7 @@ const createMultiAgentPanel = () => `
   <div class="multiagent-head">
     <span class="multiagent-title">🏢 虚拟集团办公室</span>
     <span class="ma-round" id="ma-round" title="会议轮次（上限20）">轮次 0/20</span>
+    <button class="ma-kanban-toggle" id="ma-kanban-toggle" type="button" title="军机处任务看板">📜 军机处</button>
     <button class="ma-end-meet" id="ma-end-meet" type="button" title="结束会议">结束会议</button>
     <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭会议室">×</button>
   </div>
@@ -1184,6 +1185,19 @@ const createMultiAgentPanel = () => `
   <!-- 在座成员（群头像） -->
   <div class="ma-seats" id="ma-seats">
     <div class="ma-seats-hint">员工就座中…</div>
+  </div>
+
+  <!-- 军机处看板：任务状态可视化 + 奏折审计 + 干预 -->
+  <div class="ma-kanban" id="ma-kanban" hidden>
+    <div class="ma-kanban-head">
+      <span class="ma-kanban-title">📜 军机处看板</span>
+      <span class="ma-kanban-hint">下旨：在发言框说「下旨：…」或点这里</span>
+      <button class="ma-kanban-refresh" id="ma-kanban-refresh" type="button">刷新</button>
+      <button class="ma-kanban-close" id="ma-kanban-close" type="button">×</button>
+    </div>
+    <div class="ma-kanban-body" id="ma-kanban-body">
+      <div class="ma-kanban-empty">暂无任务。说「下旨：做一个XX系统」启动三省六部流水线。</div>
+    </div>
   </div>
 
   <!-- 会议对话流 -->

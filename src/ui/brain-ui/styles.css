@@ -1853,6 +1853,41 @@ body {
 .ma-config-save { background: color-mix(in srgb, var(--cool) 24%, transparent) !important; font-weight: 600; }
 .ma-config-task { margin-right: auto !important; color: var(--warm); }
 .ma-config-task:hover { border-color: var(--warm) !important; background: color-mix(in srgb, var(--warm) 12%, transparent); }
+/* 军机处看板 */
+.ma-kanban-toggle { background: transparent; border: 1px solid var(--line-strong); color: var(--ink2); font-size: 11px; padding: 4px 10px; border-radius: 7px; cursor: pointer; font-family: inherit; transition: border-color 0.18s ease, color 0.18s ease; }
+.ma-kanban-toggle:hover { color: var(--ink); border-color: var(--cool); }
+.ma-kanban { border-bottom: 1px solid var(--line); max-height: 36vh; overflow-y: auto; background: color-mix(in srgb, var(--bg-deep) 55%, transparent); }
+.ma-kanban[hidden] { display: none; }
+.ma-kanban-head { display: flex; align-items: center; gap: 10px; padding: 8px 18px; position: sticky; top: 0; background: color-mix(in srgb, var(--bg-deep) 92%, transparent); z-index: 1; }
+.ma-kanban-title { font-size: 12px; font-weight: 700; color: var(--ink); }
+.ma-kanban-hint { font-size: 10px; color: var(--dim); }
+.ma-kanban-refresh, .ma-kanban-close { margin-left: auto; background: transparent; border: 1px solid var(--line); color: var(--dim); font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; font-family: inherit; }
+.ma-kanban-refresh { margin-left: auto; }
+.ma-kanban-close { margin-left: 4px; }
+.ma-kanban-refresh:hover, .ma-kanban-close:hover { color: var(--ink); border-color: var(--cool); }
+.ma-kanban-body { padding: 8px 18px 12px; display: flex; flex-direction: column; gap: 8px; }
+.ma-kanban-empty { color: var(--dim); font-size: 11px; padding: 10px 0; text-align: center; }
+.ma-task-card { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; background: color-mix(in srgb, var(--panel) 55%, transparent); }
+.ma-task-top { display: flex; align-items: center; gap: 8px; }
+.ma-task-id { font-size: 9px; color: var(--dim); font-family: monospace; }
+.ma-task-status { font-size: 9px; font-weight: 700; padding: 1px 7px; border-radius: 5px; }
+.st-pending { color: var(--dim); background: color-mix(in srgb, var(--line-strong) 40%, transparent); }
+.st-planning, .st-review { color: var(--cool); background: color-mix(in srgb, var(--cool) 16%, transparent); }
+.st-executing, .st-paused { color: var(--warm); background: color-mix(in srgb, var(--warm) 16%, transparent); }
+.st-done { color: #45ddb1; background: color-mix(in srgb, #45ddb1 16%, transparent); }
+.st-rejected, .st-cancelled, .st-error { color: #e57373; background: color-mix(in srgb, #e57373 16%, transparent); }
+.ma-task-title { font-size: 12px; color: var(--ink); margin-top: 5px; line-height: 1.5; word-break: break-word; }
+.ma-task-meta { font-size: 9px; color: var(--dim); margin-top: 3px; font-family: monospace; }
+.ma-task-actions { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.ma-task-actions button { background: transparent; border: 1px solid var(--line); color: var(--dim); font-size: 10px; padding: 3px 8px; border-radius: 6px; cursor: pointer; font-family: inherit; transition: border-color 0.18s ease, color 0.18s ease; }
+.ma-task-actions button:hover { color: var(--ink); border-color: var(--cool); }
+.ma-ta-rev[data-pass="true"]:hover { border-color: #45ddb1; color: #45ddb1; }
+.ma-ta-rev[data-pass="false"]:hover { border-color: #e57373; color: #e57373; }
+.ma-task-log { margin-top: 6px; padding: 7px 9px; border-left: 2px solid var(--line-strong); background: color-mix(in srgb, var(--panel) 45%, transparent); border-radius: 6px; display: flex; flex-direction: column; gap: 5px; }
+.ma-task-log[hidden] { display: none; }
+.ma-log-line { font-size: 10px; color: var(--ink2); }
+.ma-log-line b { color: var(--cool); font-weight: 600; margin-right: 6px; }
+.ma-log-empty { font-size: 10px; color: var(--dim); }
 .ma-round { margin-left: auto; font-size: 10px; color: var(--dim); font-family: monospace; background: color-mix(in srgb, var(--line-strong) 45%, transparent); padding: 3px 9px; border-radius: 6px; }
 .ma-end-meet { background: transparent; border: 1px solid var(--line-strong); color: var(--warm); font-size: 11px; padding: 4px 10px; border-radius: 7px; cursor: pointer; font-family: inherit; transition: border-color 0.18s ease, background 0.18s ease; }
 .ma-end-meet:hover { border-color: var(--warm); background: color-mix(in srgb, var(--warm) 14%, transparent); }

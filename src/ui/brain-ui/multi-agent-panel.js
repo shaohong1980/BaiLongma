@@ -104,6 +104,25 @@ async function bossSpeak() {
   speaking = true
   input.value = ''
   renderRoomMsg({ role: 'boss', content: text, ts: new Date().toISOString() })
+  // 下旨/立项 → 走三省六部流水线
+  if (/^(下旨|立项|发布任务|开个项目|启动项目)[:：\s]/.test(text)) {
+    const loading = document.createElement('div')
+    loading.className = 'ma-msg ma-msg-hint'
+    loading.textContent = '⚙️ 已接旨，三省六部流水线启动（分拣→规划→审议→派发→执行→回奏）…'
+    $('ma-messages').appendChild(loading)
+    try {
+      const data = await api('/task', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: text.replace(/^(下旨|立项|发布任务|开个项目|启动项目)[:：\s]+/, '') }) })
+      loading.textContent = ''
+      const t = data.task
+      loading.className = 'ma-msg ma-msg-hint'
+      loading.textContent = `✅ ${t.id} 状态：${STATUS_LABEL[t.status] || t.status}${t.status === 'rejected' ? '（' + (t.review?.note || '被封驳') + '）' : ''}。点「📜 军机处」看完整奏折。`
+      if (t.status === 'done') renderRoomMsg({ role: 'agent', agentId: 'gm', agentName: '回奏', content: (t.report || '').slice(0, 400) })
+    } catch (err) { loading.textContent = '下旨失败：' + err.message }
+    $('ma-messages').scrollTop = $('ma-messages').scrollHeight
+    if (!$('ma-kanban').hidden) loadKanban()
+    speaking = false
+    return
+  }
   const loading = document.createElement('div')
   loading.className = 'ma-msg ma-msg-agent'
   loading.innerHTML = `<span class="ma-bubble-avatar">⏳</span><div class="ma-agent-msg-block"><span class="ma-agent-msg-name">在座的员工</span><div class="ma-bubble">（思考中…）</div></div>`
@@ -199,6 +218,70 @@ async function assignTaskFromConfig() {
   } catch (err) { alert('布置失败：' + err.message) }
 }
 
+// ── 军机处看板 ──
+const STATUS_LABEL = { pending: '待分拣', planning: '规划中', review: '审议中', executing: '执行中', done: '已完成', rejected: '已封驳', cancelled: '已取消', paused: '已暂停', error: '异常' }
+
+async function loadKanban() {
+  const body = $('ma-kanban-body')
+  if (!body) return
+  try {
+    const data = await api('/task')
+    const tasks = data.tasks || []
+    body.innerHTML = ''
+    if (!tasks.length) { body.innerHTML = '<div class="ma-kanban-empty">暂无任务。说「下旨：做一个XX系统」启动三省六部流水线。</div>'; return }
+    tasks.forEach(t => body.appendChild(renderTaskCard(t)))
+  } catch { body.innerHTML = '<div class="ma-kanban-empty">看板加载失败</div>' }
+}
+
+function renderTaskCard(t) {
+  const card = document.createElement('div')
+  card.className = 'ma-task-card'
+  const status = t.status || 'pending'
+  card.innerHTML = `
+    <div class="ma-task-top">
+      <span class="ma-task-id">${esc(t.id)}</span>
+      <span class="ma-task-status st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>
+    </div>
+    <div class="ma-task-title">${esc(t.content)}</div>
+    <div class="ma-task-meta">${t.domain ? '分拣:' + esc(t.domain) + ' · ' : ''}执行:${esc(t.executor || '待派发')}</div>
+    <div class="ma-task-log" hidden></div>
+    <div class="ma-task-actions">
+      <button class="ma-ta-toggle" type="button">📜 奏折</button>
+      ${t.status === 'paused' ? '<button class="ma-ta-ctl" data-ctl="resume" type="button">恢复</button>' : ''}
+      ${t.status === 'executing' ? '<button class="ma-ta-ctl" data-ctl="pause" type="button">暂停</button>' : ''}
+      ${['pending','planning','review','executing','paused'].includes(t.status) ? '<button class="ma-ta-ctl" data-ctl="cancel" type="button">取消</button>' : ''}
+      ${t.status === 'review' ? '<button class="ma-ta-rev" data-pass="true" type="button">通过</button><button class="ma-ta-rev" data-pass="false" type="button">封驳</button>' : ''}
+    </div>`
+  // 奏折展开
+  card.querySelector('.ma-ta-toggle').addEventListener('click', () => {
+    const logEl = card.querySelector('.ma-task-log')
+    if (logEl.hidden) {
+      logEl.innerHTML = (t.log || []).map(e => `<div class="ma-log-line"><b>${esc(e.stage)}·${esc(e.agent)}</b><span>${esc(String(e.content||'').slice(0, 180))}</span></div>`).join('') || '<div class="ma-log-empty">（无记录）</div>'
+      logEl.hidden = false
+    } else logEl.hidden = true
+  })
+  // 干预
+  card.querySelectorAll('.ma-ta-ctl').forEach(btn => btn.addEventListener('click', async () => {
+    await api(`/task/${t.id}/control`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: btn.dataset.ctl }) })
+    loadKanban()
+  }))
+  // 审议
+  card.querySelectorAll('.ma-ta-rev').forEach(btn => btn.addEventListener('click', async () => {
+    const pass = btn.dataset.pass === 'true'
+    const note = pass ? '' : prompt('封驳理由：') || ''
+    await api(`/task/${t.id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, note }) })
+    loadKanban()
+  }))
+  return card
+}
+
+function toggleKanban(show) {
+  const kb = $('ma-kanban')
+  if (!kb) return
+  kb.hidden = !show
+  if (show) loadKanban()
+}
+
 export function initMultiAgentPanel() {
   $('multiagent-exit')?.addEventListener('click', () => { $('multiagent-panel').hidden = true })
   $('ma-send')?.addEventListener('click', bossSpeak)
@@ -209,6 +292,9 @@ export function initMultiAgentPanel() {
   $('ma-config-task')?.addEventListener('click', assignTaskFromConfig)
   $('cfg-engine')?.addEventListener('change', syncEngineFields)
   $('ma-end-meet')?.addEventListener('click', endMeeting)
+  $('ma-kanban-toggle')?.addEventListener('click', () => toggleKanban($('ma-kanban').hidden))
+  $('ma-kanban-close')?.addEventListener('click', () => toggleKanban(false))
+  $('ma-kanban-refresh')?.addEventListener('click', loadKanban)
   loadAgents()
   loadRoom()
 }

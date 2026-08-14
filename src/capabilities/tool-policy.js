@@ -52,6 +52,7 @@ const TOOL_RISK = {
   web_search: 'high',
   fetch_url: 'high',
   browser_read: 'high',
+  browser_act: 'high',
   speak: 'high',
   generate_lyrics: 'high',
   generate_music: 'high',

@@ -32,7 +32,7 @@ import { buildWeatherRuntimeContext } from '../weather.js'
 import { listApiSlotCapabilities } from './api-slots.js'
 
 // ---- 已迁能力的工具名数组（本模块为唯一定义处；tool-router 从这里 import）----
-export const WEB_TOOLS = ['web_search', 'fetch_url', 'browser_read']
+export const WEB_TOOLS = ['web_search', 'fetch_url', 'browser_read', 'browser_act']
 export const HOTSPOT_TOOLS = ['hotspot_mode']
 // 世界杯模式打开面板即可（赛况数据由 prefeed 注入上下文）；追问细节（首发名单/射手榜等）
 // 要联网，所以 WEB_TOOLS 一并带上。

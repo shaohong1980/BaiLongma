@@ -69,4 +69,32 @@ export const webSchemas = {
       }
     }
   },
+
+  browser_act: {
+    type: 'function',
+    recognizer_highlights: ['title', 'url', 'screenshot_path'],
+    function: {
+      name: 'browser_act',
+      description: 'Drive a real interactive browser session (Playwright Chromium) for multi-step tasks that need actual page interaction: navigate, click, fill forms, press keys, select dropdowns, wait, take screenshots, and read the current page. The session PERSISTS across calls, so you can navigate → click → fill → read progressively (e.g. login, fill a form, click through pagination, take screenshots). Use when a task needs real page interaction that fetch_url/browser_read cannot do. After each action it returns a snapshot of the current page (title, url, visible text, interactive elements). End with action=close when the task is done. Do NOT navigate to non-http(s) URLs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['navigate', 'click', 'fill', 'press', 'select', 'wait', 'screenshot', 'snapshot', 'close'],
+            description: 'navigate opens a URL; click clicks an element by CSS selector; fill sets a form field value; press sends a keyboard key (Enter/Tab/Escape/...); select chooses a dropdown option; wait sleeps milliseconds; screenshot saves a PNG to the sandbox; snapshot returns current page state; close ends the browser session.'
+          },
+          url: { type: 'string', description: 'For navigate: the http(s) URL to open.' },
+          selector: { type: 'string', description: 'For click/fill/select: CSS selector of the target element, e.g. "#login-email", "button[type=submit]", "input[name=q]".' },
+          value: { type: 'string', description: 'For fill: the text to type into the field. For select: the option value to choose.' },
+          key: { type: 'string', description: 'For press: the keyboard key, e.g. Enter, Tab, Escape, ArrowDown.' },
+          wait_ms: { type: 'number', description: 'For wait: milliseconds to wait before snapshotting (max 30000).' },
+          screenshot_name: { type: 'string', description: 'For screenshot: optional base filename (without extension). Saved under sandbox/screenshots/.' },
+          max_chars: { type: 'number', description: 'Optional max visible-text characters in the returned snapshot, default 4000.' },
+          timeout_ms: { type: 'number', description: 'Optional per-action timeout in ms, default 20000, max 45000.' }
+        },
+        required: ['action']
+      }
+    }
+  },
 }

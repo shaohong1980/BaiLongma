@@ -5,9 +5,11 @@ import {
   memoryExistsByMemId,
   getMemoryByMemId,
   hideMemoryByMemId,
+  searchByEmbedding,
 } from '../../db.js'
 import { emitEvent } from '../../events.js'
 import { extractKeywords } from '../../memory/keywords.js'
+import { computeEmbedding } from '../../embedding.js'
 import { findFactContradiction, applyDialecticCorrection } from '../../memory/profile-dialectic.js'
 
 // search_memory：批量按关键词检索记忆。
@@ -42,6 +44,60 @@ export async function execSearchMemory(args = {}) {
   }
 
   return '错误：未提供 keywords 或 keyword'
+}
+
+// ask_memory：记忆主动问答（P1-3）。用自然语言提问，关键词 + 语义双路召回，
+// 返回结构化证据，由主 Agent 据此回答——比单纯注入上下文更能主动"回忆"。
+export async function execAskMemory(args = {}) {
+  const query = String(args.query || args.question || '').trim()
+  if (!query) return JSON.stringify({ ok: false, error: 'query 必填，例如：我上个月说过什么关于XX？' })
+  const limit = Math.max(3, Math.min(Number(args.limit || 8), 15))
+
+  // 1. 关键词检索
+  let kwHits = []
+  try { kwHits = searchMemories(query, limit) } catch {}
+
+  // 2. 语义检索（若嵌入模型可用）
+  let vecHits = []
+  try {
+    const buffer = await computeEmbedding(query, { isQuery: true })
+    if (buffer) vecHits = searchByEmbedding(buffer, limit)
+  } catch {}
+
+  // 3. 合并去重（语义优先在前）
+  const seen = new Set()
+  const merged = []
+  for (const m of [...vecHits, ...kwHits]) {
+    const key = m.mem_id || m.id
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(m)
+  }
+  merged.sort((a, b) => (b.salience || 0) - (a.salience || 0) || String(b.timestamp).localeCompare(String(a.timestamp)))
+
+  const top = merged.slice(0, limit)
+  if (!top.length) {
+    return JSON.stringify({
+      ok: true, count: 0, answer_evidence: [],
+      guidance: '没有在记忆里找到相关信息。可基于常识回答，但要明说"记忆里没有"，不要假装记得。',
+    }, null, 2)
+  }
+
+  return JSON.stringify({
+    ok: true,
+    query,
+    count: top.length,
+    answer_evidence: top.map(m => ({
+      id: m.mem_id || m.id,
+      type: m.event_type,
+      title: m.title || '',
+      content: String(m.content || ''),
+      detail: String(m.detail || '').slice(0, 200),
+      time: m.timestamp || '',
+      salience: m.salience || 0,
+    })),
+    guidance: '基于 answer_evidence 回答用户的问题；若证据互相矛盾要指出矛盾；证据不足就明说记忆里没有。回答时可提及"我记得/你之前说过"，但要忠于证据内容。',
+  }, null, 2)
 }
 
 // upsert_memory：识别器调用，按 mem_id 批量 upsert。

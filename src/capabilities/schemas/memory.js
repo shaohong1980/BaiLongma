@@ -175,4 +175,20 @@ export const memorySchemas = {
       }
     }
   },
+
+  ask_memory: {
+    type: 'function',
+    function: {
+      name: 'ask_memory',
+      description: 'Ask a natural-language question against your own memory and get structured evidence (keyword + semantic dual retrieval). Use when the user asks "还记得…吗", "我以前说过…", "我上次…", or any question where the answer may live in your past memories about this user or your experiences. Returns answer_evidence (matched memories) plus guidance; answer the user based on that evidence, and say honestly if the memory has nothing relevant.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The natural-language question to look up in memory, e.g. "我上个月说过想学什么？".' },
+          limit: { type: 'number', description: 'Max evidence items, default 8.' },
+        },
+        required: ['query']
+      }
+    }
+  },
 }

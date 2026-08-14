@@ -30,7 +30,7 @@ import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile }
 import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
 import { execBrowserRead, execBrowserAct, execDeepResearch, execFetchUrl, execWebSearch } from './tools/web.js'
-import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory } from './tools/memory.js'
+import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory, execAskMemory } from './tools/memory.js'
 import { execManageReminder } from './tools/reminders.js'
 import { execSetGoal, execListGoals, execUpdateGoal, execShowBriefing } from './tools/goals.js'
 import { execDeleteSkill, execImproveSkill, execLearnSkill, execListSkills, execViewSkill } from './tools/skills.js'
@@ -372,6 +372,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execReviewVerdict(args)
       case 'recall_memory':
         return await execRecallMemory(args, context)
+      case 'ask_memory':
+        return await execAskMemory(args)
       case 'install_tool':
         return await execInstallTool(args)
       case 'uninstall_tool':

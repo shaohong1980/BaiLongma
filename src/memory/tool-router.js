@@ -55,6 +55,14 @@ const TASK_CTRL_OPENER  = ['set_task']  // 没任务时只暴露 set_task
 // 无任务的临时成果，靠下面这组触发词 / find_tool 主动拉进来。
 const REVIEW_TOOLS      = ['review_work']
 
+// 记忆主动问答：用户问"还记得/以前说过/上次"等，注入 ask_memory
+const ASK_MEMORY_TOOLS = ['ask_memory']
+const ASK_MEMORY_TRIGGERS = [
+  '还记得', '记不记得', '以前说过', '之前说过', '上次说过', '我说过', '你说过',
+  '上次我们', '之前我们', '我上个月', '我之前', '我的记忆', '你记得吗',
+  'do you remember', 'remember when', 'what did i say',
+]
+
 // 角色/专家模式：用户要求"以某专家视角/用某角色"时注入 adopt_role
 const ROLE_TOOLS = ['adopt_role']
 const ROLE_TRIGGERS = [
@@ -285,6 +293,7 @@ export const TOOL_GROUPS = [
   { triggers: REVIEW_TRIGGERS,       tools: REVIEW_TOOLS },
   { triggers: DEEP_RESEARCH_TRIGGERS, tools: DEEP_RESEARCH_TOOLS },
   { triggers: ROLE_TRIGGERS,          tools: ROLE_TOOLS },
+  { triggers: ASK_MEMORY_TRIGGERS,    tools: ASK_MEMORY_TOOLS },
 ]
 
 // 通用辅助：消息正文里是否含有给定触发词之一（lower-case 包含）。
@@ -473,6 +482,9 @@ export function selectTools(ctx = {}) {
   }
   if (hits(body, ROLE_TRIGGERS)) {
     for (const t of ROLE_TOOLS) out.add(t)
+  }
+  if (hits(body, ASK_MEMORY_TRIGGERS)) {
+    for (const t of ASK_MEMORY_TOOLS) out.add(t)
   }
   // Tick 不再因为"它是 Tick"就预先装载 web/filesystem/reminder/prefetch/hotspot。
   // 主模型先判断要做什么，再通过常驻 find_tool 加载所需能力。记忆和 cadence

@@ -40,10 +40,10 @@ function buildMessages(agent, roomHistory, bossMessage, isTask = false) {
   return msgs
 }
 
-// 内部引擎：白龙马主模型 + 人格
+// 内部引擎：白龙马主模型 + 人格（输出放宽，避免长回复被截断）
 async function runInternal(agent, roomHistory, bossMessage, isTask) {
   const messages = buildMessages(agent, roomHistory, bossMessage, isTask)
-  return runSimpleCompletion({ messages, temperature: Number(agent.temperature) || 0.5, maxTokens: isTask ? 1600 : 1200 })
+  return runSimpleCompletion({ messages, temperature: Number(agent.temperature) || 0.5, maxTokens: isTask ? 3000 : 2500 })
 }
 
 // 自定义引擎：独立 OpenAI 兼容端点
@@ -57,7 +57,7 @@ async function runCustom(agent, roomHistory, bossMessage, isTask) {
     model: agent.model,
     messages,
     temperature: Number(agent.temperature) || 0.5,
-    max_tokens: isTask ? 1600 : 1200,
+    max_tokens: isTask ? 3000 : 2500,
   })
   return res?.choices?.[0]?.message?.content?.trim?.() || ''
 }
@@ -68,8 +68,8 @@ async function runCli(agent, roomHistory, bossMessage, isTask) {
   if (!cmd) throw new Error(`Agent ${agent.name} 的 cli 引擎缺少 cli_command 配置（如 claude -p "..."）`)
   const prompt = (isTask ? '【任务】' : '【对话】') + bossMessage
   const fullCmd = cmd.replace(/\{prompt\}/g, `"${prompt.replace(/"/g, '\\"')}"`)
-  const out = execFileSync(fullCmd, { shell: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024 })
-  return String(out || '').trim().slice(0, 4000) || '(该外部智能体未输出)'
+  const out = execFileSync(fullCmd, { shell: true, timeout: 180000, maxBuffer: 16 * 1024 * 1024 })
+  return String(out || '').trim().slice(0, 8000) || '(该外部智能体未输出)'
 }
 
 // 统一入口：按 Agent 的 engine 路由；cli/custom 失败时回退 internal，保证一定有响应

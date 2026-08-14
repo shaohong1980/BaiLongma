@@ -38,8 +38,8 @@ export async function execJunjichu(args = {}) {
     return toolJson({
       ok: true, tool: 'junjichu', action: 'edict', task_id: task.id, status: task.status,
       domain: task.domain, executor: task.executor,
-      report: String(task.report || '').slice(0, 800),
-      log: (task.log || []).map(e => `${e.stage}·${e.agent}: ${String(e.content || '').slice(0, 120)}`),
+      report: String(task.report || '').slice(0, 3000),
+      log: (task.log || []).map(e => `${e.stage}·${e.agent}: ${String(e.content || '').slice(0, 300)}`),
       hint: '三省六部流水线已完成，详情见军机处看板（奏折）。' + (task.status === 'rejected' ? ' 门下省封驳了此方案。' : ''),
     })
   }
@@ -53,7 +53,7 @@ export async function execJunjichu(args = {}) {
       const cfg = getAgentConfig(String(args.agent).toLowerCase())
       if (cfg) {
         const r = await assignTask(cfg.id, content)
-        return toolJson({ ok: true, tool: 'junjichu', action, agent: cfg.name, reply: String(r.reply || '').slice(0, 1000) })
+        return toolJson({ ok: true, tool: 'junjichu', action, agent: cfg.name, reply: String(r.reply || '').slice(0, 4000) })
       }
     }
     // 否则作为军机处发言（点名/推断）

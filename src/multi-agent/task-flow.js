@@ -38,14 +38,14 @@ export function resetTasks() {
   tasks = []; nextId = 1; persist()
 }
 function log(t, stage, agent, content) {
-  t.log.push({ stage, agent, content: String(content || '').slice(0, 2000), ts: new Date().toISOString() })
+  t.log.push({ stage, agent, content: String(content || '').slice(0, 4000), ts: new Date().toISOString() })
   t.updated_at = new Date().toISOString()
   save()
   // 实时推给前端军机处，像群聊一样显示每位臣工的干活过程
   try {
     emitEvent('edict_progress', {
       taskId: t.id, stage, agent,
-      content: String(content || '').slice(0, 300),
+      content: String(content || '').slice(0, 600),
       status: t.status, ts: new Date().toISOString(),
     })
   } catch {}
@@ -65,16 +65,23 @@ async function call(agentId, prompt, ctx) {
   return String(reply || '').trim() || '（该环节未返回内容）'
 }
 
-// 解析分类结果（太子分拣）：从文本里找 开发/技术/代码 或 教务/行政/文档
+// 解析分类结果（太子分拣）：从文本里找归属部堂
 function parseDomain(text) {
+  if (/财务|预算|成本|报表|投资|经济|税|钱粮/.test(text)) return 'finance'
+  if (/安全|风险|加固|运维|防护|漏洞|应急|防御/.test(text)) return 'security'
+  if (/合同|合规|法律|法务|条款|契约/.test(text)) return 'legal'
+  if (/人事|招聘|考核|组织|绩效|岗位|人力/.test(text)) return 'hr'
   if (/开发|技术|代码|系统|软件|程序|脚本|架构|机器人|企微|部署/.test(text)) return 'dev'
   if (/教务|行政|招生|课程|台账|制度|文档|文案|PPT|宣传|会议纪要/.test(text)) return 'admin'
   return 'mixed'
 }
+// 部堂 → 执行 Agent
+const DOMAIN_EXECUTOR = { dev: 'coder', admin: 'admin', finance: 'hubu', security: 'bingbu', legal: 'xingbu', hr: 'libu', mixed: 'coder' }
 function parseExecutor(text) {
-  if (/开发|技术|代码|系统|软件|程序|脚本|架构/.test(text)) return 'coder'
-  if (/教务|行政|招生|课程|台账|制度|文档|文案|PPT/.test(text)) return 'admin'
-  return 'coder'
+  return DOMAIN_EXECUTOR[parseDomain(text)] || 'coder'
+}
+function domainLabel(domain) {
+  return { dev: '工部·技术', admin: '礼部·教务', finance: '户部·财务', security: '兵部·安全', legal: '刑部·法务', hr: '吏部·人事', mixed: '综合' }[domain] || domain
 }
 function parseVerdict(text) {
   if (/通过|批准|同意|合格|approve|ok|可以/.test(text)) return { pass: true }
@@ -103,7 +110,7 @@ export async function runEdictTask(content) {
     log(task, '分拣', '太子', `收到旨意：${task.content}`)
     const classify = await call('host', `请对下列旨意做分拣，判断属于哪类任务（只说结论）：属于技术开发类、教务行政类、还是综合两类？\n旨意：${task.content}`, ctx)
     task.domain = parseDomain(task.content + classify)
-    log(task, '分拣', '太子', `判定为：${task.domain === 'dev' ? '技术开发' : task.domain === 'admin' ? '教务行政' : '综合'}类（依据：${classify.slice(0, 200)}）`)
+    log(task, '分拣', '太子', `判定归属：${domainLabel(task.domain)}（依据：${classify.slice(0, 200)}）`)
 
     // 2. 中书省规划
     task.status = 'planning'; save()
@@ -113,7 +120,7 @@ export async function runEdictTask(content) {
 
     // 3. 门下省审议（可封驳）——由总经理终审（其人格含"成果终审、审核技术方案"，贴合门下省把关）
     task.status = 'review'; save()
-    const review = await call('gm', `你是门下省审议官（总经理终审角色）。审视下面这份执行方案是否合格：可执行、无重大遗漏、符合旨意。用"通过"或"驳回"开头并说明理由。\n旨意：${task.content}\n方案：${plan.slice(0, 1500)}`, ctx)
+    const review = await call('gm', `你是门下省审议官（总经理终审角色）。审视下面这份执行方案是否合格：可执行、无重大遗漏、符合旨意。用"通过"或"驳回"开头并说明理由。\n旨意：${task.content}\n方案：${plan.slice(0, 3500)}`, ctx)
     const verdict = parseVerdict(review)
     task.review = { pass: verdict.pass, note: review.slice(0, 800) }
     log(task, '审议', '门下省', review)
@@ -122,14 +129,15 @@ export async function runEdictTask(content) {
       return task
     }
 
-    // 4. 尚书省派发
+    // 4. 尚书省派发（按部堂分派给对应尚书/大臣）
     task.executor = parseExecutor(task.content)
-    const executorName = task.executor === 'coder' ? 'Claude Code' : 'HermesAgent'
+    const execCfg = getAgentConfig(task.executor)
+    const executorName = execCfg ? `${execCfg.name}（${execCfg.role}）` : task.executor
     log(task, '派发', '尚书省', `派发给 ${executorName} 执行`)
     setStatus(task, 'executing')
 
     // 5. 六部执行
-    const deliverable = await call(task.executor, `你是执行部门。按方案产出完整可交付成果（方案/代码/文档等，要具体可落地）。\n旨意：${task.content}\n方案：${task.plan.slice(0, 1200)}`, ctx)
+    const deliverable = await call(task.executor, `你是执行部门。按方案产出完整可交付成果（方案/代码/文档等，要具体可落地）。\n旨意：${task.content}\n方案：${task.plan.slice(0, 3500)}`, ctx)
     task.execution = deliverable
     log(task, '执行', executorName, deliverable)
 

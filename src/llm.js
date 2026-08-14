@@ -68,6 +68,24 @@ function shouldEnableDeepSeekThinking(thinking) {
   return true
 }
 
+// 简单文本完成（供 spawn_subagents 等并行子代理复用）。
+// 不做工具调用、不流式，只做一次 chat completion 返回文本。用同一 OpenAI 客户端，
+// 保证子代理与主 Agent 用同一 provider/model。
+export async function runSimpleCompletion({ messages, temperature = 0.3, maxTokens = 1500 } = {}) {
+  if (!Array.isArray(messages) || !messages.length) throw new Error('messages 必填')
+  const client = getClient()
+  const params = {
+    model: config.model,
+    messages,
+    stream: false,
+  }
+  const providerTemperature = normalizeTemperatureForProvider(temperature, config.model)
+  if (typeof providerTemperature === 'number') params.temperature = providerTemperature
+  if (maxTokens) params.max_tokens = maxTokens
+  const res = await client.chat.completions.create(params)
+  return res?.choices?.[0]?.message?.content?.trim?.() || ''
+}
+
 function normalizeTemperatureForProvider(temperature, model = config.model) {
   if (typeof temperature !== 'number') return temperature
   if (shouldOmitSamplingForProviderModel(config.provider, model)) return undefined

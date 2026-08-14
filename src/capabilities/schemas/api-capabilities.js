@@ -52,6 +52,21 @@ export const apiCapabilitySchemas = {
     },
   },
 
+  capture_screen: {
+    type: 'function',
+    function: {
+      name: 'capture_screen',
+      description: 'Capture a screenshot of the user\'s desktop screen (Windows) and save it to the sandbox. Use when the user asks you to "see" their screen — troubleshooting an app, looking at a UI, checking what is displayed, or when a visual snapshot would help. Returns the screenshot path; then call analyze_image with that path to actually understand the screen content. Requires a physical desktop session (fails on headless/remote sessions).',
+      parameters: {
+        type: 'object',
+        properties: {
+          screenshot_name: { type: 'string', description: 'Optional base filename (without extension) for the screenshot.' },
+        },
+        required: [],
+      },
+    },
+  },
+
   manage_api_capability: {
     type: 'function',
     function: {

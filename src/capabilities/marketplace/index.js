@@ -23,7 +23,7 @@ const BUILTIN_NAMES = new Set([
   'speak', 'generate_lyrics', 'generate_music', 'generate_image', 'set_tick_interval',
   'media_mode', 'hotspot_mode', 'worldcup_mode', 'typhoon_mode', 'map_mode', 'open_doc_panel', 'person_card_mode', 'music',
   'manage_reminder', 'schedule_reminder', 'manage_prefetch_task', 'ui_set',
-  'manage_todo', 'weekly_review', 'adopt_role', 'ask_memory',
+  'manage_todo', 'weekly_review', 'adopt_role', 'ask_memory', 'capture_screen', 'spawn_subagents',
   'manage_rule', 'focus_banner', 'voice_retire',
   'set_location', 'delegate_to_agent', 'grant_agent_delegation', 'recall_memory',
   'complete_startup_self_check', 'set_task', 'complete_task', 'update_task_step',

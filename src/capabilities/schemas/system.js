@@ -151,6 +151,34 @@ export const systemSchemas = {
     }
   },
 
+  spawn_subagents: {
+    type: 'function',
+    function: {
+      name: 'spawn_subagents',
+      description: 'Run several sub-agent reasoning tasks IN PARALLEL and collect their results. Use for complex work that benefits from multiple independent angles at once — e.g. one sub-agent researches the facts, another drafts, another critiques. Provide task (overall goal) and/or subtasks (array of {id, prompt}); if only task is given, it auto-splits into overview/detail/risk angles. Each sub-agent runs with the same LLM. You then synthesize their results into the final answer.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task: { type: 'string', description: 'The overall goal, e.g. "评估是否要升级数据库".' },
+          subtasks: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'Short label for this sub-task, e.g. "facts", "draft", "review".' },
+                prompt: { type: 'string', description: 'What this sub-agent should figure out and return.' },
+              },
+              required: ['prompt']
+            },
+            description: 'Explicit list of parallel sub-tasks. If omitted, the task is auto-split.'
+          },
+          workers: { type: 'number', description: 'Max parallel sub-agents, default 3, max 5.' },
+        },
+        required: []
+      }
+    }
+  },
+
   set_security: {
     type: 'function',
     function: {

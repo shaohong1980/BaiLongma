@@ -37,6 +37,8 @@ import { execDeleteSkill, execImproveSkill, execLearnSkill, execListSkills, exec
 import { execMcpCall, execMcpListServers } from './tools/mcp.js'
 import { execManageTodo, execWeeklyReview } from './tools/workbench.js'
 import { execAdoptRole } from './tools/roles.js'
+import { execCaptureScreen } from './tools/capture.js'
+import { execSpawnSubagents } from './tools/spawn.js'
 import { getMapServiceSettings } from '../map-service.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
@@ -324,6 +326,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execManageTodo(args)
       case 'adopt_role':
         return execAdoptRole(args)
+      case 'spawn_subagents':
+        return await execSpawnSubagents(args, context)
       case 'weekly_review':
         return execWeeklyReview(args)
       case 'list_skills':
@@ -387,6 +391,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execRunApiCapability(args, context)
       case 'analyze_image':
         return await execAnalyzeImage(args, context)
+      case 'capture_screen':
+        return execCaptureScreen(args)
       case 'manage_api_capability':
         return execManageApiCapability(args)
       case 'find_tool':

@@ -22,6 +22,8 @@ const TOOL_RISK = {
   weekly_review: 'low',
   adopt_role: 'low',
   ask_memory: 'low',
+  capture_screen: 'low',
+  spawn_subagents: 'medium',
   manage_rule: 'medium',
   ui_set: 'medium',
   capability_demo: 'medium',

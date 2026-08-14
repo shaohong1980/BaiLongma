@@ -55,6 +55,20 @@ const TASK_CTRL_OPENER  = ['set_task']  // 没任务时只暴露 set_task
 // 无任务的临时成果，靠下面这组触发词 / find_tool 主动拉进来。
 const REVIEW_TOOLS      = ['review_work']
 
+// 多 Agent 并行：复杂任务/多角度分析/同时做几件事时注入 spawn_subagents
+const SPAWN_TOOLS = ['spawn_subagents']
+const SPAWN_TRIGGERS = [
+  '并行', '同时分析', '多角度', '几个子任务', '拆成几个', '一起做',
+  '子代理', '并行处理', '分头', 'spawn', 'parallel', 'subagents',
+]
+
+// 桌面截图：用户要看屏幕/帮排障/看界面时注入 capture_screen
+const CAPTURE_SCREEN_TOOLS = ['capture_screen']
+const CAPTURE_SCREEN_TRIGGERS = [
+  '截图', '截屏', '看看屏幕', '看下屏幕', '屏幕截图', '我屏幕上', '帮我看看界面',
+  '看屏幕', '截个屏', 'capture screen', 'screenshot my screen',
+]
+
 // 记忆主动问答：用户问"还记得/以前说过/上次"等，注入 ask_memory
 const ASK_MEMORY_TOOLS = ['ask_memory']
 const ASK_MEMORY_TRIGGERS = [
@@ -294,6 +308,8 @@ export const TOOL_GROUPS = [
   { triggers: DEEP_RESEARCH_TRIGGERS, tools: DEEP_RESEARCH_TOOLS },
   { triggers: ROLE_TRIGGERS,          tools: ROLE_TOOLS },
   { triggers: ASK_MEMORY_TRIGGERS,    tools: ASK_MEMORY_TOOLS },
+  { triggers: CAPTURE_SCREEN_TRIGGERS, tools: CAPTURE_SCREEN_TOOLS },
+  { triggers: SPAWN_TRIGGERS,          tools: SPAWN_TOOLS },
 ]
 
 // 通用辅助：消息正文里是否含有给定触发词之一（lower-case 包含）。
@@ -485,6 +501,12 @@ export function selectTools(ctx = {}) {
   }
   if (hits(body, ASK_MEMORY_TRIGGERS)) {
     for (const t of ASK_MEMORY_TOOLS) out.add(t)
+  }
+  if (hits(body, CAPTURE_SCREEN_TRIGGERS)) {
+    for (const t of CAPTURE_SCREEN_TOOLS) out.add(t)
+  }
+  if (hits(body, SPAWN_TRIGGERS)) {
+    for (const t of SPAWN_TOOLS) out.add(t)
   }
   // Tick 不再因为"它是 Tick"就预先装载 web/filesystem/reminder/prefetch/hotspot。
   // 主模型先判断要做什么，再通过常驻 find_tool 加载所需能力。记忆和 cadence

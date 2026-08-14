@@ -1,6 +1,6 @@
-// multi-agent-panel.js —— 多 Agent 会议室（数字员工）
-// 所有 Agent 在座（有形象/语音/引擎配置）；老板发言全员可听，点名某位才响应。
-// 点员工头像可配置：形象、语音、引擎（internal/custom/cli）、大模型。
+// multi-agent-panel.js —— 多 Agent 军机处（数字臣工）
+// 所有 Agent 在座（有形象/语音/引擎配置）；皇上发言全员可听，点名某位才响应。
+// 点臣工头像可配置：形象、语音、引擎（internal/custom/cli）、大模型。
 import { API } from './api-client.js'
 
 const $ = (id) => document.getElementById(id)
@@ -25,7 +25,7 @@ async function loadAgents() {
     const data = await api('/agents')
     agents = data.agents || []
     renderSeats()
-  } catch { $('ma-seats').innerHTML = '<div class="ma-seats-hint">员工加载失败</div>' }
+  } catch { $('ma-seats').innerHTML = '<div class="ma-seats-hint">臣工加载失败</div>' }
 }
 
 function renderSeats() {
@@ -43,7 +43,7 @@ function renderSeats() {
 
 async function loadRoom() {
   const box = $('ma-messages')
-  box.innerHTML = '<div class="ma-loading">会议室加载中…</div>'
+  box.innerHTML = '<div class="ma-loading">军机处加载中…</div>'
   try {
     const data = await api('/room')
     const msgs = data.messages || []
@@ -51,9 +51,9 @@ async function loadRoom() {
     const roundEl = $('ma-round')
     if (roundEl) roundEl.textContent = `轮次 ${round}/${20}`
     box.innerHTML = ''
-    if (!msgs.length) box.innerHTML = '<div class="ma-empty">会议室空着。你是董事长，说点什么吧——点名某位员工他就会回答。\n\n💡 开会示例：「主持人，开会：搭建一套企业微信机器人自动采集群消息的多Agent调度系统」\n点名示例：「Claude Code，先出个架构设计」</div>'
+    if (!msgs.length) box.innerHTML = '<div class="ma-empty">军机处空着。你是皇上，说点什么吧——点名某位臣工他就会回答。\n\n💡 开会示例：「主持人，开会：搭建一套企业微信机器人自动采集群消息的多Agent调度系统」\n点名示例：「Claude Code，先出个架构设计」</div>'
     else { msgs.forEach(m => renderRoomMsg(m)); box.scrollTop = box.scrollHeight }
-  } catch { box.innerHTML = '<div class="ma-empty">会议室加载失败</div>' }
+  } catch { box.innerHTML = '<div class="ma-empty">军机处加载失败</div>' }
 }
 
 function fmtTime(ts) {
@@ -71,7 +71,7 @@ function renderRoomMsg(m) {
     div.className = 'ma-msg ma-msg-boss'
     div.innerHTML = `
       <div class="ma-boss-block">
-        <span class="ma-boss-label">👑 董事长</span><span class="ma-time">${fmtTime(m.ts)}</span>
+        <span class="ma-boss-label">👑 皇上</span><span class="ma-time">${fmtTime(m.ts)}</span>
         <div class="ma-bubble">${esc(m.content)}</div>
       </div>`
     box.appendChild(div)
@@ -86,7 +86,7 @@ function renderRoomMsg(m) {
     div.innerHTML = `
       <span class="ma-bubble-avatar" style="--ac:${esc(color)};background-image:${image ? `url('${esc(image)}')` : 'none'}">${image ? '' : esc(avatar)}</span>
       <div class="ma-agent-msg-block">
-        <span class="ma-agent-msg-name">${esc(m.agentName || '员工')}</span>
+        <span class="ma-agent-msg-name">${esc(m.agentName || '臣工')}</span>
         <span class="ma-agent-msg-role" style="--ac:${esc(color)}">${esc(roleLabel)}</span>
         <span class="ma-time">${fmtTime(m.ts)}</span>
         <div class="ma-bubble">${esc(m.content)}</div>
@@ -95,7 +95,7 @@ function renderRoomMsg(m) {
   }
 }
 
-// ── 老板发言 ──
+// ── 皇上发言 ──
 async function bossSpeak() {
   if (speaking) return
   const input = $('ma-input')
@@ -125,7 +125,7 @@ async function bossSpeak() {
   }
   const loading = document.createElement('div')
   loading.className = 'ma-msg ma-msg-agent'
-  loading.innerHTML = `<span class="ma-bubble-avatar">⏳</span><div class="ma-agent-msg-block"><span class="ma-agent-msg-name">在座的员工</span><div class="ma-bubble">（思考中…）</div></div>`
+  loading.innerHTML = `<span class="ma-bubble-avatar">⏳</span><div class="ma-agent-msg-block"><span class="ma-agent-msg-name">在朝的臣工</span><div class="ma-bubble">（思考中…）</div></div>`
   $('ma-messages').appendChild(loading)
   $('ma-messages').scrollTop = $('ma-messages').scrollHeight
   try {
@@ -208,7 +208,7 @@ async function saveConfig() {
 
 async function assignTaskFromConfig() {
   if (!configAgentId) return
-  const task = prompt('给这位员工布置什么任务？')
+  const task = prompt('给这位臣工布置什么任务？')
   if (!task) return
   $('ma-config-overlay').hidden = true
   renderRoomMsg({ role: 'boss', content: `【布置任务给 ${agents.find(a => a.id === configAgentId)?.name}】${task}` })
@@ -299,7 +299,7 @@ export function initMultiAgentPanel() {
   loadRoom()
 }
 
-// 结束会议：写入终止标记 + 重置会议室
+// 结束会议：写入终止标记 + 重置军机处
 async function endMeeting() {
   const box = $('ma-messages')
   const close = document.createElement('div')
@@ -312,7 +312,7 @@ async function endMeeting() {
   // 提示重新开会
   const tip = document.createElement('div')
   tip.className = 'ma-msg ma-msg-hint'
-  tip.textContent = '会议室已归档重置。有新的任务就说「主持人，开会：…」'
+  tip.textContent = '军机处已归档重置。有新的任务就说「主持人，开会：…」'
   box.appendChild(tip)
   box.scrollTop = box.scrollHeight
 }

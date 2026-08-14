@@ -1889,6 +1889,15 @@ body {
 .ma-log-line b { color: var(--cool); font-weight: 600; margin-right: 6px; }
 .ma-log-empty { font-size: 10px; color: var(--dim); }
 .ma-round { margin-left: auto; font-size: 10px; color: var(--dim); font-family: monospace; background: color-mix(in srgb, var(--line-strong) 45%, transparent); padding: 3px 9px; border-radius: 6px; }
+.multiagent-seal {
+  font-size: 12px; font-weight: 800; color: #e57373; letter-spacing: 0.15em;
+  border: 2px solid rgba(229, 115, 115, 0.7); border-radius: 5px; padding: 1px 7px;
+  font-family: "STKaiti", "KaiTi", "楷体", serif; transform: rotate(-4deg);
+  text-shadow: 0 0 6px rgba(229,115,115,0.4); user-select: none;
+}
+.ma-boss-tag { font-size: 12px; font-weight: 800; color: var(--warm); font-family: "STKaiti", "KaiTi", "楷体", serif; letter-spacing: 0.1em; padding-bottom: 8px; }
+.multiagent-title { font-family: "STKaiti", "KaiTi", "楷体", serif; letter-spacing: 0.08em; }
+.ma-seat-name { font-family: "STKaiti", "KaiTi", "楷体", serif; }
 .ma-end-meet { background: transparent; border: 1px solid var(--line-strong); color: var(--warm); font-size: 11px; padding: 4px 10px; border-radius: 7px; cursor: pointer; font-family: inherit; transition: border-color 0.18s ease, background 0.18s ease; }
 .ma-end-meet:hover { border-color: var(--warm); background: color-mix(in srgb, var(--warm) 14%, transparent); }
 .ma-seat-online { position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: #45ddb1; border: 2px solid var(--bg-deep); box-shadow: 0 0 6px rgba(69, 221, 177, 0.8); }

@@ -1,6 +1,6 @@
-// 多 Agent 会议室 —— 共享会话 + 点名响应
-// 老板在会议室发言 → 所有 Agent 在场；点名某位（名字/角色）→ 该 Agent 响应。
-// 未点名时按话题/能力推断最相关的一位响应；都不确定则无人响应（老板可再点名）。
+// 多 Agent 军机处室 —— 共享会话 + 点名响应
+// 皇上在军机处室发言 → 所有 Agent 在场；点名某位（名字/角色）→ 该 Agent 响应。
+// 未点名时按话题/能力推断最相关的一位响应；都不确定则无人响应（皇上可再点名）。
 import fs from 'fs'
 import path from 'path'
 import { AGENTS } from './agents.js'
@@ -11,9 +11,9 @@ import { emitEvent } from '../events.js'
 
 const ROOM_FILE = path.join(paths.dataDir, 'room-conversation.json')
 const MAX_HISTORY = 60
-const MAX_ROUNDS = 20   // 会议最大轮次（主持人硬性上限，防死循环）
+const MAX_ROUNDS = 20   // 军机处最大轮次（主持人硬性上限，防死循环）
 
-// 会议室消息：{ role: 'boss'|'agent', agentId?, agentName?, avatar?, content, ts }
+// 军机处室消息：{ role: 'boss'|'agent', agentId?, agentName?, avatar?, content, ts }
 let history = []
 let round = 0
 
@@ -85,14 +85,14 @@ function inferRelevantAgent(text) {
   return bestScore > 0 ? best : null
 }
 
-// 老板发言 → 点名/推断 → 让对应 Agent 响应
+// 皇上发言 → 点名/推断 → 让对应 Agent 响应
 export async function bossSpeak(content) {
   const text = String(content || '').trim()
   if (!text) throw new Error('发言不能为空')
 
-  // 会议轮次限制（主持人硬性上限 20 轮）
+  // 军机处轮次限制（主持人硬性上限 20 轮）
   if (round >= MAX_ROUNDS) {
-    return { ok: true, forced_end: true, hint: `会议已达 ${MAX_ROUNDS} 轮上限，本轮强制结束。可清空会议室（/room/reset）重新开会。`, responses: [] }
+    return { ok: true, forced_end: true, hint: `军机处已达 ${MAX_ROUNDS} 轮上限，本轮强制结束。可清空军机处室（/room/reset）重新开会。`, responses: [] }
   }
   round += 1
   push({ role: 'boss', content: text, ts: new Date().toISOString() })
@@ -106,8 +106,8 @@ export async function bossSpeak(content) {
     return { ok: true, no_target: true, hint: '我在场但没听到你点我。你可以点名，比如"主持人，开会：…""白龙马，你怎么看？"或"让Claude Code开发"。', responses: [] }
   }
 
-  // 开会编排：点名主持人或消息含"开会/会议" → 主持人先拆解，总经理白龙马跟着牵头统筹
-  const isMeeting = /开会|会议|启动|开始|部署|搭建|立项/.test(text)
+  // 开会编排：点名主持人或消息含"开会/军机处" → 主持人先拆解，总经理白龙马跟着牵头统筹
+  const isMeeting = /开会|军机处|启动|开始|部署|搭建|立项/.test(text)
   if (isMeeting && !targets.includes('host')) targets.unshift('host')
   if (isMeeting && targets.includes('host') && !targets.includes('gm')) targets.push('gm')
 

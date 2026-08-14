@@ -1175,11 +1175,12 @@ const createMultiAgentPanel = () => `
 <div class="multiagent-panel" id="multiagent-panel" hidden>
   <!-- 顶部：会议室标题 + 成员 + 轮次 + 控制 -->
   <div class="multiagent-head">
-    <span class="multiagent-title">🏢 虚拟集团办公室</span>
+    <span class="multiagent-title">🏯 军机处</span>
+    <span class="multiagent-seal" title="御批">朕准</span>
     <span class="ma-round" id="ma-round" title="会议轮次（上限20）">轮次 0/20</span>
     <button class="ma-kanban-toggle" id="ma-kanban-toggle" type="button" title="军机处任务看板">📜 军机处</button>
-    <button class="ma-end-meet" id="ma-end-meet" type="button" title="结束会议">结束会议</button>
-    <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭会议室">×</button>
+    <button class="ma-end-meet" id="ma-end-meet" type="button" title="结束会议">散朝</button>
+    <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭军机处">×</button>
   </div>
 
   <!-- 在座成员（群头像） -->
@@ -1205,9 +1206,9 @@ const createMultiAgentPanel = () => `
 
   <!-- 董事长发言区 -->
   <div class="ma-input-row">
-    <span class="ma-boss-tag">👑 董事长</span>
-    <textarea id="ma-input" rows="1" placeholder="对会议室说话… 例如「主持人，开会：…」「Claude Code，出个架构」"></textarea>
-    <button id="ma-send" type="button" title="发言（点名者响应）">发言</button>
+    <span class="ma-boss-tag">👑 皇上</span>
+    <textarea id="ma-input" rows="1" placeholder="下旨：… 或点名某位臣工，如「工部尚书，出个架构」「白龙马，统筹一下」"></textarea>
+    <button id="ma-send" type="button" title="发旨（点名者响应）">下旨</button>
   </div>
 
   <!-- Agent 配置弹层 -->

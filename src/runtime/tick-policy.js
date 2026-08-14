@@ -36,6 +36,36 @@ export function buildAutonomousTickDirections({
   return parts.join('\n')
 }
 
+// 主动任务续跑：有活动任务时，TICK 心跳应优先推进待办步骤，而不是默认沉默。
+// 这是"交代任务→等着"升级为"后台推进→汇报"的关键引导（P0-3）。
+export function buildTaskContinuationDirection({ task, steps = [], idleTicks = 0 } = {}) {
+  if (!task || !String(task).trim()) return ''
+  const list = Array.isArray(steps) ? steps : []
+  const done = list.filter(s => s?.status === 'done').length
+  const total = list.length
+  const pending = list.filter(s => !s || s.status === 'pending')
+  const failed = list.filter(s => s?.status === 'failed')
+  const next = list.find(s => !s || s.status === 'pending')
+
+  const parts = [
+    `There is an active task in progress: "${task}" (${done}/${total} steps done).`,
+  ]
+  if (next) {
+    parts.push(`The next pending step is: "${next.text}". Your job on this heartbeat is to make concrete progress on that step — gather what you need, run the tool, update its status with update_task_step, then move to the next. If a step needs user input or an external dependency you cannot satisfy, stop and send a short message to the user explaining the blocker, rather than idling.`)
+  } else if (list.length && done === total) {
+    parts.push(`All steps are already done but the task is still marked active. Call complete_task with a short summary to close it (or review_work first if it is a deliverable).`)
+  } else {
+    parts.push(`Push this task forward: do the next concrete action, verify it, and update the step status.`)
+  }
+  if (failed.length) {
+    parts.push(`Note: ${failed.length} step(s) are marked failed (${failed.map(s => s.text).join('; ')}). Decide whether to retry with a different approach, re-plan, or report the blocker to the user — do not silently loop on the same failed action.`)
+  }
+  if (Number(idleTicks) >= 3) {
+    parts.push(`This task has been idle for ${idleTicks}+ heartbeats without progress. Either make real progress now, or if you are blocked, tell the user what you need. Do not stay silent forever on an in-flight task the user is waiting on.`)
+  }
+  return parts.join(' ')
+}
+
 // 每日一次的记忆沉淀提醒（hermes "periodic nudge to persist knowledge" 的本地版）。
 // 低频、软引导：不要求干活，只提示把今天真正可复用的经验写下来。
 // 由 index.js 在每天第一次心跳时调用一次（配合 shouldRunMemoryNudgeToday 节流）。

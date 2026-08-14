@@ -56,7 +56,7 @@ import { truncateToolResultForUI } from './runtime/tool-result-preview.js'
 import { buildLLMMessages } from './runtime/messages.js'
 import { parseMarkers } from './runtime/markers.js'
 import { createConsciousnessLoop } from './runtime/consciousness-loop.js'
-import { buildAutonomousTickDirections, buildMemoryNudge } from './runtime/tick-policy.js'
+import { buildAutonomousTickDirections, buildMemoryNudge, buildTaskContinuationDirection } from './runtime/tick-policy.js'
 import { buildStrictEvaluationContext, filterStrictEvaluationTools, resolveStrictEvaluationMode } from './runtime/strict-evaluation.js'
 import { extractVerbatimPayload, findRecentVerbatimPayload, hasInlineVerbatimPayload, isVerbatimOutputRequest, isVerbatimSetup, isVerbatimStart } from './runtime/verbatim.js'
 import { filterSendMessageForLocalReply, turnNeedsExternalSendMessage } from './runtime/local-reply-tools.js'
@@ -252,6 +252,7 @@ const state = {
   pendingConfidenceHint: null,  // 上一轮 refresh-loop 的 confidence，供下次 runInjector 调整召回数量后清空
   tickCounter: 0,             // 累计 TICK 计数（每次进 isTick 路径自增）
   lastTaskRefreshTick: -10,   // 上次 TICK 路径触发 refresh-loop 时的 tickCounter；初值 -10 保证首个 TICK 立刻可触发（差值 = 0 - (-10) = 10 >= 5）
+  taskIdleTickCount: 0,       // 有活动任务时，连续无进展的 TICK 计数（用于任务续跑引导）
   threadState: initThreadState(),  // 线索模型（DynamicMemoryPool.md 第 8 章）：threads + 前台指针 + 承诺，重启从 db 恢复
 }
 
@@ -1034,6 +1035,15 @@ async function runTurn(input, label, msg = null) {
           tickerStatus: getTickerStatus(),
         }))
       }
+      // 主动任务续跑（P0-3）：有活动任务时，心跳优先推进待办步骤而不是默认沉默。
+      if (state.task) {
+        const taskDir = buildTaskContinuationDirection({
+          task: state.task,
+          steps: state.taskSteps,
+          idleTicks: state.taskIdleTickCount || 0,
+        })
+        if (taskDir) directions.push(taskDir)
+      }
       // 每日一次的记忆沉淀提醒（低频、软引导）：每天第一次心跳时提示回顾并持久化可复用经验
       const memoryNudgeText = buildDailyMemoryNudge()
       if (memoryNudgeText) directions.push(memoryNudgeText)
@@ -1664,8 +1674,14 @@ async function runTurn(input, label, msg = null) {
   // A heartbeat with no executed tool has no externally verifiable experience
   // to recognize. Its private text is retained in turn trace only.
   if (isTick && toolCallLog.length === 0) {
+    // 任务续跑观测：有任务但本轮没执行任何工具 → 记为一次"无进展"，用于 idle 引导。
+    if (state.task) state.taskIdleTickCount = (state.taskIdleTickCount || 0) + 1
     emitEvent('memories_written', { count: 0, memories: [] })
     return
+  }
+  // 有任务且本轮执行了工具 → 算有进展，重置 idle 计数。
+  if (state.task && toolCallLog.length > 0) {
+    state.taskIdleTickCount = 0
   }
 
   // 去抖批处理：把本轮排进识别队列，由 scheduler 决定何时合并成一次批量 recognizer 调用

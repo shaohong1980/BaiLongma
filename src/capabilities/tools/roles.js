@@ -18,12 +18,16 @@ function loadRoleFile(filePath) {
     const raw = fs.readFileSync(filePath, 'utf-8')
     const data = JSON.parse(raw)
     if (!data || !data.name || !data.label) return null
+    const id = String(data.id || '').trim() || String(data.name).trim()
     return {
+      id,
       name: String(data.name).trim(),
       label: String(data.label).trim(),
       description: String(data.description || '').trim(),
       persona: String(data.persona || '').trim(),
       guidelines: Array.isArray(data.guidelines) ? data.guidelines.map(String) : [],
+      category: String(data.category || (id.includes('-') ? id.split('-')[0] : '') || 'general'),
+      avatar: String(data.avatar || '🤖'),
     }
   } catch { return null }
 }
@@ -48,7 +52,9 @@ export function listRoles() {
 
 export function getRole(name) {
   const n = String(name || '').trim().toLowerCase()
-  return listRoles().find(r => r.name.toLowerCase() === n) || null
+  return listRoles().find(r =>
+    r.name.toLowerCase() === n || r.label.toLowerCase() === n || r.id.toLowerCase() === n
+  ) || null
 }
 
 export function getActiveRole() {
@@ -74,7 +80,16 @@ export function execAdoptRole(args = {}) {
   if (action === 'list') {
     const roles = listRoles()
     if (!roles.length) return '当前没有可用角色。'
-    return `可用角色（${roles.length} 个）：\n` + roles.map(r => `- ${r.name}（${r.label}）：${r.description}`).join('\n')
+    // 支持按分类/关键词过滤
+    const filter = String(args.filter || args.category || args.search || '').trim().toLowerCase()
+    const shown = filter
+      ? roles.filter(r => (r.category || '').toLowerCase().includes(filter) || r.name.toLowerCase().includes(filter) || (r.id || '').toLowerCase().includes(filter))
+      : roles
+    const cats = [...new Set(roles.map(r => r.category || 'general'))].sort()
+    const head = filter
+      ? `「${filter}」匹配 ${shown.length} 个角色：`
+      : `可用角色 ${roles.length} 个，按分类：${cats.join('、')}。\n用 adopt_role({action:'list', filter:'分类或关键词'}) 过滤。`
+    return head + '\n' + shown.slice(0, 40).map(r => `- ${r.name}${r.category ? ` [${r.category}]` : ''}：${r.description.slice(0, 60)}`).join('\n') + (shown.length > 40 ? `\n… 共 ${shown.length} 个` : '')
   }
 
   if (action === 'reset' || action === 'clear') {

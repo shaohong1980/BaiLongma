@@ -24,6 +24,7 @@ import { runRuntimeInjector } from './context/runtime-injector.js'
 import { selectContextSections } from './context/section-gate.js'
 import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, loadThreadState, saveThreadState, setCurrentFocusTopic, setCurrentThreadId, updateUserMessageFocusTopic, reassignConversationsThread, insertActionLog } from './db.js'
 import { calculateNextDueAt, autoSpeakForVoiceReply, detectOpenFollowupQuestion } from './capabilities/executor.js'
+import { buildRoleContextBlock } from './capabilities/tools/roles.js'
 import { pushMessage } from './inbound-message.js'
 import { popMessage, hasMessages, hasUserMessages, getQueueSnapshot, setInterruptCallback, requeueMessage } from './queue.js'
 import { startTUI } from './tui.js'
@@ -1197,7 +1198,7 @@ async function runTurn(input, label, msg = null) {
     //   看当前 user 是否有 WECHAT 历史；目前依赖 currentChannel === 'WECHAT' 来触发）。
     // TODO: Wave 2 后续接入 —— hasActiveFocus 暂时按 false 传（需要把 focus banner active
     //   状态做进 state，目前依赖 keyword 触发）。
-    const systemPrompt = buildSystemPrompt({
+    let systemPrompt = buildSystemPrompt({
       agentName,
       persona,
       birthTime,
@@ -1214,6 +1215,9 @@ async function runTurn(input, label, msg = null) {
       currentTaskText: state.task || '',
       recentActionsSummary: (state.recentActions || []).map(a => a?.summary || '').join(' | '),
     })
+    // 角色/专家模式（P1-1）：激活角色时把 persona+guidelines 置于系统提示最前，最高优先级覆盖。
+    const roleBlock = buildRoleContextBlock()
+    if (roleBlock) systemPrompt = `${roleBlock}\n\n${systemPrompt}`
 
     const baseContextArgs = {
       memories: memoriesText,

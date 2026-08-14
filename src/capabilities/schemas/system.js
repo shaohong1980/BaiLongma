@@ -135,6 +135,22 @@ export const systemSchemas = {
     }
   },
 
+  adopt_role: {
+    type: 'function',
+    function: {
+      name: 'adopt_role',
+      description: 'Switch into a professional expert mode (lawyer, product manager, architect, marketer, etc.) so responses adopt that persona and working style. Use when the user explicitly asks to analyze/view something "as" or "like" a professional (e.g. "用律师视角看这份合同", "以产品经理角度评估"). Use action=set with the role name; action=list to see available roles; action=reset to exit expert mode. The role persists until reset or changed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['set', 'list', 'reset'], description: 'set activates a role; list shows available roles; reset exits expert mode.' },
+          role: { type: 'string', description: 'Role name for set, e.g. legal-expert, product-manager, software-architect, marketing-expert, financial-analyst, copywriter, data-scientist.' },
+        },
+        required: ['action']
+      }
+    }
+  },
+
   set_security: {
     type: 'function',
     function: {

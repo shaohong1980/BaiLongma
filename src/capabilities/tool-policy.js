@@ -20,6 +20,7 @@ const TOOL_RISK = {
   manage_prefetch_task: 'medium',
   manage_todo: 'low',
   weekly_review: 'low',
+  adopt_role: 'low',
   manage_rule: 'medium',
   ui_set: 'medium',
   capability_demo: 'medium',

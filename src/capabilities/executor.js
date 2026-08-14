@@ -36,6 +36,7 @@ import { execSetGoal, execListGoals, execUpdateGoal, execShowBriefing } from './
 import { execDeleteSkill, execImproveSkill, execLearnSkill, execListSkills, execViewSkill } from './tools/skills.js'
 import { execMcpCall, execMcpListServers } from './tools/mcp.js'
 import { execManageTodo, execWeeklyReview } from './tools/workbench.js'
+import { execAdoptRole } from './tools/roles.js'
 import { getMapServiceSettings } from '../map-service.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
@@ -321,6 +322,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execShowBriefing(args)
       case 'manage_todo':
         return execManageTodo(args)
+      case 'adopt_role':
+        return execAdoptRole(args)
       case 'weekly_review':
         return execWeeklyReview(args)
       case 'list_skills':

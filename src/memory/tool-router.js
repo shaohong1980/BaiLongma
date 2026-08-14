@@ -55,6 +55,16 @@ const TASK_CTRL_OPENER  = ['set_task']  // 没任务时只暴露 set_task
 // 无任务的临时成果，靠下面这组触发词 / find_tool 主动拉进来。
 const REVIEW_TOOLS      = ['review_work']
 
+// 角色/专家模式：用户要求"以某专家视角/用某角色"时注入 adopt_role
+const ROLE_TOOLS = ['adopt_role']
+const ROLE_TRIGGERS = [
+  '律师视角', '用律师', '以律师', '法律视角', '合同分析',
+  '产品经理视角', '用产品经理', '以产品经理', '架构师视角', '用架构师', '以架构师',
+  '营销专家', '用营销', '财务分析', '用财务', '文案视角', '用文案',
+  '专家模式', '换个角色', '以.*身份', '用.*身份', '作为.*顾问',
+  'adopt role', 'role mode', 'expert mode', 'as a lawyer', 'as a product manager',
+]
+
 // 深度研究：用户明确要"调研/研究/深度对比"时注入 deep_research（比单次搜索重，别常驻）
 const DEEP_RESEARCH_TOOLS = ['deep_research']
 const DEEP_RESEARCH_TRIGGERS = [
@@ -274,6 +284,7 @@ export const TOOL_GROUPS = [
   { triggers: IMAGE_GEN_TRIGGERS,    tools: [MM_GEN_TOOLS.image] },
   { triggers: REVIEW_TRIGGERS,       tools: REVIEW_TOOLS },
   { triggers: DEEP_RESEARCH_TRIGGERS, tools: DEEP_RESEARCH_TOOLS },
+  { triggers: ROLE_TRIGGERS,          tools: ROLE_TOOLS },
 ]
 
 // 通用辅助：消息正文里是否含有给定触发词之一（lower-case 包含）。
@@ -459,6 +470,9 @@ export function selectTools(ctx = {}) {
   }
   if (hits(body, DEEP_RESEARCH_TRIGGERS)) {
     for (const t of DEEP_RESEARCH_TOOLS) out.add(t)
+  }
+  if (hits(body, ROLE_TRIGGERS)) {
+    for (const t of ROLE_TOOLS) out.add(t)
   }
   // Tick 不再因为"它是 Tick"就预先装载 web/filesystem/reminder/prefetch/hotspot。
   // 主模型先判断要做什么，再通过常驻 find_tool 加载所需能力。记忆和 cadence

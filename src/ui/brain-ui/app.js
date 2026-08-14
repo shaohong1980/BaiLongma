@@ -1515,6 +1515,10 @@ function handle({ type, data = {} }) {
     case "show_feishu_popup":
       showFeishuPopup();
       break;
+    case "agent_tts":
+      // 军机处 Agent 语音回复（后端在 agent.voice.enabled 时发出）
+      if (data?.text) playTTSReply(data.text);
+      break;
     case "audio_created":
       if (data.autoPlay && data.path) {
         const audioUrl = `${API}/${data.path}`;
@@ -4475,6 +4479,11 @@ initMapPanel();
 // ── 多 Agent 办公室（可对话/布置任务）──
 initMultiAgentPanel();
 document.getElementById("multiagent-btn")?.addEventListener("click", openMultiAgentPanel);
+// 军机处语音：面板开关打开时，臣工回复经此事件交给 TTS 播放
+window.addEventListener("bailongma:speak", (e) => {
+  const text = e.detail?.text
+  if (text) playTTSReply(text)
+});
 
 // ── Media modes (video / image) ──
 (function initMediaModes() {

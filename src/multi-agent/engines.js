@@ -68,16 +68,22 @@ async function runCli(agent, roomHistory, bossMessage, isTask) {
   if (!cmd) throw new Error(`Agent ${agent.name} 的 cli 引擎缺少 cli_command 配置（如 claude -p "..."）`)
   const prompt = (isTask ? '【任务】' : '【对话】') + bossMessage
   const fullCmd = cmd.replace(/\{prompt\}/g, `"${prompt.replace(/"/g, '\\"')}"`)
-  const out = execFileSync(fullCmd, { shell: true, timeout: 120000, maxBuffer: 4 * 1024 * 1024 })
+  const out = execFileSync(fullCmd, { shell: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024 })
   return String(out || '').trim().slice(0, 4000) || '(该外部智能体未输出)'
 }
 
-// 统一入口：按 Agent 的 engine 路由
+// 统一入口：按 Agent 的 engine 路由；cli/custom 失败时回退 internal，保证一定有响应
 export async function runAgentEngine(agentId, roomHistory, bossMessage, isTask = false) {
   const agent = getAgentConfig(agentId)
   if (!agent) throw new Error(`未知 Agent: ${agentId}`)
   const engine = String(agent.engine || 'internal').trim().toLowerCase()
-  if (engine === 'custom') return runCustom(agent, roomHistory, bossMessage, isTask)
-  if (engine === 'cli') return runCli(agent, roomHistory, bossMessage, isTask)
+  if (engine === 'custom') {
+    try { return await runCustom(agent, roomHistory, bossMessage, isTask) }
+    catch (err) { console.warn(`[agent:${agent.name}] custom 失败，回退 internal:`, err.message); return runInternal(agent, roomHistory, bossMessage, isTask) }
+  }
+  if (engine === 'cli') {
+    try { return await runCli(agent, roomHistory, bossMessage, isTask) }
+    catch (err) { console.warn(`[agent:${agent.name}] cli 失败，回退 internal:`, err.message); return runInternal(agent, roomHistory, bossMessage, isTask) }
+  }
   return runInternal(agent, roomHistory, bossMessage, isTask)
 }

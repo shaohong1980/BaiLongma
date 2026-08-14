@@ -1178,6 +1178,7 @@ const createMultiAgentPanel = () => `
     <span class="multiagent-title">🏯 军机处</span>
     <span class="multiagent-seal" title="御批">朕准</span>
     <span class="ma-round" id="ma-round" title="会议轮次（上限20）">轮次 0/20</span>
+    <button class="ma-voice-toggle" id="ma-voice-toggle" type="button" title="臣工语音回复（TTS）">🔇</button>
     <button class="ma-kanban-toggle" id="ma-kanban-toggle" type="button" title="军机处任务看板">📜 军机处</button>
     <button class="ma-end-meet" id="ma-end-meet" type="button" title="结束会议">散朝</button>
     <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭军机处">×</button>

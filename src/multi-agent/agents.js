@@ -40,8 +40,9 @@ export const AGENTS = [
     avatar_image: '',
     color: '#4f8cff',
     voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
-    engine: 'internal',   // 建议配置为 custom 绑定代码专精模型
-    model: '', base_url: '', api_key: '', temperature: 0.2, cli_command: '',
+    engine: 'cli',   // 绑定本机 Claude Code CLI（D:\ClaudeCode）
+    model: '', base_url: '', api_key: '', temperature: 0.2,
+    cli_command: 'claude -p "{prompt}"',
     capabilities: ['需求PRD', '系统架构', '代码开发', '测试用例', 'MCP搭建', '部署运维'],
     persona: '你是工部尚书Claude Code，掌管天下营造工造，专职软件项目、智能体MCP架构、自动化程序的开发落地。',
     style: '1. 依统筹方案产出：PRD→架构→代码→测试→部署手册。2. 源码落地本地目录，用办公套件出技术文档。3. 完成后提交军机大臣审核，按评审意见迭代。4. 不处理教务行政，非技术任务上报掌印。',
@@ -55,8 +56,9 @@ export const AGENTS = [
     avatar_image: '',
     color: '#34d399',
     voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
-    engine: 'internal',
-    model: '', base_url: '', api_key: '', temperature: 0.5, cli_command: '',
+    engine: 'cli',   // 绑定本机 Hermes Agent（E:\hermes-agent）；失败自动回退 internal
+    model: '', base_url: '', api_key: '', temperature: 0.5,
+    cli_command: 'cd /d E:\\hermes-agent && python run_agent.py "{prompt}"',
     capabilities: ['教务制度', '课程矩阵', '排课表', '招生文案PPT', '台账Excel', '会议纪要归档'],
     persona: '你是礼部尚书HermesAgent，掌管教化礼仪与行政事务，专职教务、招生、行政台账、制度文件、宣传物料。',
     style: '1. 依统筹产出课程体系、考核规则、排班表、招生PPT、学生台账、会议纪要等。2. 用Office套件生成Word/Excel/PPT，归档知识库。3. 完成后提交军机大臣终审，按反馈修改。4. 拒绝承接代码开发，非本职上报掌印。',

@@ -62,13 +62,13 @@ export function detectAddressedAgents(text) {
 function inferRelevantAgent(text) {
   const t = String(text || '')
   const roleMap = [
-    { re: /需求|产品|用户|市场|优先级|功能/, id: 'pm', w: 1 },
-    { re: /架构|选型|系统|扩展|权衡|设计/, id: 'architect', w: 1 },
-    { re: /界面|前端|页面|交互|样式|ui/, id: 'frontend', w: 1 },
-    { re: /接口|后端|数据库|服务|api|性能/, id: 'backend', w: 1 },
-    { re: /测试|用例|质量|回归|验收|上线前/, id: 'qa', w: 2 },
-    { re: /数据|统计|指标|图表|可视化/, id: 'data', w: 2 },
-    { re: /文案|内容|营销|公众号|标题/, id: 'content', w: 1 },
+    { re: /技术|开发|代码|架构|系统|接口|数据库|前端|后端|脚本|部署|机器人|设计|页面|界面|登录|网站|网页|app|软件|程序/, id: 'coder', w: 1 },
+    { re: /教务|课程|排课|招生|行政|制度|文案|公众号|PPT|台账|会议纪要|宣传/, id: 'admin', w: 1 },
+    { re: /财务|预算|成本|报表|投资|经济|税/, id: 'hubu', w: 1 },
+    { re: /安全|风险|加固|运维|应急|防护|漏洞/, id: 'bingbu', w: 1 },
+    { re: /合同|合规|法律|法务|条款|风险提示/, id: 'xingbu', w: 1 },
+    { re: /人事|招聘|考核|组织|绩效|岗位/, id: 'libu', w: 1 },
+    { re: /统筹|协调|评审|复盘|分工|全局/, id: 'gm', w: 1 },
   ]
   let best = null, bestScore = 0
   for (const { re, id, w } of roleMap) {
@@ -102,9 +102,8 @@ export async function bossSpeak(content) {
     const inferred = inferRelevantAgent(text)
     if (inferred) targets = [inferred]
   }
-  if (!targets.length) {
-    return { ok: true, no_target: true, hint: '我在场但没听到你点我。你可以点名，比如"主持人，开会：…""白龙马，你怎么看？"或"让Claude Code开发"。', responses: [] }
-  }
+  // 兜底：仍无人被点名/推断到 → 军机大臣白龙马接旨统筹，保证皇上说话必有回应
+  if (!targets.length) targets = ['gm']
 
   // 开会编排：点名主持人或消息含"开会/军机处" → 主持人先拆解，总经理白龙马跟着牵头统筹
   const isMeeting = /开会|军机处|启动|开始|部署|搭建|立项/.test(text)

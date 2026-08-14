@@ -7,6 +7,7 @@ const $ = (id) => document.getElementById(id)
 let agents = []
 let configAgentId = null
 let speaking = false
+let voiceOn = localStorage.getItem('bailongma-junjichu-voice') === '1'
 
 function esc(s) {
   return String(s == null ? '' : s)
@@ -54,6 +55,16 @@ async function loadRoom() {
     if (!msgs.length) box.innerHTML = '<div class="ma-empty">军机处空着。你是皇上，说点什么吧——点名某位臣工他就会回答。\n\n💡 开会示例：「主持人，开会：搭建一套企业微信机器人自动采集群消息的多Agent调度系统」\n点名示例：「Claude Code，先出个架构设计」</div>'
     else { msgs.forEach(m => renderRoomMsg(m)); box.scrollTop = box.scrollHeight }
   } catch { box.innerHTML = '<div class="ma-empty">军机处加载失败</div>' }
+}
+
+// 语音：若开关打开，播放该 Agent 回复（经 CustomEvent 交给 app.js 的 TTS）
+function speak(text) {
+  if (!voiceOn || !text) return
+  window.dispatchEvent(new CustomEvent('bailongma:speak', { detail: { text: String(text).slice(0, 300) } }))
+}
+function syncVoiceBtn() {
+  const btn = $('ma-voice-toggle')
+  if (btn) btn.textContent = voiceOn ? '🔊' : '🔇'
 }
 
 function fmtTime(ts) {
@@ -144,7 +155,7 @@ async function bossSpeak() {
       div.textContent = data.hint || ''
       $('ma-messages').appendChild(div)
     } else {
-      (data.responses || []).forEach(r => renderRoomMsg({ role: 'agent', agentId: r.agentId, agentName: r.agentName, avatar: r.avatar, content: r.reply }))
+      (data.responses || []).forEach(r => { renderRoomMsg({ role: 'agent', agentId: r.agentId, agentName: r.agentName, avatar: r.avatar, content: r.reply }); speak(r.reply) })
     }
   } catch (err) {
     loading.textContent = '发言失败：' + err.message
@@ -215,6 +226,7 @@ async function assignTaskFromConfig() {
   try {
     const data = await api(`/agents/${configAgentId}/task`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task }) })
     renderRoomMsg({ role: 'agent', agentId: data.agentId, agentName: data.agentName, avatar: data.avatar, content: data.reply })
+    speak(data.reply)
   } catch (err) { alert('布置失败：' + err.message) }
 }
 
@@ -295,6 +307,12 @@ export function initMultiAgentPanel() {
   $('ma-kanban-toggle')?.addEventListener('click', () => toggleKanban($('ma-kanban').hidden))
   $('ma-kanban-close')?.addEventListener('click', () => toggleKanban(false))
   $('ma-kanban-refresh')?.addEventListener('click', loadKanban)
+  $('ma-voice-toggle')?.addEventListener('click', () => {
+    voiceOn = !voiceOn
+    localStorage.setItem('bailongma-junjichu-voice', voiceOn ? '1' : '0')
+    syncVoiceBtn()
+  })
+  syncVoiceBtn()
   loadAgents()
   loadRoom()
 }

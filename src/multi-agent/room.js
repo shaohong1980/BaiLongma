@@ -62,13 +62,13 @@ export function detectAddressedAgents(text) {
 function inferRelevantAgent(text) {
   const t = String(text || '')
   const roleMap = [
-    { re: /技术|开发|代码|架构|系统|接口|数据库|前端|后端|脚本|部署|机器人|设计|页面|界面|登录|网站|网页|app|软件|程序/, id: 'coder', w: 1 },
-    { re: /教务|课程|排课|招生|行政|制度|文案|公众号|PPT|台账|会议纪要|宣传/, id: 'admin', w: 1 },
-    { re: /财务|预算|成本|报表|投资|经济|税/, id: 'hubu', w: 1 },
-    { re: /安全|风险|加固|运维|应急|防护|漏洞/, id: 'bingbu', w: 1 },
-    { re: /合同|合规|法律|法务|条款|风险提示/, id: 'xingbu', w: 1 },
-    { re: /人事|招聘|考核|组织|绩效|岗位/, id: 'libu', w: 1 },
-    { re: /统筹|协调|评审|复盘|分工|全局/, id: 'gm', w: 1 },
+    { re: /技术|开发|代码|架构|系统|接口|数据库|前端|后端|脚本|部署|机器人|设计|页面|界面|登录|网站|网页|app|软件|程序/g, id: 'coder', w: 1 },
+    { re: /教务|课程|排课|招生|行政|制度|文案|公众号|PPT|台账|会议纪要|宣传/g, id: 'admin', w: 1 },
+    { re: /财务|预算|成本|报表|投资|经济|税/g, id: 'hubu', w: 1 },
+    { re: /安全|风险|加固|运维|应急|防护|漏洞/g, id: 'bingbu', w: 1 },
+    { re: /合同|合规|法律|法务|条款|风险提示/g, id: 'xingbu', w: 1 },
+    { re: /人事|招聘|考核|组织|绩效|岗位/g, id: 'libu', w: 1 },
+    { re: /统筹|协调|评审|复盘|分工|全局/g, id: 'gm', w: 1 },
   ]
   let best = null, bestScore = 0
   for (const { re, id, w } of roleMap) {
@@ -117,7 +117,7 @@ export async function bossSpeak(content) {
     try {
       const reply = await runAgentEngine(agentId, roomCtx, text, false)
       push({ role: 'agent', agentId, agentName: agent.name, avatar: agent.avatar, content: reply, ts: new Date().toISOString() })
-      if (agent.voice?.enabled) emitEvent('agent_tts', { agentId, text: reply.slice(0, 300) })
+      if (agent.voice?.enabled) emitEvent('agent_tts', { agentId, text: reply.slice(0, 300), voiceId: agent.voice?.voiceId || '' })
       responses.push({ agentId, agentName: agent.name, avatar: agent.avatar, role: agent.role, reply })
     } catch (err) {
       responses.push({ agentId, agentName: agent.name, avatar: agent.avatar, reply: '（响应失败：' + err.message + '）', error: true })
@@ -135,7 +135,7 @@ export async function assignTask(agentId, task) {
   push({ role: 'boss', content: `【布置任务给 ${agent.name}】${taskText}`, ts: new Date().toISOString() })
   const reply = await runAgentEngine(agentId, getRoomHistory(MAX_HISTORY), taskText, true)
   push({ role: 'agent', agentId, agentName: agent.name, avatar: agent.avatar, content: reply, ts: new Date().toISOString() })
-  if (agent.voice?.enabled) emitEvent('agent_tts', { agentId, text: reply.slice(0, 300) })
+  if (agent.voice?.enabled) emitEvent('agent_tts', { agentId, text: reply.slice(0, 300), voiceId: agent.voice?.voiceId || '' })
   return { agentId, agentName: agent.name, avatar: agent.avatar, role: agent.role, reply }
 }
 

@@ -1530,8 +1530,8 @@ function handle({ type, data = {} }) {
       showFeishuPopup();
       break;
     case "agent_tts":
-      // 军机处 Agent 语音回复（后端在 agent.voice.enabled 时发出）
-      if (data?.text) playTTSReply(data.text);
+      // 军机处 Agent 语音回复（后端在 agent.voice.enabled 时发出，带音色）
+      if (data?.text) playTTSReply(data.text, data?.voiceId);
       break;
     case "audio_created":
       if (data.autoPlay && data.path) {
@@ -1863,7 +1863,7 @@ function playTTSViaMediaSource(resp, opts = {}) {
   }, { once: true });
 }
 
-async function playTTSReply(text) {
+async function playTTSReply(text, voiceId) {
   ttsStreamingMode = false; // 单段整段播放：stopTTS 走原有进度估算分支
   ttsCurrentText = text;
   ttsInterruptedRemaining = '';
@@ -1875,7 +1875,7 @@ async function playTTSReply(text) {
     const resp = await fetch(`${API}/tts/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, voiceId: voiceId || undefined }),
     });
     if (!resp.ok) {
       let errMsg = `HTTP ${resp.status}`;
@@ -4499,10 +4499,10 @@ initMapPanel();
 // ── 多 Agent 办公室（可对话/布置任务）──
 initMultiAgentPanel();
 document.getElementById("multiagent-btn")?.addEventListener("click", openMultiAgentPanel);
-// 军机处语音：面板开关打开时，臣工回复经此事件交给 TTS 播放
+// 军机处语音：面板开关打开时，臣工回复经此事件交给 TTS 播放（带各自音色）
 window.addEventListener("bailongma:speak", (e) => {
   const text = e.detail?.text
-  if (text) playTTSReply(text)
+  if (text) playTTSReply(text, e.detail?.voiceId)
 });
 
 // ── Media modes (video / image) ──

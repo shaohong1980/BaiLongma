@@ -57,10 +57,10 @@ async function loadRoom() {
   } catch { box.innerHTML = '<div class="ma-empty">军机处加载失败</div>' }
 }
 
-// 语音：若开关打开，播放该 Agent 回复（经 CustomEvent 交给 app.js 的 TTS）
-function speak(text) {
+// 语音：若开关打开，播放该 Agent 回复（带该臣工的音色 voiceId，经 CustomEvent 交给 app.js 的 TTS）
+function speak(text, voiceId) {
   if (!voiceOn || !text) return
-  window.dispatchEvent(new CustomEvent('bailongma:speak', { detail: { text: String(text).slice(0, 300) } }))
+  window.dispatchEvent(new CustomEvent('bailongma:speak', { detail: { text: String(text).slice(0, 300), voiceId: voiceId || '' } }))
 }
 function syncVoiceBtn() {
   const btn = $('ma-voice-toggle')
@@ -155,7 +155,11 @@ async function bossSpeak() {
       div.textContent = data.hint || ''
       $('ma-messages').appendChild(div)
     } else {
-      (data.responses || []).forEach(r => { renderRoomMsg({ role: 'agent', agentId: r.agentId, agentName: r.agentName, avatar: r.avatar, content: r.reply }); speak(r.reply) })
+      (data.responses || []).forEach(r => {
+        renderRoomMsg({ role: 'agent', agentId: r.agentId, agentName: r.agentName, avatar: r.avatar, content: r.reply })
+        const a = agents.find(x => x.id === r.agentId)
+        speak(r.reply, a?.voice?.voiceId || '')
+      })
     }
   } catch (err) {
     loading.textContent = '发言失败：' + err.message
@@ -226,7 +230,8 @@ async function assignTaskFromConfig() {
   try {
     const data = await api(`/agents/${configAgentId}/task`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task }) })
     renderRoomMsg({ role: 'agent', agentId: data.agentId, agentName: data.agentName, avatar: data.avatar, content: data.reply })
-    speak(data.reply)
+    const a = agents.find(x => x.id === configAgentId)
+    speak(data.reply, a?.voice?.voiceId || '')
   } catch (err) { alert('布置失败：' + err.message) }
 }
 

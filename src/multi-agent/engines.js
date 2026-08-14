@@ -68,7 +68,7 @@ async function runCli(agent, roomHistory, bossMessage, isTask) {
   if (!cmd) throw new Error(`Agent ${agent.name} 的 cli 引擎缺少 cli_command 配置（如 claude -p "..."）`)
   const prompt = (isTask ? '【任务】' : '【对话】') + bossMessage
   const fullCmd = cmd.replace(/\{prompt\}/g, `"${prompt.replace(/"/g, '\\"')}"`)
-  const out = execFileSync(fullCmd, { shell: true, timeout: 180000, maxBuffer: 16 * 1024 * 1024 })
+  const out = execFileSync(fullCmd, { shell: true, timeout: 30000, maxBuffer: 16 * 1024 * 1024 })
   return String(out || '').trim().slice(0, 8000) || '(该外部智能体未输出)'
 }
 

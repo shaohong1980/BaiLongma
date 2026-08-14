@@ -621,6 +621,104 @@ function resetZoom() {
   if (sphereReady) sphere.resetView();
 }
 
+// ── 知识图谱节点详情（P2-1）──────────────────────────────────────────────
+// 点击记忆节点 → 弹层显示该记忆的内容 + 相关记忆（按关键词搜索），支持聚焦/搜索。
+let graphDetailNode = null;
+
+function escHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function graphDetailEl(id) { return document.getElementById(id); }
+
+async function loadRelatedMemories(node, limit = 8) {
+  const el = graphDetailEl("graph-detail-related");
+  if (!el) return;
+  // 用内容里的关键词做搜索：取实体/概念标签 + 内容前 20 字
+  const tags = (node.tags && Array.isArray(node.tags) ? node.tags : [])
+    .concat(node.entities && Array.isArray(node.entities) ? node.entities : [])
+    .concat(node.concepts && Array.isArray(node.concepts) ? node.concepts : []);
+  const kw = [...new Set(tags)].slice(0, 4).join(" ");
+  const text = String(node.content || "").slice(0, 24);
+  const search = (kw || text || "").trim();
+  if (!search) { el.innerHTML = '<div class="graph-detail-empty">无搜索关键词</div>'; return; }
+  try {
+    const res = await fetch(`${API}/memories?search=${encodeURIComponent(search)}&limit=${limit}`);
+    const rows = await res.json();
+    const list = Array.isArray(rows) ? rows : [];
+    const others = list.filter(m => String(m.mem_id || m.id) !== String(node._nid));
+    if (!others.length) {
+      el.innerHTML = '<div class="graph-detail-empty">暂无相关记忆</div>';
+      return;
+    }
+    el.innerHTML = others.map(m => `
+      <button class="graph-detail-related-item" data-nid="${escHtml(m.mem_id || m.id)}">
+        <span class="gdr-type">${escHtml(m.event_type || 'fact')}</span>
+        <span class="gdr-text">${escHtml(String(m.content || '').slice(0, 60))}</span>
+      </button>`).join("");
+    el.querySelectorAll("[data-nid]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const nid = btn.dataset.nid;
+        const related = nodeData.find(n => String(n._nid) === String(nid));
+        if (related) openGraphNodeDetail(related);
+        else if (nid) highlightNodes([nid], 1400);
+      });
+    });
+  } catch {
+    el.innerHTML = '<div class="graph-detail-empty">相关记忆加载失败</div>';
+  }
+}
+
+function openGraphNodeDetail(node) {
+  graphDetailNode = node;
+  const overlay = graphDetailEl("graph-detail-overlay");
+  if (!overlay || !node) return;
+  overlay.hidden = false;
+  graphDetailEl("graph-detail-type").textContent = node.event_type || "fact";
+  graphDetailEl("graph-detail-title").textContent = node.title || node.content || node._nid || "";
+  const meta = [];
+  if (node._nid) meta.push(`#${node._nid}`);
+  if (node.timestamp || node.created_at) meta.push(String(node.timestamp || node.created_at).slice(0, 10));
+  if (node.salience) meta.push(`权重 ${node.salience}`);
+  if (node.tags && Array.isArray(node.tags) && node.tags.length) meta.push(node.tags.map(t => `#${t}`).join(" "));
+  graphDetailEl("graph-detail-meta").textContent = meta.join(" · ");
+  graphDetailEl("graph-detail-body").textContent = node.detail
+    ? `${node.content || ''}\n\n${node.detail}`
+    : (node.content || "(无内容)");
+  loadRelatedMemories(node);
+}
+
+function closeGraphNodeDetail() {
+  const overlay = graphDetailEl("graph-detail-overlay");
+  if (overlay) overlay.hidden = true;
+  graphDetailNode = null;
+}
+
+function initGraphDetail() {
+  graphDetailEl("graph-detail-close")?.addEventListener("click", closeGraphNodeDetail);
+  const overlay = graphDetailEl("graph-detail-overlay");
+  overlay?.addEventListener("click", (e) => { if (e.target === overlay) closeGraphNodeDetail(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeGraphNodeDetail(); });
+  graphDetailEl("graph-detail-focus")?.addEventListener("click", () => {
+    if (graphDetailNode) highlightNodes([graphDetailNode._nid], 10000);
+  });
+  graphDetailEl("graph-detail-search")?.addEventListener("click", async () => {
+    if (!graphDetailNode) return;
+    const text = String(graphDetailNode.content || graphDetailNode.title || "").slice(0, 30);
+    try {
+      const res = await fetch(`${API}/memories?search=${encodeURIComponent(text)}&limit=12`);
+      const rows = await res.json();
+      if (Array.isArray(rows) && rows.length) {
+        addNewNodes(rows);
+        const nids = rows.map(m => m.mem_id || m.id).filter(Boolean);
+        highlightNodes(nids, 12000);
+      }
+    } catch {}
+  });
+}
+
 async function initKnowledgeSphere() {
   if (sphereReady || !MEMORY_GRAPH_ENABLED || !graphEl) return;
   if (_sphereInitPromise) return _sphereInitPromise;
@@ -632,7 +730,11 @@ async function initKnowledgeSphere() {
       getNodeRadius: nodeRadius,
       getTheme: () => themeColors,
       onHover: showTip,
-      onClick: (d) => { if (d) highlightNodes([d._nid], 1400); },
+      onClick: (d) => {
+        if (!d) return;
+        highlightNodes([d._nid], 1400);
+        openGraphNodeDetail(d);
+      },
     };
     try {
       // 首选 WebGL 3D 球体；无 GPU / 远程桌面等环境 WebGL 不可用时报错，回退到 2D
@@ -2041,6 +2143,7 @@ chat = initChat({
 chat.applyActivationWarmupLock();
 if (MEMORY_GRAPH_ENABLED) {
   initKnowledgeSphere();
+  initGraphDetail();
   loadMemories();
   setInterval(() => {
     loadMemories();

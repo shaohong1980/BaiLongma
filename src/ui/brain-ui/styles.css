@@ -1795,6 +1795,115 @@ body {
 }
 .vault-feedback-line { min-height: 16px; }
 
+/* ═══ 知识图谱节点详情弹层（P2-1）═══ */
+.graph-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 8vh;
+}
+.graph-detail-overlay[hidden] { display: none; }
+.graph-detail-card {
+  width: min(480px, calc(100vw - 40px));
+  max-height: min(70vh, 560px);
+  background: var(--panel-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.graph-detail-head { display: flex; align-items: center; gap: 8px; }
+.graph-detail-type {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--cool);
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--cool) 40%, transparent);
+  border-radius: 5px;
+}
+.graph-detail-close {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.graph-detail-close:hover { color: var(--ink); }
+.graph-detail-title { font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.4; word-break: break-word; }
+.graph-detail-meta { font-size: 10px; color: var(--dim); font-family: "JetBrains Mono", ui-monospace, monospace; line-height: 1.5; }
+.graph-detail-body {
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 8px 10px;
+  border-left: 2px solid var(--line-strong);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  border-radius: 6px;
+}
+.graph-detail-section-title {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-top: 6px;
+}
+.graph-detail-related { display: flex; flex-direction: column; gap: 4px; }
+.graph-detail-related-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 50%, transparent);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.graph-detail-related-item:hover { border-color: var(--cool); background: color-mix(in srgb, var(--cool) 10%, var(--panel)); }
+.gdr-type {
+  flex-shrink: 0;
+  font-size: 8px;
+  color: var(--cool);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--cool) 35%, transparent);
+  border-radius: 4px;
+}
+.gdr-text { font-size: 11px; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-detail-empty { font-size: 11px; color: var(--dim); padding: 6px 2px; }
+.graph-detail-actions { display: flex; gap: 8px; margin-top: 4px; }
+.graph-detail-btn {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 11px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+.graph-detail-btn:hover { border-color: var(--cool); background: color-mix(in srgb, var(--cool) 12%, transparent); }
+
 /* MCP 常用模板 */
 .mcp-presets {
   display: grid;

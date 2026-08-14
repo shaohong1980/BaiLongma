@@ -3,6 +3,7 @@ import { runConsolidator } from './consolidator.js'
 import { maybeSyncVault } from './vault.js'
 import { maybeGenerateBriefing } from '../runtime/briefing.js'
 import { maybeRebuildGlobalSummaryTree } from './global-summary-tree.js'
+import { runIdleMaintenance, isIdleMaintenanceDue } from '../runtime/idle-maintenance.js'
 
 const RUN_INTERVAL_MS = 30 * 60 * 1000  // 30 分钟
 const BATCH_SIZE = 20                   // 上限让 LLM 一次能看全实体的近期记忆
@@ -35,6 +36,12 @@ async function tick() {
   }
   // 每天早上首次：生成晨间简报（幂等，当天已有则跳过）
   try { await maybeGenerateBriefing() } catch (err) { console.error('[简报] 触发失败:', err?.message || err) }
+
+  // 空闲/夜间深度整理（P2-2）：凌晨或长时间未整理时，清理旧输出 + 生成本周复盘草稿。
+  // 有自身节流（每天最多一次），不影响常规记忆整合。
+  try {
+    if (isIdleMaintenanceDue()) await runIdleMaintenance()
+  } catch (err) { console.warn('[整合循环] 空闲整理失败:', err?.message || err) }
 }
 
 let started = false

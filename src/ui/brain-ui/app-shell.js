@@ -7,6 +7,27 @@ import { createDocPanel } from './doc-panel.js';
 const createGraphStage = () => `
 <div class="grid-overlay"></div>
 <canvas id="graph" aria-label="Longma 记忆节点图"></canvas>
+
+<!-- 知识图谱节点详情弹层：点击记忆节点弹出内容 + 相关记忆（P2-1） -->
+<div class="graph-detail-overlay" id="graph-detail-overlay" hidden>
+  <div class="graph-detail-card">
+    <div class="graph-detail-head">
+      <span class="graph-detail-type" id="graph-detail-type"></span>
+      <button class="graph-detail-close" id="graph-detail-close" type="button" title="关闭">×</button>
+    </div>
+    <div class="graph-detail-title" id="graph-detail-title"></div>
+    <div class="graph-detail-meta" id="graph-detail-meta"></div>
+    <div class="graph-detail-body" id="graph-detail-body"></div>
+    <div class="graph-detail-section-title">相关记忆</div>
+    <div class="graph-detail-related" id="graph-detail-related">
+      <div class="graph-detail-empty">加载中…</div>
+    </div>
+    <div class="graph-detail-actions">
+      <button class="graph-detail-btn" id="graph-detail-focus" type="button">聚焦此节点</button>
+      <button class="graph-detail-btn" id="graph-detail-search" type="button">以此搜索记忆</button>
+    </div>
+  </div>
+</div>
 `;
 
 const createPrimaryPanel = () => `

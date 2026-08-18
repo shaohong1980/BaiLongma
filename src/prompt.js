@@ -762,10 +762,8 @@ export function buildContextBlock({
     )
   }
 
-  if (runtimeParts.length > 0) {
-    sections.push(`<runtime>\n${runtimeParts.join('\n\n')}\n</runtime>`)
-  }
-
+  // P2-1：每轮必变的 <runtime>（时间戳/环境）移到 contextBlock 末尾（见 return 前），
+  // 让稳定内容（记忆/画像/技能）作前缀，命中 DeepSeek prefix cache。
   if (agentSkills) {
     sections.push(agentSkills)
   }
@@ -1053,6 +1051,13 @@ The system completed ${roundInfo.round} round(s) of memory pre-retrieval before 
   }
 
   if (sections.length === 0) return ''
+  // P2-1：DeepSeek prompt cache 优化——<runtime>（每轮必变：当前时间/存活时长/触发型环境块）
+  // 放 contextBlock 末尾。旧位置在最前会让 contextBlock 前缀每轮变化、prefix cache 在开头就 miss；
+  // 移到末尾后稳定前缀（记忆/画像/技能/实体）可命中缓存，仅尾部变化。模型仍能看到 runtime 内容。
+  if (runtimeParts.length > 0) {
+    sections.push(`<runtime>\n${runtimeParts.join('\n\n')}\n</runtime>`)
+  }
+
   return `<context>\n${sections.join('\n\n')}\n</context>`
 }
 

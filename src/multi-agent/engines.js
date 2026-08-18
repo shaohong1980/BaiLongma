@@ -43,7 +43,10 @@ function buildMessages(agent, roomHistory, bossMessage, isTask = false) {
 // 内部引擎：爻台主模型 + 人格（输出放宽，避免长回复被截断）
 async function runInternal(agent, roomHistory, bossMessage, isTask) {
   const messages = buildMessages(agent, roomHistory, bossMessage, isTask)
-  return runSimpleCompletion({ messages, temperature: Number(agent.temperature) || 0.5, maxTokens: isTask ? 3000 : 2500 })
+  // P2-2：子角色可选 fast 模型（flash）——低风险角色（如摘要/记录）配置 fast:true 省成本；
+  // 默认 false 保持主模型质量（CEO/军机处等核心角色不应降级）
+  const fast = agent.fast === true
+  return runSimpleCompletion({ messages, temperature: Number(agent.temperature) || 0.5, maxTokens: isTask ? 3000 : 2500, fast })
 }
 
 // 自定义引擎：独立 OpenAI 兼容端点

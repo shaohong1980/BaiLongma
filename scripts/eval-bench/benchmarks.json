@@ -1,0 +1,36 @@
+{
+  "name": "bailongma-behavioral-bench",
+  "description": "行为级评估集：代表典型用户任务的端到端完成率基线",
+  "tasks": [
+    {
+      "id": "memory-recall",
+      "input": "我之前记录过你喜欢绿茶的偏好，帮我回忆一下",
+      "expect": { "tools": ["search_memory", "recall_memory", "probe_memory"] },
+      "note": "应通过记忆检索工具而非凭空回答"
+    },
+    {
+      "id": "file-write-verify",
+      "input": "在沙箱里创建 verify.txt 写入 hello world，然后读回来确认内容",
+      "expect": { "tools": ["write_file", "read_file"], "requireBoth": true },
+      "note": "写后必须读回验证"
+    },
+    {
+      "id": "time-query",
+      "input": "现在几点了？",
+      "expect": { "noHeavyTools": ["web_search", "exec_command", "fetch_url"] },
+      "note": "简单问题不应调重工具"
+    },
+    {
+      "id": "multi-step-search",
+      "input": "搜索一下今天的热点新闻，然后总结三条",
+      "expect": { "tools": ["web_search", "fetch_url"] },
+      "note": "应实际联网搜索而非编造"
+    },
+    {
+      "id": "task-set-execute",
+      "input": "请制定一个三步计划：整理工作区文件、备份配置文件、写一份日志摘要",
+      "expect": { "tools": ["set_task", "list_dir", "write_file"] },
+      "note": "复杂请求应显式建任务"
+    }
+  ]
+}

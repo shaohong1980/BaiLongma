@@ -49,6 +49,8 @@
     "test:a2a-client": "node ./src/test-a2a-client.js",
     "test:all": "node scripts/run-tests.mjs",
     "test:run": "node scripts/run-tests.mjs",
+    "eval": "node scripts/eval-bench/run-eval.mjs",
+    "eval:bench": "node scripts/eval-bench/run-eval.mjs",
     "repair:memories:dry": "electron ./scripts/repair-memory-quality.js",
     "repair:memories": "electron ./scripts/repair-memory-quality.js --apply",
     "probe:config-upgrade": "node ./scripts/probe-config-upgrade.mjs",

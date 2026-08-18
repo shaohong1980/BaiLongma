@@ -3,6 +3,8 @@
 import { getToolCompressionConfig } from "./config.js"
 import { executeTool } from "./capabilities/executor.js"
 import { getToolSchemas } from "./capabilities/schemas.js"
+import { validateToolArgs } from "./capabilities/tool-validator.js"
+import { recordReflection, buildReflectionFromFailure } from "./memory/reflection.js"
 import { insertActionLog } from "./db.js"
 import { shouldThrottle } from "./quota.js"
 import { isTerminalInternalToolRound } from "./runtime/tool-protocol.js"
@@ -350,10 +352,12 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       const normalizedArgs = normalizeArgs(tc.name, args)
       const fingerprint = buildToolFingerprint(tc.name, normalizedArgs)
       const stopReason = getToolLoopStopReason(toolLoopState, tc.name, fingerprint)
-      return { tc, normalizedArgs, fingerprint, stopReason, hadEmptyArguments }
+      // 运行时参数校验（必需参数缺失/类型错误）——见 tool-validator.js
+      const validation = validateToolArgs(tc.name, normalizedArgs)
+      return { tc, normalizedArgs, fingerprint, stopReason, hadEmptyArguments, validation }
     }
 
-    const runPreparedToolCall = async ({ tc, normalizedArgs, fingerprint, stopReason, hadEmptyArguments }) => {
+    const runPreparedToolCall = async ({ tc, normalizedArgs, fingerprint, stopReason, hadEmptyArguments, validation }) => {
       console.log(`[工具调用] ${tc.name}`)
       if (hadEmptyArguments) {
         console.log(`[工具警告] ${tc.name} 参数为空`)
@@ -372,6 +376,29 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         // （比如换 read_file 查日志、search_memory 找历史经验）。同指纹反复失败仍由 sameFailureCounts
         // 拦截，跨工具死循环仍由 recentFingerprints 的 unique threshold 拦截——安全网未失效。
         toolLoopState.consecutiveFailures = 0
+        // Reflexion：工具熔断是真实失败模式，沉淀反思（fire-and-forget，不阻塞工具循环）
+        try {
+          const reflection = buildReflectionFromFailure({
+            tool: tc.name,
+            reason: stopReason,
+            lesson: '不要重复同一失败方法；换工具/换思路，或向用户说明阻塞',
+          })
+          const taskText = typeof toolContext.getTaskState === 'function'
+            ? String(toolContext.getTaskState()?.task || '')
+            : ''
+          recordReflection({ content: reflection, task: taskText, tags: [`tool:${tc.name}`] })
+        } catch {}
+      } else if (validation && !validation.ok) {
+        // P2：工具参数运行时校验失败——返回结构化错误引导模型修正（计入熔断计数防死循环）
+        result = JSON.stringify({
+          ok: false,
+          tool: tc.name,
+          skipped: 'invalid_arguments',
+          errors: validation.errors,
+          hint: '工具参数不合法：请根据 schema 修正后重试。若某项确实无法提供，向用户说明缺失项，而不是硬造参数。',
+        })
+        recordToolLoopOutcome(toolLoopState, tc.name, fingerprint, result)
+        console.log(`[tool-validator] ${tc.name} 参数校验失败: ${validation.errors.join('; ')}`)
       } else if (isToolForbiddenInStrictEvaluation(strictEvaluation, tc.name)) {
         strictSuppressed = true
         result = makeStrictForbiddenToolResult(tc.name, strictEvaluation)

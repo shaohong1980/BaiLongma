@@ -37,6 +37,7 @@ import { execSpawnSubagents } from './tools/spawn.js'
 import { execJunjichu } from '../multi-agent/control.js'
 import { execHotspotMode, execWorldcupMode, execTyphoonMode, execBaguaMode, execMapMode, execOpenDocPanel, execPersonCardMode } from "./tools/panels.js"
 import { runTask as runA2ATask } from '../agents/a2a-client.js'
+import { recordReflection, buildReflectionFromFailure } from '../memory/reflection.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
 import { execManageRule } from './tools/rules.js'
@@ -718,6 +719,23 @@ function unverifiedDeliveryNotice() {
 
 function execCompleteTask({ summary = '' }, context) {
   if (!context?.onCompleteTask) return '错误：任务管理回调未注册'
+  // Reflexion：任务完成时有失败步骤 → 沉淀反思（下次同类任务经记忆召回自动带上教训）
+  try {
+    const ts = typeof context.getTaskState === 'function' ? context.getTaskState() : null
+    const failedSteps = (ts?.steps || []).filter(s => s && s.status === 'failed')
+    if (failedSteps.length > 0) {
+      const reasons = failedSteps.map(s => String(s.text || '').slice(0, 80)).filter(Boolean).join('; ')
+      recordReflection({
+        content: buildReflectionFromFailure({
+          task: String(ts?.task || ''),
+          reason: `任务部分步骤失败${reasons ? '：' + reasons : ''}`,
+          lesson: '失败步骤应如实向用户说明缺口，不要声称全部完成',
+        }),
+        task: String(ts?.task || ''),
+        tags: ['task_failed'],
+      })
+    }
+  } catch {}
   const suggestion = context.onCompleteTask(String(summary || '').trim()) || ''
   const lines = [`任务已完成${summary ? '：' + summary : ''}`]
   if (suggestion) lines.push(suggestion)

@@ -23,6 +23,7 @@ import { recordSelfEvolutionFromMemories, triggerTaskSelfEval } from './memory/s
 import { buildSkillSuggestion } from './memory/skill-suggest.js'
 import { runRuntimeInjector } from './context/runtime-injector.js'
 import { selectContextSections } from './context/section-gate.js'
+import { capLowValueSegment, summarizeContextBudget, warnIfOverBudget } from './context/token-budget.js'
 import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, loadThreadState, saveThreadState, setCurrentFocusTopic, setCurrentThreadId, updateUserMessageFocusTopic, reassignConversationsThread, insertActionLog } from './db.js'
 import { calculateNextDueAt, autoSpeakForVoiceReply, detectOpenFollowupQuestion } from './capabilities/executor.js'
 import { buildRoleContextBlock } from './capabilities/tools/roles.js'
@@ -1090,7 +1091,11 @@ async function runTurn(input, label, msg = null) {
     const mainlineSummaryText = injection.mainlineSummary
       ? `<mainline-history-summary>\n${injection.mainlineSummary}\n</mainline-history-summary>`
       : ''
-    const extraContextJoined = [presenceText, runtimeInjection.contextText, terminalStreamContext, prefetchText, mainlineSummaryText, injection.uiSignalSummary, formatSceneManifest(sceneStore.manifest()), formatAIVideoPanel(getAIVideoPanelState())].filter(Boolean).join('\n\n')
+    // 低价值段长度保护（token 预算器）：终端流/预取/主线路摘要超长时截断，保护高价值段
+    const safeTerminal = capLowValueSegment(terminalStreamContext)
+    const safePrefetch = capLowValueSegment(prefetchText)
+    const safeMainline = capLowValueSegment(mainlineSummaryText)
+    const extraContextJoined = [presenceText, runtimeInjection.contextText, safeTerminal, safePrefetch, safeMainline, injection.uiSignalSummary, formatSceneManifest(sceneStore.manifest()), formatAIVideoPanel(getAIVideoPanelState())].filter(Boolean).join('\n\n')
     const skillSelection = selectSkillsForMessage(msg?.content || input || '')
     const agentSkillsText = formatSkillsForContext(skillSelection)
     // 技能遥测：实际注入本轮上下文的技能记一次使用（hermes skill_usage 的本地版）
@@ -1196,6 +1201,19 @@ async function runTurn(input, label, msg = null) {
     }
 
     let contextBlock = buildContextBlock(gateResult.args)
+
+    // 全轮上下文 token 观测（token 预算器）：统计系统提示+上下文块+对话窗口，超阈值告警
+    {
+      const { total: ctxTokens, detail } = summarizeContextBudget({
+        system_prompt: systemPrompt,
+        context_block: contextBlock,
+        conversation_window: (injection.conversationWindow || []).map(m => m.content || '').join('\n'),
+      })
+      warnIfOverBudget(ctxTokens, { label: `[${label}]` })
+      if (ctxTokens > 60000) {
+        console.warn(`[context] 本轮上下文 ${ctxTokens} tokens | ${Object.entries(detail).map(([k, v]) => `${k}=${v}`).join(' ')}`)
+      }
+    }
 
     // 系统级自动打开地图：pushMessage 已检测到明确地图意图并代用户打开面板。
     // 告知 LLM，避免它再调 map_mode（面板已开）或谎称/退回浏览器。

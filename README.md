@@ -1,8 +1,18 @@
-![Bailongma](https://github.com/xiaoyuanda666-ship-it/Yaotai/blob/main/images/AGI128k.jpg)
+![爻台 Yaotai](https://github.com/xiaoyuanda666-ship-it/Yaotai/blob/main/images/AGI128k.jpg)
 
-# Bailongma
+# 爻台 Yaotai Agent Studio
 
-Bailongma 是一个持续运行的桌面 AI Agent 项目。它不是一次问答结束就退出的聊天程序，而是由主循环驱动：有用户消息时优先处理，空闲时按节奏继续整理记忆、检查任务、刷新上下文，并把状态实时推送到 Brain UI。
+> **爻台（Yaotai Agent）是基于 Bailongma（白龙马）深度二次开发的本地持续运行桌面 AI Agent。**
+
+爻台在 Bailongma 开源底座之上做了**深度二次开发**：不仅完整继承了 Bailongma 的本地自主、动态记忆、工具执行与多协议能力，还进一步引入：
+
+- **多智能体协同**：军机处 / 三省六部流水线（分拣→规划→审议封驳→派发→执行→回奏），六部按领域自动派活；
+- **Agent 技能学习闭环**：`learn_skill` 沉淀可复用技能，`improve_skill` 在使用中自我改进；
+- **行为级评估与对抗测试**：31 个端到端评估任务 + prompt injection / 危险指令 / 沙箱逃逸对抗集；
+- **DeepSeek 深度优化**：prompt cache 前缀排序、flash/pro 模型分层、上下文 token 预算与自动降级；
+- **标准协议**：MCP（Agent↔工具）+ A2A（Agent↔Agent）+ OTel trace 字段，面向 Agent 生态互操作。
+
+它不是一次问答结束就退出的聊天程序，而是由主循环驱动：有用户消息时优先处理，空闲时按节奏继续整理记忆、检查任务、刷新上下文，并把状态实时推送到 Brain UI。
 
 项目由 Electron 桌面壳、本地 HTTP 服务、LLM 调用层、记忆系统、工具执行器、语音系统、社交连接器和 Brain UI 组成。它的目标是让一个本地 Agent 既能聊天，也能记住、行动、观察自己的运行状态，并通过工具完成文件、网页、媒体、提醒、任务和系统级操作。
 
@@ -44,7 +54,7 @@ data/                  本地运行数据，打包时不会带入安装包
 
 ## 环境要求
 
-Bailongma 强制要求 **Node.js 22.x**（作为构建 / 脚本运行环境：npm、electron-rebuild、lint 等；运行时统一走 Electron 33 内置 Node，见下）。版本不符时，启动守卫会直接报错退出，不会进入运行阶段。
+爻台强制要求 **Node.js 22.x**（作为构建 / 脚本运行环境：npm、electron-rebuild、lint 等；运行时统一走 Electron 33 内置 Node，见下）。版本不符时，启动守卫会直接报错退出，不会进入运行阶段。
 
 > 升级说明：从 Node 20 → 22，是为了满足 `@electron/rebuild` 4.x 的 `node >=22.12` 声明——旧约束下 `npm install` 会因 engine 冲突直接失败。
 
@@ -181,7 +191,7 @@ http://127.0.0.1:3721
 
 ## 数据与持久化
 
-Bailongma 的长期状态主要保存在本地 SQLite 数据库中，包括：
+爻台（Yaotai）的长期状态主要保存在本地 SQLite 数据库中，包括：
 
 - 对话记录、参与者身份和用户画像。
 - 记忆节点、记忆关系、全文检索索引和可见性状态。

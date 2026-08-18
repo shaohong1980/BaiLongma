@@ -1,4 +1,7 @@
-# Yaotai 项目功能说明
+# 爻台 Yaotai 项目功能说明
+
+> **爻台（Yaotai Agent）是基于 Bailongma（白龙马）深度二次开发的本地持续运行桌面 AI Agent。**
+> 本文档是爻台的完整功能说明；基础底座与演进关系见 [README.md](README.md)。
 
 ## 1. 项目定位
 

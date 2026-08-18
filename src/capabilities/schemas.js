@@ -13,6 +13,7 @@ import { remindersSchemas } from './schemas/reminders.js'
 import { agentsSchemas } from './schemas/agents.js'
 import { systemSchemas } from './schemas/system.js'
 import { apiCapabilitySchemas } from './schemas/api-capabilities.js'
+import { documentSchemas } from './schemas/documents.js'
 import { goalsSchemas } from './schemas/goals.js'
 import { skillsSchemas } from './schemas/skills.js'
 import { mcpSchemas } from './schemas/mcp.js'
@@ -35,6 +36,7 @@ export const TOOL_SCHEMAS = {
   ...agentsSchemas,
   ...systemSchemas,
   ...apiCapabilitySchemas,
+  ...documentSchemas,
   ...goalsSchemas,
   ...skillsSchemas,
   ...mcpSchemas,

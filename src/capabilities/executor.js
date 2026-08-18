@@ -22,6 +22,7 @@ import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
+import { execReadDocument } from './tools/documents.js'
 import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
 import { execBrowserRead, execBrowserAct, execDeepResearch, execFetchUrl, execWebSearch } from './tools/web.js'
@@ -39,6 +40,7 @@ import { execHotspotMode, execWorldcupMode, execTyphoonMode, execBaguaMode, exec
 import { runTask as runA2ATask } from '../agents/a2a-client.js'
 import { recordReflection, buildReflectionFromFailure } from '../memory/reflection.js'
 import { deliveryVerifyNoticeFromLogs } from '../runtime/delivery-verify.js'
+import { backupLocalData, getBackupStatus } from '../runtime/backup.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
 import { execManageRule } from './tools/rules.js'
@@ -229,6 +231,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execReadFile(args, context)
       case 'list_dir':
         return await execListDir(args, context)
+      case 'read_document':
+        return await execReadDocument(args, context)
       case 'write_file':
         return await execWriteFile(args, context)
       case 'delete_file':
@@ -405,6 +409,10 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execConnectFeishu()
       case 'set_security':
         return execSetSecurity(args)
+      case 'request_approval':
+        return execRequestApproval(args)
+      case 'backup_data':
+        return execBackupData(args)
       default:
         if (isInstalledTool(name)) {
           const previewed = streamToolFileWriteExecutionPreview(name, args)
@@ -1031,6 +1039,52 @@ function execSetSecurity({ file_sandbox, exec_sandbox, reason = '' }) {
     id,
     status: 'pending_confirmation',
     message: '确认 surface 已挂出（kind=choice，居中聚焦，含"确认/取消"按钮）。用户在屏幕上直接看到了完整内容，不需要你再 send_message 复述卡片说什么或提醒用户去点确认 —— 那是冗余的口播。等用户点完，系统会用 silent APP_SIGNAL 通知你结果，那一轮也无需 send_message。本轮直接结束即可。',
+  })
+}
+
+// ── 通用审批确认流（②）──
+// 对齐办公产品的人机协同（提交→审批→执行）：Agent 对高风险/大规模/不可逆操作
+// 可调用 request_approval 弹确认卡片，用户批准后才执行。结果经 silent APP_SIGNAL
+// 通知回 agent（api.js 的 scene intent handler 处理 approval-* surface）。
+function execRequestApproval({ prompt, action = '' }) {
+  const promptText = String(prompt || '').trim()
+  if (!promptText) return toolJson({ ok: false, tool: 'request_approval', error: 'prompt 不能为空（说明要做什么、为什么需要确认）' })
+  if (sceneClientCount() === 0) {
+    return toolJson({ ok: false, tool: 'request_approval', error: '当前没有界面客户端，无法弹出确认框。请改用文字向用户说明并等待回复。' })
+  }
+  const id = `approval-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`
+  sceneStore.set(id, {
+    kind: 'choice',
+    intent: 'confront',
+    data: {
+      prompt: promptText.slice(0, 500),
+      options: [
+        { value: 'approve', label: '批准', tone: 'danger' },
+        { value: 'cancel', label: '取消', tone: 'default' },
+      ],
+      pending: { request_approval: true, action: String(action || '').slice(0, 300) },
+    },
+  })
+  emitEvent('action', { tool: 'request_approval', summary: '等待用户批准操作', detail: id })
+  return toolJson({
+    ok: true,
+    tool: 'request_approval',
+    id,
+    status: 'pending_approval',
+    message: '批准卡片已挂出（用户在屏幕上直接看到，无需你复述）。用户点批准/取消后系统会用 silent APP_SIGNAL 通知你结果（approved=true/false）。本轮先结束，不要重复请求、不要代替用户决定、不要把"已请求"当"已批准"。',
+  })
+}
+
+// ── 本地数据备份（③ 本地深度）──
+function execBackupData({ target_dir = 'backups' } = {}) {
+  const r = backupLocalData({ target_dir })
+  if (!r.ok) return toolJson({ ok: false, tool: 'backup_data', error: r.error })
+  return toolJson({
+    ok: true,
+    tool: 'backup_data',
+    backup_dir: r.backup_dir,
+    files: r.files,
+    hint: '备份已完成。备份目录在沙箱内，可整体拷走/压缩实现数据迁移。可用 backup_status 查看历史备份。',
   })
 }
 

@@ -242,6 +242,21 @@ function attachSceneProtocol() {
     const id = insertUISignal({ type: `scene.intent.${name}`, target: msg.surface || null, payload: data, ts: msg.ts || Date.now() })
     emitEvent('ui_signal', { id, type: name, target: msg.surface, payload: data })
 
+    if (name === 'select' && surface.startsWith('approval-')) {
+      // 通用审批流（②）：用户批准/取消 request_approval 卡片 → silent APP_SIGNAL 通知 agent
+      const pending = sceneStore.get(surface)?.data?.pending || {}
+      sceneStore.set(surface, null)
+      const approved = data.value === 'approve'
+      const actionDesc = String(pending.action || '').slice(0, 200)
+      pushMessage(
+        'SYSTEM',
+        `[approval result] User ${approved ? 'APPROVED' : 'CANCELLED'}: ${actionDesc || '(no description)'}\n(Internal context refresh only. Do NOT call send_message. Proceed only if approved; if cancelled, do not perform the action.)`,
+        'APP_SIGNAL',
+        { queue: 'background', persist: false, silent: true },
+      )
+      return
+    }
+
     if (name === 'select' && surface.startsWith('security-confirm-')) {
       const pending = sceneStore.get(surface)?.data?.pending || {}
       sceneStore.set(surface, null)

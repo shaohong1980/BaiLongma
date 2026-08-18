@@ -272,6 +272,15 @@ npm run publish
 - 文件与工具能力经过执行器统一路由，部分危险操作会进入确认或策略流程。
 - Electron 桌面端启用上下文隔离，前端通过预加载桥接访问必要能力。
 
+## 本地优先（护城河）
+
+BaiLongma 定位是**本地持续运行的自主 Agent**——数据与能力都在你机器上：
+
+- **数据本地**：全部记忆/对话/配置存本地 SQLite（`data/`），不依赖云端。
+- **离线可用**：本地嵌入模型（bge-large-zh）做向量召回；联网工具按需才走网络。
+- **可迁移**：`backup_data` 工具一键备份 SQLite（含 WAL）快照 + 配置 + 沙箱文件到 `sandbox/backups/`，拷走即迁移。
+- **可审计**：所有工具调用记录 `action_logs` + 回合轨迹（`turn-traces.jsonl`）；`backup_data` / 对抗测试集保障数据安全边界。
+
 ## 已知依赖风险（决策记录）
 
 - **sharp（`@huggingface/transformers` 间接依赖）**：`npm audit` 报告 libvips 系列 CVE（GHSA-f88m-g3jw-g9cj 等），影响 sharp `<0.35.0`，且 0.34.x 无修复版。本项目仅用 transformers 做**纯文本嵌入**（bge-large-zh，`pipeline('feature-extraction')`），运行时**从不加载 sharp**（图像管线未触发），实际攻击面≈0；且 transformers 依赖链锁定 `sharp ^0.34`（最新版 4.2.0 仍未支持 0.35），升级需 npm overrides + 重建原生模块 + API 兼容风险。**决策：接受此风险**。若未来启用多模态/图像嵌入，需同步升级 transformers→sharp 0.35 链。

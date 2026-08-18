@@ -1,6 +1,6 @@
 // dev-board-light.cjs —— 控制 ESP32-S3 WiFi 灯板(局域网 HTTP)
 //
-// 唤醒命中"小白龙"时:在 ~0.6 秒内闪三次,结束灭掉。
+// 唤醒命中"爻台"时:在 ~0.6 秒内闪三次,结束灭掉。
 // 控制契约见安装版沙箱 esp32_light_control.md:
 //   POST http://<板>:8765/api/color  {"color":"#RRGGBB"}
 // 实际设备走 WiFi(不是 localhost 串口桥),IP 同用户现有脚本 flash-blue.ps1。

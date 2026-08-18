@@ -43,11 +43,6 @@ function setConfig(key, value) {
   writeJsonFile(STATE_FILE, state)
 }
 
-function getMemoryByMemId(memId) {
-  const memories = readJsonFile(MEMORY_FILE, [])
-  return memories.find(m => m.mem_id === memId) || null
-}
-
 // 自进化记忆文件的上限：超过就裁掉最旧的（每个 mem_id 只留一份，按写入时间近似用数组顺序）。
 // 之前这个文件无限增长——每次任务自评都 push，`state.recent` 有 24 条上限但这里没有。
 const MAX_EVOLUTION_MEMORIES = 200
@@ -199,7 +194,7 @@ export function isSelfEvolutionMemory(memory = {}) {
   return ACTIONABLE_MEM_ID_RE.test(memory.mem_id || '')
 }
 
-export function recordSelfEvolutionFromMemories(memories = [], { emitEvent = null } = {}) {
+export async function recordSelfEvolutionFromMemories(memories = [], { emitEvent = null } = {}) {
   if (!Array.isArray(memories) || memories.length === 0) return []
 
   const state = getSelfEvolutionState()
@@ -215,7 +210,12 @@ export function recordSelfEvolutionFromMemories(memories = [], { emitEvent = nul
 
     let full = null
     try {
-      full = getMemoryByMemId(memId)
+      // 输入是 recognizer 写入 SQLite 的记忆；须从 SQLite 读完整行（含 tags/content），
+      // 才能正确派生 kind。不能用自己的 JSON 存储（self_evolution_memories.json）——
+      // 那里只存 self_evaluated 的条目，读不到 recognizer 提取的记忆，会导致回退到
+      // 稀疏的 item 而丢失 kind:* 标签（kind 退化成 mem_id 的粗糙匹配）。
+      const { getMemoryByMemId: getSqliteMemory } = await import('../db.js')
+      full = getSqliteMemory(memId)
     } catch {}
     const memory = full || item
     if (!isSelfEvolutionMemory(memory)) continue

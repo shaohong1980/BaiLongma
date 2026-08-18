@@ -128,7 +128,7 @@ function summarizeToolResultUnsafe(name, rawArgs, content) {
       const n = Array.isArray(parsed?.memories) ? parsed.memories.length : '?'
       return `[${name}] ${n} memories`
     }
-    default:
+    default: {
       // 通用回退：列前两个参数 + 字节数
       const firstArg = Object.entries(args).slice(0, 2).map(([k, v]) => `${k}=${shortStr(v, 40)}`).join(' ')
       let tail = `(${len.toLocaleString()} chars result)`
@@ -142,6 +142,7 @@ function summarizeToolResultUnsafe(name, rawArgs, content) {
         }
       } catch { /* 绝不影响主流程 */ }
       return `[${name}]${firstArg ? ' ' + firstArg : ''} ${tail}`
+    }
   }
 }
 

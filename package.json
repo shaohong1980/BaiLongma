@@ -1,12 +1,12 @@
 {
   "name": "bailongma",
-  "productName": "Bailongma",
+  "productName": "Yaotai",
   "version": "2.1.515",
-  "description": "A continuously running digital consciousness framework",
+  "description": "爻台（Yaotai Agent Studio）— 基于白龙马深度重构的多智能体协同推演工作台",
   "type": "module",
   "main": "electron/main.cjs",
   "engines": {
-    "node": ">=20.18.0 <21.0.0"
+    "node": ">=22.0.0 <23.0.0"
   },
   "author": {
     "name": "xiaoyuanda666-ship-it"
@@ -46,6 +46,9 @@
     "test:voice-continuous": "node ./src/test-voice-continuous.js",
     "test:websocket-security": "node ./src/test-websocket-security.js",
     "test:learned-improvements": "node ./src/test-learned-improvements.js",
+    "test:a2a-client": "node ./src/test-a2a-client.js",
+    "test:all": "node scripts/run-tests.mjs",
+    "test:run": "node scripts/run-tests.mjs",
     "repair:memories:dry": "electron ./scripts/repair-memory-quality.js",
     "repair:memories": "electron ./scripts/repair-memory-quality.js --apply",
     "probe:config-upgrade": "node ./scripts/probe-config-upgrade.mjs",
@@ -55,7 +58,10 @@
     "smoke:social": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-social.mjs\"",
     "smoke:feishu-ws": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-feishu-ws.mjs\"",
     "electron:rebuild": "node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3",
-    "backend:rebuild": "node scripts/backend-rebuild-guard.mjs"
+    "backend:rebuild": "node scripts/backend-rebuild-guard.mjs",
+    "lint": "eslint src electron scripts --max-warnings=9999",
+    "lint:fix": "eslint src electron scripts --fix --max-warnings=9999",
+    "check": "npm run lint && node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.0.0",
@@ -65,19 +71,22 @@
     "electron-updater": "^6.8.9",
     "openai": "^6.34.0",
     "sherpa-onnx-node": "^1.13.3",
-    "undici": "^6.25.0",
+    "undici": "^6.28.0",
     "wechat-ilink-client": "^0.1.0",
-    "ws": "^8.20.1"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
+    "@eslint/js": "^10.0.1",
     "electron": "^33.2.0",
     "electron-builder": "^26.15.3",
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
     "playwright": "^1.59.1"
   },
   "build": {
     "appId": "com.xiaoyuanda.bailongma",
-    "productName": "Bailongma",
+    "productName": "Yaotai",
     "artifactName": "${productName}-Setup-${version}.${ext}",
     "npmRebuild": false,
     "asar": {
@@ -102,8 +111,6 @@
       "skills/**/*",
       "scripts/seed-memories.js",
       "index.html",
-      "dashboard.html",
-      "brain.html",
       "brain-ui.html",
       "website.html",
       "systemPrompt.html",

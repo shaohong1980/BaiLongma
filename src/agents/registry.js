@@ -147,7 +147,9 @@ export function buildAgentContextBlock() {
   const lines = agents.map(a => {
     const invoke = a.invoke_type === 'cli'
       ? `exec_command("${a.invoke_cmd} ...")`
-      : `fetch_url("${a.invoke_cmd}/...")`
+      : a.invoke_type === 'a2a'
+        ? `delegate_to_agent(agent_id="${a.id}") — A2A 标准协议`
+        : `fetch_url("${a.invoke_cmd}/...")`
     return `- **${a.name}** (${a.id}): ${a.description}. Invoke: ${invoke}`
   })
 

@@ -4,552 +4,26 @@ import path from 'path'
 import { paths } from './paths.js'
 import { nowTimestamp } from './time.js'
 
-export const DEEPSEEK_PROVIDER = 'deepseek'
-export const MINIMAX_PROVIDER = 'minimax'
-export const OPENAI_PROVIDER = 'openai'
-export const QWEN_PROVIDER = 'qwen'
-export const MOONSHOT_PROVIDER = 'moonshot'
-export const ZHIPU_PROVIDER = 'zhipu'
-export const MIMO_PROVIDER = 'mimo'
+import {
+  DEEPSEEK_PROVIDER, MINIMAX_PROVIDER, OPENAI_PROVIDER, MOONSHOT_PROVIDER, ZHIPU_PROVIDER, MIMO_PROVIDER,
+  DEFAULT_DEEPSEEK_MODEL,
+  DEEPSEEK_MODELS, MINIMAX_MODELS, OPENAI_MODELS, QWEN_MODELS, MOONSHOT_MODELS, ZHIPU_MODELS, MIMO_MODELS,
+  PROVIDER_CONFIG, AUTO_PROVIDER, PROBE_TIMEOUT_MS,
+  normalizeModel, withCurrentModel, isThinkingEnabledForModel,
+  withTimeout, buildPingParams, probeProvider, detectProvider,
+  shouldOmitSamplingForProviderModel, shouldUseMaxCompletionTokensForProviderModel,
+  shouldSendThinkingDisabledForProviderModel, getProviderModelFallbacks,
+} from "./config/models.js"
 
-export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro'
-export const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7'
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.5'
-export const DEFAULT_QWEN_MODEL = 'qwen-turbo'
-export const DEFAULT_MOONSHOT_MODEL = 'kimi-k2.6'
-export const DEFAULT_ZHIPU_MODEL = 'glm-5.1'
-export const DEFAULT_MIMO_MODEL = 'mimo-v2.5-pro'
-
-export const DEEPSEEK_MODELS = [
-  {
-    id: 'deepseek-v4-flash',
-    label: 'deepseek-v4-flash',
-    deprecated: false,
-  },
-  {
-    id: 'deepseek-v4-pro',
-    label: 'deepseek-v4-pro',
-    deprecated: false,
-  },
-  {
-    id: 'deepseek-chat',
-    label: 'deepseek-chat (deprecated 2026/07/24)',
-    deprecated: true,
-  },
-  {
-    id: 'deepseek-reasoner',
-    label: 'deepseek-reasoner (deprecated 2026/07/24)',
-    deprecated: true,
-  },
-]
-
-export const MINIMAX_MODELS = [
-  {
-    id: 'MiniMax-M2.7',
-    label: 'MiniMax-M2.7',
-    deprecated: false,
-  },
-  {
-    id: 'MiniMax-M1',
-    label: 'MiniMax-M1',
-    deprecated: false,
-  },
-]
-
-export const OPENAI_MODELS = [
-  {
-    id: 'gpt-5.5',
-    label: 'GPT-5.5',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.5-2026-04-23',
-    label: 'GPT-5.5 (2026-04-23)',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.4',
-    label: 'GPT-5.4',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.4-2026-03-05',
-    label: 'GPT-5.4 (2026-03-05)',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.4-mini',
-    label: 'GPT-5.4 mini',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.4-nano',
-    label: 'GPT-5.4 nano',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.3-chat-latest',
-    label: 'GPT-5.3 Chat latest',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.2',
-    label: 'GPT-5.2',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.2-chat-latest',
-    label: 'GPT-5.2 Chat latest',
-    deprecated: true,
-  },
-  {
-    id: 'gpt-5.1',
-    label: 'GPT-5.1',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5.1-chat-latest',
-    label: 'GPT-5.1 Chat latest',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5',
-    label: 'GPT-5',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5-chat-latest',
-    label: 'GPT-5 Chat latest',
-    deprecated: true,
-  },
-  {
-    id: 'gpt-5-mini',
-    label: 'GPT-5 mini',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-5-nano',
-    label: 'GPT-5 nano',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-4.1',
-    label: 'GPT-4.1',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-4.1-mini',
-    label: 'GPT-4.1 mini',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-4.1-nano',
-    label: 'GPT-4.1 nano',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-4o',
-    label: 'GPT-4o',
-    deprecated: false,
-  },
-  {
-    id: 'gpt-4o-mini',
-    label: 'GPT-4o mini',
-    deprecated: false,
-  },
-  {
-    id: 'o3',
-    label: 'o3',
-    deprecated: false,
-  },
-  {
-    id: 'o4-mini',
-    label: 'o4-mini',
-    deprecated: false,
-  },
-]
-
-export const QWEN_MODELS = [
-  {
-    id: 'qwen-turbo',
-    label: 'qwen-turbo',
-    deprecated: false,
-  },
-  {
-    id: 'qwen-plus',
-    label: 'qwen-plus',
-    deprecated: false,
-  },
-]
-
-export const MOONSHOT_MODELS = [
-  {
-    id: 'kimi-k2.7-code',
-    label: 'kimi-k2.7-code',
-    deprecated: false,
-  },
-  {
-    id: 'kimi-k2.7-code-highspeed',
-    label: 'kimi-k2.7-code-highspeed',
-    deprecated: false,
-  },
-  {
-    id: 'kimi-k2.6',
-    label: 'kimi-k2.6',
-    deprecated: false,
-  },
-  {
-    id: 'kimi-k2.5',
-    label: 'kimi-k2.5',
-    deprecated: false,
-  },
-  {
-    id: 'moonshot-v1-32k',
-    label: 'moonshot-v1-32k',
-    deprecated: false,
-  },
-  {
-    id: 'moonshot-v1-128k',
-    label: 'moonshot-v1-128k',
-    deprecated: false,
-  },
-  {
-    id: 'moonshot-v1-8k',
-    label: 'moonshot-v1-8k',
-    deprecated: false,
-  },
-  {
-    id: 'moonshot-v1-8k-vision-preview',
-    label: 'moonshot-v1-8k-vision-preview',
-    deprecated: false,
-  },
-  {
-    id: 'moonshot-v1-32k-vision-preview',
-    label: 'moonshot-v1-32k-vision-preview',
-    deprecated: false,
-  },
-  {
-    id: 'moonshot-v1-128k-vision-preview',
-    label: 'moonshot-v1-128k-vision-preview',
-    deprecated: false,
-  },
-  {
-    id: 'kimi-k2-thinking',
-    label: 'kimi-k2-thinking (deprecated)',
-    deprecated: true,
-  },
-]
-
-export const ZHIPU_MODELS = [
-  {
-    id: 'glm-5.1',
-    label: 'glm-5.1',
-    deprecated: false,
-  },
-  {
-    id: 'glm-5-turbo',
-    label: 'glm-5-turbo',
-    deprecated: false,
-  },
-  {
-    id: 'glm-5',
-    label: 'glm-5',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4.7',
-    label: 'glm-4.7',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4.7-flash',
-    label: 'glm-4.7-flash',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4.7-flashx',
-    label: 'glm-4.7-flashx',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4.6',
-    label: 'glm-4.6',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4.5-air',
-    label: 'glm-4.5-air',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4.5-airx',
-    label: 'glm-4.5-airx',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4.5-flash',
-    label: 'glm-4.5-flash',
-    deprecated: false,
-  },
-  {
-    id: 'glm-5.1-highspeed',
-    label: 'glm-5.1-highspeed (limited access)',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4-flash-250414',
-    label: 'glm-4-flash-250414',
-    deprecated: false,
-  },
-  {
-    id: 'glm-4-flashx-250414',
-    label: 'glm-4-flashx-250414',
-    deprecated: false,
-  },
-]
-
-export const MIMO_MODELS = [
-  {
-    id: 'mimo-v2.5-pro',
-    label: 'MiMo-V2.5-Pro',
-    deprecated: false,
-  },
-  {
-    id: 'mimo-v2.5',
-    label: 'MiMo-V2.5',
-    deprecated: false,
-  },
-  {
-    id: 'mimo-v2-pro',
-    label: 'MiMo-V2-Pro',
-    deprecated: false,
-  },
-  {
-    id: 'mimo-v2-flash',
-    label: 'MiMo-V2-Flash',
-    deprecated: false,
-  },
-  {
-    // 极速版：保留为可选项，非默认首选（小米平台暂无此官方 ID，调用失败会自动降级到上面的真实模型）
-    id: 'MiMo-V2.5-Pro-UltraSpeed',
-    label: 'MiMo-V2.5-Pro-UltraSpeed（极速版）',
-    deprecated: false,
-  },
-]
-
-const PROVIDER_CONFIG = {
-  [DEEPSEEK_PROVIDER]: {
-    label: 'DeepSeek',
-    baseURL: 'https://api.deepseek.com',
-    envVar: 'DEEPSEEK_API_KEY',
-    models: DEEPSEEK_MODELS,
-    defaultModel: DEFAULT_DEEPSEEK_MODEL,
-  },
-  [MINIMAX_PROVIDER]: {
-    label: 'MiniMax',
-    baseURL: 'https://api.minimax.chat/v1',
-    envVar: 'MINIMAX_API_KEY',
-    models: MINIMAX_MODELS,
-    defaultModel: DEFAULT_MINIMAX_MODEL,
-  },
-  [OPENAI_PROVIDER]: {
-    label: 'OpenAI',
-    baseURL: 'https://api.openai.com/v1',
-    envVar: 'OPENAI_API_KEY',
-    models: OPENAI_MODELS,
-    defaultModel: DEFAULT_OPENAI_MODEL,
-  },
-  [QWEN_PROVIDER]: {
-    label: 'Qwen',
-    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    envVar: 'DASHSCOPE_API_KEY',
-    models: QWEN_MODELS,
-    defaultModel: DEFAULT_QWEN_MODEL,
-  },
-  [MOONSHOT_PROVIDER]: {
-    label: 'Moonshot',
-    baseURL: 'https://api.moonshot.cn/v1',
-    envVar: 'MOONSHOT_API_KEY',
-    models: MOONSHOT_MODELS,
-    defaultModel: DEFAULT_MOONSHOT_MODEL,
-  },
-  [ZHIPU_PROVIDER]: {
-    label: '智谱 GLM',
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-    envVar: 'ZHIPU_API_KEY',
-    models: ZHIPU_MODELS,
-    defaultModel: DEFAULT_ZHIPU_MODEL,
-  },
-  [MIMO_PROVIDER]: {
-    label: '小米 MiMo',
-    baseURL: 'https://api.xiaomimimo.com/v1',
-    envVar: 'MIMO_API_KEY',
-    models: MIMO_MODELS,
-    defaultModel: DEFAULT_MIMO_MODEL,
-  },
-}
-
-const AUTO_PROVIDER = 'auto'
-const PROBE_TIMEOUT_MS = 12000
-
-function normalizeModel(model, provider = DEEPSEEK_PROVIDER) {
-  const pConfig = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG[DEEPSEEK_PROVIDER]
-  const value = String(model || '').trim()
-  if (value) return value
-  return pConfig.defaultModel
-}
-
-function withCurrentModel(models, model) {
-  const value = String(model || '').trim()
-  if (!value || models.some(m => m?.id === value)) return models
-  return [{ id: value, label: `${value} (custom)`, deprecated: false, custom: true }, ...models]
-}
-
-function isMoonshotKimiModel(model) {
-  return String(model || '').trim().toLowerCase().startsWith('kimi-')
-}
-
-function isMoonshotThinkingAlwaysOnModel(model) {
-  const value = String(model || '').trim().toLowerCase()
-  return value === 'kimi-k2.7-code' || value === 'kimi-k2.7-code-highspeed'
-}
-
-function isMoonshotThinkingToggleSupportedModel(model) {
-  const value = String(model || '').trim().toLowerCase()
-  return value === 'kimi-k2.6' || value === 'kimi-k2.5'
-}
-
-export function shouldOmitSamplingForProviderModel(provider, model) {
-  if (provider === OPENAI_PROVIDER && isOpenAIDefaultSamplingModel(model)) return true
-  return provider === MOONSHOT_PROVIDER && isMoonshotKimiModel(model)
-}
-
-function isOpenAIDefaultSamplingModel(model) {
-  const value = String(model || '').trim().toLowerCase()
-  return value.startsWith('gpt-5') || /^o\d/.test(value)
-}
-
-export function shouldUseMaxCompletionTokensForProviderModel(provider, model) {
-  if (provider !== OPENAI_PROVIDER) return false
-  return isOpenAIDefaultSamplingModel(model)
-}
-
-export function shouldSendThinkingDisabledForProviderModel(provider, model) {
-  if (provider === ZHIPU_PROVIDER) return true
-  if (provider !== MOONSHOT_PROVIDER) return false
-  return isMoonshotThinkingToggleSupportedModel(model) && !isMoonshotThinkingAlwaysOnModel(model)
-}
-
-export function getProviderModelFallbacks(provider, model) {
-  const pConfig = PROVIDER_CONFIG[provider]
-  if (!pConfig) return String(model || '').trim() ? [String(model).trim()] : []
-  const primary = normalizeModel(model, provider)
-  if (provider !== MIMO_PROVIDER) return [primary]
-
-  const chain = [primary]
-  for (const item of pConfig.models) {
-    if (!item?.id || item.deprecated || chain.includes(item.id)) continue
-    chain.push(item.id)
-  }
-  return chain
-}
-
-function isThinkingEnabledForModel(model) {
-  return normalizeModel(model) !== 'deepseek-chat'
-}
-
-function getProvidersForAutoDetect() {
-  return Object.entries(PROVIDER_CONFIG)
-}
-
-function getProviderErrorMessage(err) {
-  const status = err?.status ?? err?.response?.status
-  const message = err?.message || String(err)
-  return status ? `${status} ${message}` : message
-}
-
-function isProviderAuthError(err) {
-  const status = err?.status ?? err?.response?.status
-  const message = err?.message || String(err)
-  return status === 401 || /unauthoriz|invalid.*api.*key|authentication/i.test(message)
-}
-
-function withTimeout(promise, ms, label) {
-  let timer
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
-  })
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
-}
-
-function buildPingParams(provider, model) {
-  const pingParams = {
-    model,
-    messages: [{ role: 'user', content: 'Reply with exactly: hello' }],
-    stream: false,
-  }
-  if (shouldUseMaxCompletionTokensForProviderModel(provider, model)) {
-    pingParams.max_completion_tokens = 32
-  } else {
-    pingParams.max_tokens = 8
-  }
-  if (!shouldOmitSamplingForProviderModel(provider, model)) {
-    pingParams.temperature = 0
-  }
-  if (provider === DEEPSEEK_PROVIDER) {
-    pingParams.reasoning_effort = 'high'
-    pingParams.thinking = { type: isThinkingEnabledForModel(model) ? 'enabled' : 'disabled' }
-  } else if (provider === ZHIPU_PROVIDER) {
-    pingParams.thinking = { type: 'disabled' }
-  }
-  return pingParams
-}
-
-async function probeProvider(OpenAI, provider, apiKey, requestedModel) {
-  const pConfig = PROVIDER_CONFIG[provider]
-  const models = getProviderModelFallbacks(provider, requestedModel)
-  const client = new OpenAI({
-    apiKey,
-    baseURL: pConfig.baseURL,
-    timeout: PROBE_TIMEOUT_MS,
-  })
-  const errors = []
-  for (const model of models) {
-    try {
-      await withTimeout(
-        client.chat.completions.create(buildPingParams(provider, model)),
-        PROBE_TIMEOUT_MS,
-        provider,
-      )
-      return { provider, model, pConfig }
-    } catch (err) {
-      if (isProviderAuthError(err)) throw err
-      errors.push(`${model}: ${getProviderErrorMessage(err)}`)
-    }
-  }
-  throw new Error(`${provider} validation failed for models ${models.join(', ')}: ${errors.join(' | ')}`)
-}
-
-async function detectProvider(OpenAI, apiKey, requestedModel) {
-  const providers = getProvidersForAutoDetect()
-  const errors = []
-
-  return await new Promise((resolve, reject) => {
-    let pending = providers.length
-    for (const [provider] of providers) {
-      probeProvider(OpenAI, provider, apiKey, requestedModel)
-        .then(resolve)
-        .catch((err) => {
-          errors.push(`${provider}: ${getProviderErrorMessage(err)}`)
-          pending -= 1
-          if (pending === 0) {
-            reject(new Error(`Could not identify the provider for this API key. Tried: ${providers.map(([name]) => name).join(', ')}. Last errors: ${errors.slice(-3).join(' | ')}`))
-          }
-        })
-    }
-  })
-}
-
+// 模型目录 / Provider 常量已拆分到 src/config/models.js；re-export 保持既有消费方兼容。
+export {
+  DEEPSEEK_PROVIDER, MINIMAX_PROVIDER, OPENAI_PROVIDER, QWEN_PROVIDER, MOONSHOT_PROVIDER, ZHIPU_PROVIDER, MIMO_PROVIDER,
+  DEFAULT_DEEPSEEK_MODEL, DEFAULT_MINIMAX_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_QWEN_MODEL,
+  DEFAULT_MOONSHOT_MODEL, DEFAULT_ZHIPU_MODEL, DEFAULT_MIMO_MODEL,
+  DEEPSEEK_MODELS, MINIMAX_MODELS, OPENAI_MODELS, QWEN_MODELS, MOONSHOT_MODELS, ZHIPU_MODELS, MIMO_MODELS,
+  shouldOmitSamplingForProviderModel, shouldUseMaxCompletionTokensForProviderModel,
+  shouldSendThinkingDisabledForProviderModel, getProviderModelFallbacks,
+} from "./config/models.js"
 // 旧版本用过、之后被改名/合并的 provider id → 现行 id。
 // 作用：升级后老 config.json 里的旧 provider 名不会再让整份 LLM 配置作废（见下方分块容错加载），
 // 而是平滑映射到新名。目前无已知改名，留作扩展点——以后任何 provider 改名都往这里加一行。
@@ -1058,7 +532,10 @@ if (storedLlm) {
         globalThis.process.env[key] = val
       }
     }
-  } catch {}
+  } catch (err) {
+    // 配置损坏/不可读：社交凭据静默丢失会表现为"连接器连不上"，值得提示
+    console.warn('[config] 读取社交配置失败（社交连接器可能不可用）:', err?.message || err)
+  }
 })()
 
 export async function prepareActivation({ provider = AUTO_PROVIDER, apiKey, model, baseURL }) {
@@ -1087,7 +564,7 @@ export async function prepareActivation({ provider = AUTO_PROVIDER, apiKey, mode
       )
     } catch (err) {
       const message = err?.message || String(err)
-      throw new Error(`Custom endpoint connection failed: ${message}`)
+      throw new Error(`Custom endpoint connection failed: ${message}`, { cause: err })
     }
 
     return {
@@ -1128,9 +605,9 @@ export async function prepareActivation({ provider = AUTO_PROVIDER, apiKey, mode
   } catch (err) {
     const message = err?.message || String(err)
     if (/401|unauthoriz|invalid.*api.*key|authentication/i.test(message)) {
-      throw new Error(`${p} key validation failed — please check that the key is correct`)
+      throw new Error(`${p} key validation failed — please check that the key is correct`, { cause: err })
     }
-    throw new Error(`${p} validation failed: ${message}`)
+    throw new Error(`${p} validation failed: ${message}`, { cause: err })
   }
 
   return {
@@ -1569,7 +1046,9 @@ export function clearClawbotCredentials() {
 
 export function getSocialConfig() {
   let stored = {}
-  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.social || {} } catch {}
+  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.social || {} } catch (err) {
+    console.warn('[config] 读取社交配置失败:', err?.message || err)
+  }
   const result = {}
   for (const key of SOCIAL_ENV_KEYS) {
     const val = stored[key] || globalThis.process?.env?.[key] || ''
@@ -1703,7 +1182,9 @@ const TTS_CONFIG_KEYS = [
 
 export function getTTSConfig() {
   let stored = {}
-  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.tts || {} } catch {}
+  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.tts || {} } catch (err) {
+    console.warn('[config] 读取 TTS 配置失败（回退默认）:', err?.message || err)
+  }
   return {
     ttsProvider:     stored.ttsProvider  || 'doubao',
     ttsVoiceId:      stored.ttsVoiceId   || 'zh_female_xiaohe_uranus_bigtts',
@@ -1722,7 +1203,9 @@ export function getTTSConfig() {
 // Read plaintext TTS credentials (backend use only — not exposed to frontend)
 export function getTTSCredentials() {
   let stored = {}
-  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.tts || {} } catch {}
+  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.tts || {} } catch (err) {
+    console.warn('[config] 读取 TTS 凭据失败:', err?.message || err)
+  }
   return {
     provider:       stored.ttsProvider  || 'doubao',
     voiceId:        stored.ttsVoiceId   || 'zh_female_xiaohe_uranus_bigtts',
@@ -1780,7 +1263,7 @@ let _embeddingBlockCache = null
 let _embeddingBlockCacheMtime = -1
 
 function readEmbeddingBlock() {
-  let mtime = -1
+  let mtime
   try {
     mtime = fs.statSync(paths.configFile).mtimeMs
   } catch {

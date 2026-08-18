@@ -1,4 +1,4 @@
-// 白龙马自知识文档 —— 解释自身的代码机制、架构与界面设计。
+// 爻台自知识文档 —— 解释自身的代码机制、架构与界面设计。
 // 工具清单一节由 auto-catalog.js 从 capabilities/schemas/ 自动生成，杜绝随版本漂移。
 
 import { buildToolCatalogText } from './auto-catalog.js'
@@ -20,14 +20,14 @@ const APP_VERSION = getAppVersion()
 export const SELF_KNOWLEDGE_TOPICS = {
   self_architecture: {
     id: 'self_architecture',
-    title: '白龙马架构与运行机制',
-    subtitle: 'How BaiLongma Works',
+    title: '爻台架构与运行机制',
+    subtitle: 'How Yaotai Works',
     icon: '⚙',
-    summary: `白龙马（BaiLongma）是一套 Electron + Node.js 的"持续意识"框架，当前版本 ${APP_VERSION}。它不是被动等待提问的聊天机器人，而是一个持续运行、自主感知、带长期记忆的 Agent。以下是当前版本的完整机制说明。`,
+    summary: `爻台（Yaotai）是一套 Electron + Node.js 的"持续意识"框架，当前版本 ${APP_VERSION}。它不是被动等待提问的聊天机器人，而是一个持续运行、自主感知、带长期记忆的 Agent。以下是当前版本的完整机制说明。`,
     sections: [
       {
         title: '整体架构',
-        content: `白龙马由三层构成：
+        content: `爻台由三层构成：
 
 ■ Electron 壳（electron/main.cjs）
   - 启动桌面窗口、系统托盘、自动更新、Focus Banner 子窗口
@@ -40,13 +40,13 @@ export const SELF_KNOWLEDGE_TOPICS = {
 
 ■ Brain UI 前端（src/ui/brain-ui/）
   - 运行在 Electron 渲染进程，通过 WebSocket + REST 与后端实时通信
-  - 详见"白龙马界面设计"文档主题（ui_design）
+  - 详见"爻台界面设计"文档主题（ui_design）
 
 数据落在 SQLite（src/db.js）与 data/ 目录；运行配置在 config.json + 若干独立配置文件。`,
       },
       {
         title: '意识循环：L1 / L2 两种入口',
-        content: `白龙马不是"两个人格"，而是同一个 AI 的两种触发入口，共享同等的上下文质量（记忆、人物卡、思维、UI 状态）：
+        content: `爻台不是"两个人格"，而是同一个 AI 的两种触发入口，共享同等的上下文质量（记忆、人物卡、思维、UI 状态）：
 
 ■ L1（用户消息触发）
   - 用户发消息时激活，本轮通常要回应
@@ -99,7 +99,7 @@ export const SELF_KNOWLEDGE_TOPICS = {
       },
       {
         title: '动态记忆池（核心机制）',
-        content: `白龙马的记忆不是简单的"存一段查一段"，而是一套"一切皆记忆 / 少即是强"的动态池——目标是每轮注入"合适的上下文"，不是"召回越多越好"。
+        content: `爻台的记忆不是简单的"存一段查一段"，而是一套"一切皆记忆 / 少即是强"的动态池——目标是每轮注入"合适的上下文"，不是"召回越多越好"。
 
 ■ 短期：对话历史（SQLite messages/conversations）
   - 每轮持久化，按最近 N 条 + 时间窗口截取，带回合标记
@@ -166,7 +166,7 @@ Key 配置：serper / brave / tavily / jina / searxng，存在 config.json 顶�
       },
       {
         title: '上下文感知：环境采集',
-        content: `白龙马持续感知运行环境，结果进"补充上下文"：
+        content: `爻台持续感知运行环境，结果进"补充上下文"：
   - context/gatherer.js —— 综合采集器，定时汇总
   - system-info —— CPU/内存/磁盘/电池/系统版本
   - geo-weather —— 城市、时区、国家代码 + 实时天气（用于平台选择，如 CN 走 B 站）
@@ -227,10 +227,10 @@ Key 配置：serper / brave / tavily / jina / searxng，存在 config.json 顶�
 
   ui_design: {
     id: 'ui_design',
-    title: '白龙马界面设计',
-    subtitle: 'BaiLongma UI & Scene Design',
+    title: '爻台界面设计',
+    subtitle: 'Yaotai UI & Scene Design',
     icon: '🖥',
-    summary: '白龙马的界面叫 Brain UI，运行在 Electron 渲染进程。Agent 通过声明式 Scene 协议驱动界面（UI = f(scene)），并能感知界面状态。以下是界面各部分的设计说明。',
+    summary: '爻台的界面叫 Brain UI，运行在 Electron 渲染进程。Agent 通过声明式 Scene 协议驱动界面（UI = f(scene)），并能感知界面状态。以下是界面各部分的设计说明。',
     sections: [
       {
         title: 'Brain UI 总览',
@@ -273,6 +273,7 @@ Key 配置：serper / brave / tavily / jina / searxng，存在 config.json 顶�
   - 热点面板（hotspot_mode）—— hotspot.js / hotspot-earth.js / hotspot-panel.js，热搜可视化
   - 世界杯面板（worldcup_mode）—— worldcup.js / worldcup-panel.js 是 iframe 壳，内容为转播大屏页 worldcup-broadcast-v2.html：焦点比赛/赛程比分/小组积分榜/世界杯新闻（数据源直播吧，北京时间），面板打开时赛况自动注入上下文
   - 台风监测面板（typhoon_mode）—— typhoon.js / typhoon-panel.js 是 iframe 壳，内容为 typhoon-broadcast.html：中央气象台活动台风的实况路径、强度、风圈和预报路径。仅在配置官方预警 API（TYPHOON_ALERT_URL）与目标地区（TYPHOON_ALERT_REGION）后，橙/红台风预警才会自动弹出面板。
+  - 易经易学看板（bagua_mode）—— bagua.js / bagua-panel.js / iching-data.js，全屏看板：太极·八卦·六十四卦卦辞·六爻起卦。顶栏太极八卦图点击或对话说「易经/八卦/六十四卦/太极/卜卦/起卦」即可打开。
   - 人物卡（person_card_mode）—— person-card.js，用户不认识某人时弹公众人物介绍
   - 文档面板（open_doc_panel）—— doc.js / doc-panel.js，配置与自知识文档（本页就是它），内容注入上下文 30 分钟
   - 语音面板（voice-panel.js）—— 语音输入/输出与设置
@@ -288,7 +289,7 @@ Key 配置：serper / brave / tavily / jina / searxng，存在 config.json 顶�
       },
       {
         title: 'Dashboard 风格规范',
-        content: `白龙马界面有一套统一的视觉规范，新增 UI 必须遵循：
+        content: `爻台界面有一套统一的视觉规范，新增 UI 必须遵循：
   - 纯文本流，无卡片包裹、无滚动条
   - 颜色区分信息类型，但各类型亮度保持一致（不靠明暗对比抢眼）
   - 信息密度优先，少装饰
@@ -319,7 +320,7 @@ export function detectSelfKnowledgeTopic(text) {
 
   // 架构 / 运行机制相关
   if (
-    /(你的代码|你.*怎么运行|你.*怎么工作|你.*架构|你.*如何运作|白龙马.*代码|bailongma.*代码|你.*实现|代码机制|运行机制|技术架构|你.*内部|你.*系统|你.*模块|你.*是怎么|你.*如何思考|你.*心跳|意识循环|认知循环|动态记忆|记忆池|审视分身|ticker|queue\.js|control\.js|llm\.js|prompt\.js|memory.*机制|记忆.*(系统|机制)|工具.*调用|capability|executor|l1.*l2|l2.*l1|两个入口|react.*任务|self.?knowledge|自知识|自我感知)/.test(
+    /(你的代码|你.*怎么运行|你.*怎么工作|你.*架构|你.*如何运作|爻台.*代码|yaotai.*代码|你.*实现|代码机制|运行机制|技术架构|你.*内部|你.*系统|你.*模块|你.*是怎么|你.*如何思考|你.*心跳|意识循环|认知循环|动态记忆|记忆池|审视分身|ticker|queue\.js|control\.js|llm\.js|prompt\.js|memory.*机制|记忆.*(系统|机制)|工具.*调用|capability|executor|l1.*l2|l2.*l1|两个入口|react.*任务|self.?knowledge|自知识|自我感知)/.test(
       t
     )
   ) {

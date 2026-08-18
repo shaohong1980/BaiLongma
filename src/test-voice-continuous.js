@@ -55,7 +55,7 @@ function createCore() {
   policy.onTranscript()
 
   await wait(500)
-  harness.core.setText('你好，白龙马')
+  harness.core.setText('你好，爻台')
   policy.onTranscript()
 
   await wait(450)

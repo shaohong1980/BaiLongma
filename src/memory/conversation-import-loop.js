@@ -25,7 +25,7 @@ function importConversationsAsMemories() {
     const memId = `conv_thread_${th.id}`
     if (exists.get(memId)) continue
 
-    const content = msgs.map(m => `${m.role === 'user' ? '用户' : '小白龙'}: ${m.content}`).join('\n')
+    const content = msgs.map(m => `${m.role === 'user' ? '用户' : '爻台'}: ${m.content}`).join('\n')
     let title = (th.label || '').trim()
     if (!title) {
       const firstUser = msgs.find(m => m.role === 'user')

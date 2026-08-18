@@ -11,6 +11,8 @@ export function friendlyChannelLabel(channel) {
   return "";
 }
 
+// 行为契约：系统截图自动附带功能已关闭（test-chat-screenshot-intent.js 守护）。
+// 保留导出但恒返回 false——若未来要重新开启，需同步更新该测试。
 export function shouldAttachSystemScreenshot() {
   return false;
 }
@@ -162,42 +164,8 @@ export function initChat({
     window.addEventListener("touchstart", unlock, true);
   }
 
-  async function playJarvisAlert() {
-    // 消息提示音已取消：很多用户在深夜处理工作，不希望任何声音打扰（含文本回复与语音识别后的回复）。
-    // 这里直接返回，让两个调用点（普通消息 / 流式直播气泡）静默。TTS 朗读不受影响。
-    return;
-    // eslint-disable-next-line no-unreachable
-    const ctx = ensureAudioContext();
-    if (!ctx) return;
-    try { if (ctx.state === "suspended") await ctx.resume(); } catch { return; }
-    if (ctx.state !== "running") return;
-    const now = ctx.currentTime;
-    const master = ctx.createGain();
-    master.gain.setValueAtTime(0.0001, now);
-    master.gain.exponentialRampToValueAtTime(0.3, now + 0.02);
-    master.gain.exponentialRampToValueAtTime(0.18, now + 0.28);
-    master.gain.exponentialRampToValueAtTime(0.0001, now + 0.6);
-    master.connect(ctx.destination);
-
-    const oscA = ctx.createOscillator();
-    oscA.type = "sine";
-    oscA.frequency.setValueAtTime(740, now);
-    oscA.frequency.exponentialRampToValueAtTime(880, now + 0.18);
-    oscA.connect(master);
-
-    const oscB = ctx.createOscillator();
-    oscB.type = "triangle";
-    oscB.frequency.setValueAtTime(1110, now + 0.12);
-    oscB.frequency.exponentialRampToValueAtTime(1320, now + 0.34);
-    oscB.connect(master);
-
-    oscA.start(now); oscA.stop(now + 0.32);
-    oscB.start(now + 0.12); oscB.stop(now + 0.5);
-
-    oscA.addEventListener("ended", () => oscA.disconnect(), { once: true });
-    oscB.addEventListener("ended", () => oscB.disconnect(), { once: true });
-    setTimeout(() => master.disconnect(), 700);
-  }
+  // 消息提示音已取消：很多用户在深夜处理工作，不希望任何声音打扰（含文本回复与语音识别后的回复）。
+  // 提示音实现（playJarvisAlert）已整段移除，TTS 朗读不受影响。
 
   function isTyping() {
     return document.activeElement === msgInput || msgInput.value.trim().length > 0 || pendingPastedImages.length > 0;
@@ -251,7 +219,7 @@ export function initChat({
   }
 
   function addMsg(role, text, options = {}) {
-    const { alert = role === "jarvis", pending = true, label, messageId, source = "event", dedupe = true } = options;
+    const { pending = true, label, messageId, source = "event", dedupe = true } = options;
     const defaultLabel = role === "user" ? "You" : role === "jarvis" ? getAgentName() : "Peer";
     const labelText = label || defaultLabel;
     if (!claimRenderedMessage({ messageId, role, text, label: labelText, source, dedupe })) return false;
@@ -273,7 +241,6 @@ export function initChat({
     if (role === "jarvis") {
       hasPendingJarvisMessage = pending;
       pendingMessageDismissed = !pending;
-      if (alert) playJarvisAlert();
       if (pending) openChat();
     } else if (role === "user") {
       hasPendingJarvisMessage = false;
@@ -288,7 +255,6 @@ export function initChat({
     const history = await fetchChatHistory();
     history.forEach(i => addMsg(i.role, i.text, {
       persist: false,
-      alert: false,
       pending: false,
       label: i.label,
       messageId: i.messageId,
@@ -612,14 +578,14 @@ export function initChat({
       const data = await res.json();
       if (data.ok) {
         chatMessages.innerHTML = "";
-        addMsg("jarvis", "已开启新对话 —— 之前的上下文已清空，重新开始吧。", { alert: false, pending: false });
+        addMsg("jarvis", "已开启新对话 —— 之前的上下文已清空，重新开始吧。", { pending: false });
         openChat();
         scheduleClose(6000);
       } else {
-        addMsg("jarvis", `清空对话失败：${data.error || "未知错误"}`, { alert: false, pending: false });
+        addMsg("jarvis", `清空对话失败：${data.error || "未知错误"}`, { pending: false });
       }
     } catch {
-      addMsg("jarvis", "清空对话失败 — 请检查本地服务。", { alert: false, pending: false });
+      addMsg("jarvis", "清空对话失败 — 请检查本地服务。", { pending: false });
     }
   }
 
@@ -740,7 +706,7 @@ export function initChat({
 
   function showSlashHelp() {
     const lines = SLASH_COMMANDS.map(c => `· \`${c.cmd}\` — ${c.label}：${c.desc}`).join("\n");
-    addMsg("jarvis", `可用命令（在输入框输入 \`/\` 调出菜单）：\n\n${lines}`, { alert: false, pending: false });
+    addMsg("jarvis", `可用命令（在输入框输入 \`/\` 调出菜单）：\n\n${lines}`, { pending: false });
     openChat();
   }
 
@@ -773,7 +739,7 @@ export function initChat({
   // 后端 LLM 边生成边通过 stream_chunk 推 token；这里先建一个空的 jarvis 气泡，
   // 随 token 到达不断重渲染，等权威的 message 事件到达再 finalize 成最终干净全文。
   // 该气泡始终是最后一个 .msg-jarvis，所以打断 ✋（updateLastJarvisMsg）照常作用其上。
-  function beginLiveJarvisMsg({ alert = true } = {}) {
+  function beginLiveJarvisMsg() {
     if (liveEl) finalizeLiveJarvisMsg(null);  // 兜底：上一轮孤儿气泡先定稿
     const div = document.createElement("div");
     div.className = "msg msg-jarvis msg-live";
@@ -789,7 +755,6 @@ export function initChat({
     liveEl = div;
     hasPendingJarvisMessage = true;
     pendingMessageDismissed = false;
-    if (alert) playJarvisAlert();
     openChat();
     chatMessages.scrollTop = chatMessages.scrollHeight;
   }

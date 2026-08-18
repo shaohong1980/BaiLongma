@@ -22,7 +22,8 @@ const net = require('net')
 const http = require('http')
 const { EventEmitter } = require('events')
 const { pathToFileURL } = require('url')
-const { autoUpdater } = require('electron-updater')
+const { setupAutoUpdater, registerUpdaterIpc } = require('./updater.cjs')
+const { clampNumber, rectRight, rectBottom, rectOverlapArea, roundBounds, fitBoundsToWorkArea, parseTerminalRequestedBounds, candidateFromRegion, candidateForPlacement, scoreTerminalCandidate, terminalFreeRegionCandidates, TERMINAL_STREAM_DEFAULT_WIDTH, TERMINAL_STREAM_DEFAULT_HEIGHT, TERMINAL_STREAM_MIN_WIDTH, TERMINAL_STREAM_MIN_HEIGHT, TERMINAL_STREAM_GAP, TERMINAL_STREAM_MARGIN, MAIN_WINDOW_SIDECAR_MIN_WIDTH, MAIN_WINDOW_SIDECAR_MIN_HEIGHT } = require('./window-layout.cjs')
 const wakeWord = require('./wake-word.cjs')
 const devLight = require('./dev-board-light.cjs')
 
@@ -44,6 +45,16 @@ if (PORTABLE_USER_DIR) {
   try { fs.mkdirSync(PORTABLE_USER_DIR, { recursive: true }) } catch {}
   app.setPath('userData', PORTABLE_USER_DIR)
   process.env.BAILONGMA_USER_DIR ||= PORTABLE_USER_DIR
+} else {
+  // 品牌更名（爻台 / Yaotai）后，用户数据目录会随 productName 变化；
+  // 为避免丢失既有记忆/配置，继续沿用旧数据目录 Bailongma（大小写不敏感，即原 bailongma）。
+  const LEGACY_USER_DIR = path.join(app.getPath('appData'), 'Bailongma')
+  try {
+    if (fs.existsSync(path.join(LEGACY_USER_DIR, 'data', 'jarvis.db'))) {
+      app.setPath('userData', LEGACY_USER_DIR)
+      process.env.BAILONGMA_USER_DIR ||= LEGACY_USER_DIR
+    }
+  } catch {}
 }
 
 const USER_DIR = app.getPath('userData')
@@ -54,7 +65,7 @@ const STARTUP_PAGE = path.join(__dirname, 'startup.html')
 
 const STARTUP_STEPS = [
   { id: 'port', label: '准备本地端口', detail: '锁定 3721 或备用端口' },
-  { id: 'core', label: '启动本地核心', detail: '加载 Bailongma runtime' },
+  { id: 'core', label: '启动本地核心', detail: '加载爻台 runtime' },
   { id: 'resources', label: '准备工作区', detail: '复制沙箱与音乐资源' },
   { id: 'tools', label: '加载工具槽', detail: '恢复已安装能力' },
   { id: 'api', label: '启动本地 API', detail: 'HTTP / SSE / WebSocket' },
@@ -67,7 +78,7 @@ const startupProgressState = {
   failed: false,
   percent: 0,
   activeStepId: null,
-  message: '正在打开 Bailongma',
+  message: '正在打开爻台',
   steps: STARTUP_STEPS.map(step => ({ ...step, status: 'pending', startedAt: null, endedAt: null })),
 }
 
@@ -279,7 +290,7 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err?.stack || err?.message || String(err))
 })
-console.log(`[main] Bailongma ${app.getVersion()} starting, logs → ${LOG_FILE}`)
+console.log(`[main] 爻台 ${app.getVersion()} starting, logs → ${LOG_FILE}`)
 
 // ── GPU 适配器偏好（Windows 多显卡：核显 + 独显笔记本） ──
 // Windows 的逐应用显卡偏好存在 HKCU\...\DirectX\UserGpuPreferences
@@ -397,7 +408,7 @@ function validatePackagedNativeModules() {
   }
 
   if (issues.length) {
-    throw new Error(`Packaged native module integrity check failed:\n${issues.join('\n')}\nPlease close Bailongma and reinstall it with the official installer.`)
+    throw new Error(`Packaged native module integrity check failed:\n${issues.join('\n')}\nPlease close 爻台 and reinstall it with the official installer.`)
   }
 }
 
@@ -486,7 +497,7 @@ async function createWindow({ loadStartup = true } = {}) {
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0b0b0e',
-    title: 'Bailongma',
+    title: '爻台 · Yaotai Agent Studio',
     icon: getAppIconPath(),
     webPreferences: {
       contextIsolation: true,
@@ -574,7 +585,7 @@ function setupTray() {
   const trayImage = nativeImage.createFromPath(getAppIconPath({ trayIcon: true }))
   if (IS_MAC) trayImage.setTemplateImage(true)
   tray = new Tray(trayImage)
-  tray.setToolTip('Bailongma')
+  tray.setToolTip('爻台 · Yaotai Agent Studio')
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -702,82 +713,21 @@ focusBannerBridge.on('hide', () => {
 
 // ─── 语音唤醒:隐藏"耳朵"窗口 + 主进程 KWS ───
 // 隐藏窗口常开麦克风 → AudioWorklet 出 16kHz Float32 → IPC → 主进程 KeywordSpotter。
-// 第一步只检测+写日志(USER_DIR/logs/wake-word.log),命中"白龙马"不做其他动作。
-const TERMINAL_STREAM_DEFAULT_WIDTH = 560
-const TERMINAL_STREAM_DEFAULT_HEIGHT = 830
-const TERMINAL_STREAM_MIN_WIDTH = 420
-const TERMINAL_STREAM_MIN_HEIGHT = 420
-const TERMINAL_STREAM_GAP = 16
-const TERMINAL_STREAM_MARGIN = 12
-const MAIN_WINDOW_SIDECAR_MIN_WIDTH = 900
-const MAIN_WINDOW_SIDECAR_MIN_HEIGHT = 600
+// 第一步只检测+写日志(USER_DIR/logs/wake-word.log),命中"爻台"不做其他动作。
 
-function clampNumber(value, min, max) {
-  if (max < min) return min
-  return Math.max(min, Math.min(max, value))
-}
 
-function rectRight(rect) {
-  return rect.x + rect.width
-}
 
-function rectBottom(rect) {
-  return rect.y + rect.height
-}
 
-function rectOverlapArea(a, b) {
-  if (!a || !b) return 0
-  const x1 = Math.max(a.x, b.x)
-  const y1 = Math.max(a.y, b.y)
-  const x2 = Math.min(rectRight(a), rectRight(b))
-  const y2 = Math.min(rectBottom(a), rectBottom(b))
-  return Math.max(0, x2 - x1) * Math.max(0, y2 - y1)
-}
 
-function roundBounds(bounds) {
-  return {
-    x: Math.round(bounds.x),
-    y: Math.round(bounds.y),
-    width: Math.round(bounds.width),
-    height: Math.round(bounds.height),
-  }
-}
 
-function fitBoundsToWorkArea(bounds, workArea) {
-  const width = clampNumber(
-    Math.round(bounds.width || TERMINAL_STREAM_DEFAULT_WIDTH),
-    Math.min(TERMINAL_STREAM_MIN_WIDTH, workArea.width),
-    workArea.width
-  )
-  const height = clampNumber(
-    Math.round(bounds.height || TERMINAL_STREAM_DEFAULT_HEIGHT),
-    Math.min(TERMINAL_STREAM_MIN_HEIGHT, workArea.height),
-    workArea.height
-  )
-  const x = clampNumber(
-    Math.round(bounds.x ?? (workArea.x + workArea.width - width - TERMINAL_STREAM_MARGIN)),
-    workArea.x,
-    workArea.x + workArea.width - width
-  )
-  const y = clampNumber(
-    Math.round(bounds.y ?? (workArea.y + TERMINAL_STREAM_MARGIN)),
-    workArea.y,
-    workArea.y + workArea.height - height
-  )
-  return { x, y, width, height }
-}
 
-function parseTerminalRequestedBounds(payload = {}) {
-  const raw = payload && typeof payload.bounds === 'object' && payload.bounds
-    ? payload.bounds
-    : payload
-  const out = {}
-  for (const key of ['x', 'y', 'width', 'height']) {
-    const value = Number(raw?.[key])
-    if (Number.isFinite(value)) out[key] = value
-  }
-  return Object.keys(out).length > 0 ? out : null
-}
+
+
+
+
+
+
+
 
 function getDisplayForTerminalWindow(payload = {}) {
   const { screen } = require('electron')
@@ -838,94 +788,13 @@ function visibleWindowBlockers(display, excludeWindow = null) {
     .filter(Boolean)
 }
 
-function candidateFromRegion(region, desired, anchor = {}) {
-  if (!region || region.width < TERMINAL_STREAM_MIN_WIDTH || region.height < TERMINAL_STREAM_MIN_HEIGHT) return null
-  const width = Math.min(desired.width, region.width)
-  const height = Math.min(desired.height, region.height)
-  return fitBoundsToWorkArea({
-    x: anchor.x ?? region.x,
-    y: anchor.y ?? region.y,
-    width,
-    height,
-  }, region)
-}
 
-function candidateForPlacement(placement, workArea, desired) {
-  const width = Math.min(desired.width, workArea.width)
-  const height = Math.min(desired.height, workArea.height)
-  const cx = workArea.x + Math.round((workArea.width - width) / 2)
-  const cy = workArea.y + Math.round((workArea.height - height) / 2)
-  const right = workArea.x + workArea.width - width - TERMINAL_STREAM_MARGIN
-  const bottom = workArea.y + workArea.height - height - TERMINAL_STREAM_MARGIN
-  const left = workArea.x + TERMINAL_STREAM_MARGIN
-  const top = workArea.y + TERMINAL_STREAM_MARGIN
-  const key = String(placement || '').toLowerCase()
 
-  if (key === 'right') return fitBoundsToWorkArea({ x: right, y: cy, width, height }, workArea)
-  if (key === 'left') return fitBoundsToWorkArea({ x: left, y: cy, width, height }, workArea)
-  if (key === 'bottom') return fitBoundsToWorkArea({ x: cx, y: bottom, width, height }, workArea)
-  if (key === 'top') return fitBoundsToWorkArea({ x: cx, y: top, width, height }, workArea)
-  if (key === 'top-left') return fitBoundsToWorkArea({ x: left, y: top, width, height }, workArea)
-  if (key === 'top-right') return fitBoundsToWorkArea({ x: right, y: top, width, height }, workArea)
-  if (key === 'bottom-left') return fitBoundsToWorkArea({ x: left, y: bottom, width, height }, workArea)
-  if (key === 'bottom-right') return fitBoundsToWorkArea({ x: right, y: bottom, width, height }, workArea)
-  if (key === 'center') return fitBoundsToWorkArea({ x: cx, y: cy, width, height }, workArea)
-  return null
-}
 
-function scoreTerminalCandidate(bounds, blockers, mainBounds) {
-  const totalOverlap = blockers.reduce((sum, blocker) => sum + rectOverlapArea(bounds, blocker), 0)
-  const mainOverlap = rectOverlapArea(bounds, mainBounds)
-  const area = Math.max(1, bounds.width * bounds.height)
-  return (mainOverlap * 20) + (totalOverlap * 4) - (area / 1000)
-}
 
-function terminalFreeRegionCandidates(workArea, desired, mainBounds) {
-  if (!mainBounds) return []
-  const gap = TERMINAL_STREAM_GAP
-  const regions = [
-    {
-      region: {
-        x: rectRight(mainBounds) + gap,
-        y: workArea.y,
-        width: rectRight(workArea) - rectRight(mainBounds) - gap,
-        height: workArea.height,
-      },
-      anchor: { x: rectRight(mainBounds) + gap, y: mainBounds.y },
-    },
-    {
-      region: {
-        x: workArea.x,
-        y: workArea.y,
-        width: mainBounds.x - workArea.x - gap,
-        height: workArea.height,
-      },
-      anchor: { x: mainBounds.x - gap - desired.width, y: mainBounds.y },
-    },
-    {
-      region: {
-        x: workArea.x,
-        y: rectBottom(mainBounds) + gap,
-        width: workArea.width,
-        height: rectBottom(workArea) - rectBottom(mainBounds) - gap,
-      },
-      anchor: { x: mainBounds.x, y: rectBottom(mainBounds) + gap },
-    },
-    {
-      region: {
-        x: workArea.x,
-        y: workArea.y,
-        width: workArea.width,
-        height: mainBounds.y - workArea.y - gap,
-      },
-      anchor: { x: mainBounds.x, y: mainBounds.y - gap - desired.height },
-    },
-  ]
 
-  return regions
-    .map(item => candidateFromRegion(item.region, desired, item.anchor))
-    .filter(Boolean)
-}
+
+
 
 function maybeArrangeMainAndTerminalSidecar(workArea, desired) {
   if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || mainWindow.isMinimized()) return null
@@ -1038,8 +907,8 @@ function normalizeTerminalStreamId(value = 'default') {
 }
 
 function createTerminalStreamWindow(payload = {}) {
-  const { title = 'Bailongma Terminal Stream', stream_id = 'default' } = payload
-  const cleanTitle = String(title || 'Bailongma Terminal Stream').slice(0, 120)
+  const { title = '爻台 Terminal Stream', stream_id = 'default' } = payload
+  const cleanTitle = String(title || '爻台 Terminal Stream').slice(0, 120)
   const streamId = normalizeTerminalStreamId(stream_id)
   const url = `http://127.0.0.1:${backendPort}/terminal-stream?stream_id=${encodeURIComponent(streamId)}`
   const focusWindow = payload.focus !== false
@@ -1132,7 +1001,7 @@ ipcMain.on('wake:status', (_e, info) => {
 })
 
 // ─── 语音唤醒第二步:独立置顶悬浮球窗口 ───
-// 命中「小白龙」→ 主窗口渲染层(voice-wake.js)开会话 + 经下列 IPC 驱动这个纯视觉球窗:
+// 命中「爻台」→ 主窗口渲染层(voice-wake.js)开会话 + 经下列 IPC 驱动这个纯视觉球窗:
 // 入场动画 → 镜像球状态 → 10s 无话退场。球窗没有麦克风,真正的开麦/识别/对话仍在主窗口跑。
 // 透明/无边框/置顶/不抢焦点;首次唤醒时懒建,之后 hide 不销毁(下次唤醒即时入场)。
 // backgroundThrottling:false 让隐藏时也能立刻起动画(与主窗口同理)。
@@ -1201,63 +1070,6 @@ ipcMain.on('wake:orb-exit-done', () => {
   if (voiceOrbWindow && !voiceOrbWindow.isDestroyed()) voiceOrbWindow.hide()
 })
 
-function setupAutoUpdater() {
-  if (IS_PORTABLE) {
-    console.log(`[updater] skipped in portable mode, data dir: ${USER_DIR}`)
-    sendUpdaterStatus({ stage: 'portable', portable: true })
-    return
-  }
-
-  autoUpdater.autoDownload = false
-  // Avoid applying an already downloaded update while Windows is shutting down.
-  // The renderer still installs explicitly through updater:quit-and-install.
-  autoUpdater.autoInstallOnAppQuit = false
-
-  autoUpdater.on('checking-for-update', () => {
-    sendUpdaterStatus({ stage: 'checking' })
-  })
-
-  autoUpdater.on('update-available', info => {
-    console.log('[updater] update available', info?.version)
-    sendUpdaterStatus({ stage: 'available', version: info?.version })
-  })
-
-  autoUpdater.on('download-progress', progress => {
-    sendUpdaterStatus({
-      stage: 'downloading',
-      percent: Number(progress?.percent || 0),
-      transferred: progress?.transferred || 0,
-      total: progress?.total || 0,
-    })
-  })
-
-  autoUpdater.on('update-downloaded', info => {
-    console.log('[updater] update downloaded', info?.version)
-    sendUpdaterStatus({ stage: 'downloaded', version: info?.version })
-  })
-
-  autoUpdater.on('update-not-available', info => {
-    sendUpdaterStatus({
-      stage: 'up-to-date',
-      version: info?.version || app.getVersion(),
-    })
-  })
-
-  autoUpdater.on('error', err => {
-    const message = err?.message || String(err || 'Update failed')
-    console.warn('[updater] update failed', message)
-    sendUpdaterStatus({ stage: 'error', message })
-  })
-
-  if (!IS_DEV) {
-    autoUpdater.checkForUpdates().catch(err => {
-      // 不要静默吞掉更新检查失败。GitHub 在国内经常超时/不可达，若整段吞掉，
-      // 用户会卡在「永远没有更新」且无任何痕迹。这里至少落到日志，便于排查。
-      console.warn('[updater] initial check failed', err?.message || err)
-    })
-  }
-}
-
 ipcMain.handle('app:get-version', () => app.getVersion())
 ipcMain.handle('startup:get-progress', () => cloneStartupProgressState())
 
@@ -1307,50 +1119,6 @@ ipcMain.handle('system-screenshot:get-latest', async (_event, options = {}) => {
   return { ok: false, error: 'no_recent_system_screenshot' }
 })
 
-ipcMain.handle('updater:check-for-updates', async () => {
-  if (IS_PORTABLE) {
-    sendUpdaterStatus({ stage: 'portable', portable: true })
-    return { ok: false, skipped: true, reason: 'portable' }
-  }
-  if (IS_DEV) {
-    sendUpdaterStatus({ stage: 'dev' })
-    return { ok: false, skipped: true, reason: 'dev' }
-  }
-  try {
-    sendUpdaterStatus({ stage: 'checking' })
-    const result = await autoUpdater.checkForUpdates()
-    return { ok: true, updateInfo: result?.updateInfo || null }
-  } catch (error) {
-    const message = error?.message || String(error || 'Update check failed')
-    sendUpdaterStatus({ stage: 'error', message })
-    return { ok: false, message }
-  }
-})
-
-ipcMain.handle('updater:start-download', async () => {
-  if (IS_PORTABLE) {
-    sendUpdaterStatus({ stage: 'portable', portable: true })
-    return { ok: false, skipped: true, reason: 'portable' }
-  }
-  try {
-    await autoUpdater.downloadUpdate()
-    return { ok: true }
-  } catch (error) {
-    const message = error?.message || String(error || 'Download failed')
-    sendUpdaterStatus({ stage: 'error', message })
-    return { ok: false, message }
-  }
-})
-
-ipcMain.handle('updater:quit-and-install', () => {
-  if (IS_PORTABLE) {
-    sendUpdaterStatus({ stage: 'portable', portable: true })
-    return { ok: false, skipped: true, reason: 'portable' }
-  }
-  autoUpdater.quitAndInstall()
-  return { ok: true }
-})
-
 app.on('second-instance', () => {
   showMainWindow().catch(() => {})
 })
@@ -1387,7 +1155,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error(`[main] Backend startup failed on port ${backendPort || 'unknown'}`, err?.stack || err?.message || err)
     emitStartupProgress({ id: 'core', status: 'error', error: true, message: `启动失败: ${err.message}` })
-    dialog.showErrorBox('Startup failed', `Unable to start the Bailongma backend:\n${err.message}`)
+    dialog.showErrorBox('Startup failed', `Unable to start the 爻台 backend:\n${err.message}`)
     app.quit()
     return
   }
@@ -1395,21 +1163,30 @@ app.whenReady().then(async () => {
   try {
     await loadMainApp()
   } catch (err) {
-    console.error('[main] Failed to load Bailongma UI', err?.stack || err?.message || err)
+    console.error('[main] Failed to load 爻台 UI', err?.stack || err?.message || err)
     emitStartupProgress({ id: 'interface', status: 'error', error: true, message: `进入界面失败: ${err.message}` })
-    dialog.showErrorBox('Startup failed', `Unable to load the Bailongma interface:\n${err.message}`)
+    dialog.showErrorBox('Startup failed', `Unable to load the 爻台 interface:\n${err.message}`)
     app.quit()
     return
   }
   setupTray()
-  setupAutoUpdater()
+  setupAutoUpdater({
+    isPortable: IS_PORTABLE,
+    isDev: IS_DEV,
+    sendStatus: sendUpdaterStatus,
+  })
+  registerUpdaterIpc(ipcMain, {
+    isPortable: IS_PORTABLE,
+    isDev: IS_DEV,
+    sendStatus: sendUpdaterStatus,
+  })
 
   // 语音唤醒:初始化主进程 KWS 引擎,成功则开启隐藏"耳朵"窗口常驻监听。
   // 失败(如缺模型/原生模块)不影响 app 其余功能 —— initWakeWord 内部已吞错。
   try {
     const wakeReady = wakeWord.initWakeWord({ codeRoot: CODE_ROOT, logDir: LOG_DIR })
     if (wakeReady) {
-      // 命中"小白龙"→ ① 开发板灯 0.6s 内闪三次后灭(灯离线则静默忽略);
+      // 命中"爻台"→ ① 开发板灯 0.6s 内闪三次后灭(灯离线则静默忽略);
       //              ② 通知主窗口渲染层启动唤醒会话(开麦+悬浮球入场+10s 监听,见 voice-wake.js)。
       wakeWord.setOnHit(() => {
         devLight.blink()

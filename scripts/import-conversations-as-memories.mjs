@@ -26,7 +26,7 @@ for (const th of threads) {
   if (exists.get(memId)) { skipped++; continue; }
 
   // 内容：完整对话按顺序拼接
-  const content = msgs.map(m => `${m.role === 'user' ? '用户' : '小白龙'}: ${m.content}`).join('\n');
+  const content = msgs.map(m => `${m.role === 'user' ? '用户' : '爻台'}: ${m.content}`).join('\n');
   // 标题：线程 label 优先，否则取第一条用户消息前 40 字
   let title = (th.label || '').trim();
   if (!title) {

@@ -185,7 +185,10 @@ export async function buildGlobalSummaryTree({ dataDir = null, file = null } = {
   try {
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(f, JSON.stringify({ builtAt: Date.now(), total: tree.total, text }), 'utf-8')
-  } catch {}
+  } catch (err) {
+    // 摘要树缓存写失败 → 每次构建都全量重算（性能损失），值得提示而非静默
+    console.warn('[global-summary-tree] 摘要树缓存写入失败（将每次重建）:', err?.message || err)
+  }
   return { ...tree, text }
 }
 

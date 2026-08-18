@@ -6,7 +6,16 @@
 //
 // 这是「文本驱动」的真实口型：每个字的开口（a→aa / o→oh / u→ou 等）与
 // 实际发音节奏对齐，替代原来纯音量模拟的假口型。
-import { pinyin, getInitialAndFinal } from './vendor/pinyin-pro/pinyin-pro.mjs';
+// pinyin-pro（~550KB）改为懒加载：仅在构建 viseme 时间线（语音口型）时才动态 import，
+// 避免随主页面首屏一起下载。模块级缓存，首次后不再重复加载。
+
+let _pinyinProPromise = null
+function loadPinyinPro() {
+  if (!_pinyinProPromise) {
+    _pinyinProPromise = import('./vendor/pinyin-pro/pinyin-pro.mjs')
+  }
+  return _pinyinProPromise
+}
 
 // 声母 → viseme（闭口/摩擦/爆破近似）
 const INITIAL_TO_VISEME = {
@@ -55,10 +64,10 @@ function expandAscii(str, codes) {
 }
 
 // 尝试把无空格串当拼音解析（声母+韵母）；成功返回 true
-function tryAsPinyin(s, codes) {
+function tryAsPinyin(s, codes, pinyinPro) {
   if (!s || s.length > 6) return false;
   try {
-    const parts = getInitialAndFinal(s);
+    const parts = pinyinPro.getInitialAndFinal(s);
     if (!parts || !parts.final) return false;
     codes.push(finalToViseme(parts.final) || 'E');
     return true;
@@ -70,7 +79,9 @@ function tryAsPinyin(s, codes) {
 /**
  * 文本 → viseme code 数组（每字符一个主口型）。
  */
-export function buildVisemeTimeline(text) {
+export async function buildVisemeTimeline(text) {
+  const pinyinPro = await loadPinyinPro();
+  const { pinyin } = pinyinPro;
   const codes = [];
   let list = [];
   try {
@@ -91,7 +102,7 @@ export function buildVisemeTimeline(text) {
       continue;
     }
     // 无空格字母串：优先当拼音（单音节），失败则当英文单词展开
-    if (!tryAsPinyin(item, codes)) {
+    if (!tryAsPinyin(item, codes, pinyinPro)) {
       expandAscii(item, codes);
     }
   }

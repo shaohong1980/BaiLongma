@@ -1,5 +1,5 @@
 // workbench 工作台 API：待办事项 / 完成事项 / 每周复盘的读取与增删改
-import { createTodo, completeTodo, updateTodo, deleteTodo, listTodos, getWorkbenchSnapshot, saveWeeklyReview, getWeeklyReview, listWeeklyReviews, deleteWeeklyReview, currentWeekKey } from '../../memory/workbench.js'
+import { createTodo, updateTodo, deleteTodo, listTodos, getWorkbenchSnapshot, saveWeeklyReview, getWeeklyReview, listWeeklyReviews, deleteWeeklyReview, currentWeekKey } from '../../memory/workbench.js'
 import { emitEvent } from '../../events.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
 

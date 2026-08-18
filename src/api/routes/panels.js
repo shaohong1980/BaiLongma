@@ -2,6 +2,7 @@ import { buildHeartbeatSystemPromptPreview } from '../../system-prompt-preview.j
 import { getHotspots, getHotspotPanelState, setHotspotPanelState } from '../../hotspots.js'
 import { getWorldcup, getWorldcupPanelState, setWorldcupPanelState } from '../../worldcup.js'
 import { getTyphoons, getTyphoonPanelState, setTyphoonPanelState } from '../../typhoon.js'
+import { getBaguaPanelState, setBaguaPanelState } from '../../bagua.js'
 import { DOC_TOPICS, getDocPanelState, setDocPanelState } from '../../docs.js'
 import { getPersonCard, getPersonCardPanelState, setPersonCardPanelState } from '../../person-cards.js'
 import { getGeoWeatherSnapshot } from '../../geo-weather.js'
@@ -94,6 +95,23 @@ export async function handlePanelRoutes(req, res, url, { getStateSnapshot = null
       try {
         const body = await readJsonBody(req)
         const state = setTyphoonPanelState({ active: parseBooleanish(body.active), source: body.source || 'brain-ui' })
+        jsonResponse(res, 200, { ok: true, state })
+      } catch (err) {
+        jsonResponse(res, 400, { ok: false, error: err.message })
+      }
+      return true
+    }
+  }
+
+  if (url.pathname === '/bagua-state') {
+    if (req.method === 'GET') {
+      jsonResponse(res, 200, { ok: true, state: getBaguaPanelState() })
+      return true
+    }
+    if (req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req)
+        const state = setBaguaPanelState({ active: parseBooleanish(body.active), source: body.source || 'brain-ui' })
         jsonResponse(res, 200, { ok: true, state })
       } catch (err) {
         jsonResponse(res, 400, { ok: false, error: err.message })

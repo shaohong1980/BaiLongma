@@ -1,6 +1,6 @@
 import { getConfig } from '../db.js'
 
-const DEFAULT_AGENT_NAME = '小白龙'
+const DEFAULT_AGENT_NAME = '爻台'
 
 export function getAgentName() {
   return (getConfig('agent_name') || '').trim() || DEFAULT_AGENT_NAME

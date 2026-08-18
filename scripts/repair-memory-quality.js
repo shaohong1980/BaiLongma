@@ -71,7 +71,7 @@ function inferConcepts(row, tags) {
   }
 
   const memId = String(row.mem_id || '')
-  for (const part of memId.split(/[_:\-]+/)) {
+  for (const part of memId.split(/[_:-]+/)) {
     if (part.length >= 3 && !/^\d+$/.test(part) && !isOpaqueIdPart(part)) candidates.push(part)
   }
 

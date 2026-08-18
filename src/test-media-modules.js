@@ -15,6 +15,7 @@ const expectedExports = [
   'getVideoHistory',
   'resumePendingVideoJobs',
   'saveGeneratedVideo',
+  'scanMusicDirIntoLibrary',
   'setAIVideoPanelState',
   'stripMarkdownForSpeech',
 ]

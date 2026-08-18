@@ -5,8 +5,6 @@ import { paths } from '../../paths.js'
 import { contentTypeFor, isPathInside } from '../utils.js'
 
 const INDEX_PATH = paths.indexHtml
-const DASHBOARD_PATH = paths.dashboardHtml
-const BRAIN_PATH = paths.brainHtml
 const BRAIN_UI_PATH = paths.brainUiHtml
 const WEBSITE_PATH = paths.websiteHtml
 const SYSTEM_PROMPT_PATH = paths.systemPromptHtml
@@ -110,16 +108,6 @@ export async function handleStaticRoutes(req, res, url) {
       res.writeHead(302, { Location: '/brain-ui' })
       res.end()
     }
-    return true
-  }
-
-  if (req.method === 'GET' && url.pathname === '/dashboard.html') {
-    serveHtml(res, DASHBOARD_PATH, 'dashboard.html not found')
-    return true
-  }
-
-  if (req.method === 'GET' && url.pathname === '/brain.html') {
-    serveHtml(res, BRAIN_PATH, 'brain.html not found')
     return true
   }
 

@@ -41,7 +41,7 @@ export function updateAgentConfig(id, patch = {}) {
   const current = overrides[id] || {}
   const next = { ...current }
 
-  for (const key of ['name', 'role', 'avatar', 'avatar_image', 'color', 'engine', 'model', 'base_url', 'temperature', 'cli_command', 'persona', 'style', 'private_memory']) {
+  for (const key of ['name', 'role', 'avatar', 'avatar_image', 'color', 'engine', 'model', 'base_url', 'temperature', 'cli_command', 'cli_timeout', 'cli_cwd', 'persona', 'style', 'private_memory']) {
     if (patch[key] !== undefined) next[key] = patch[key]
   }
   if (patch.api_key !== undefined && String(patch.api_key).trim()) next.api_key = patch.api_key

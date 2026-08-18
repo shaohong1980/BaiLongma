@@ -9,4 +9,4 @@ export {
   saveGeneratedVideo,
   resumePendingVideoJobs,
 } from './media/video-generation.js'
-export { execMusic } from './media/music.js'
+export { execMusic, scanMusicDirIntoLibrary } from './media/music.js'

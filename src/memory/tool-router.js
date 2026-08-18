@@ -58,8 +58,9 @@ const REVIEW_TOOLS      = ['review_work']
 // 军机处：用户要求打开/下旨/点将/看板时注入 junjichu 工具
 const JUNJICHU_TOOLS = ['junjichu']
 const JUNJICHU_TRIGGERS = [
-  '军机处', '三省六部', '下旨', '点将', '工部尚书', '礼部尚书', '户部尚书', '兵部尚书', '刑部尚书', '吏部尚书',
-  '掌印大臣', '军机大臣', '开个会', '会议室', '让工部', '让礼部', 'junjichu',
+  '多Agent办公室', '多智能体办公室', '办公室', '下旨', '派活', '派任务',
+  '爱马仕', '克劳德', 'CEO决策者', 'CEO', '运营主管', '代码工程师',
+  '让爱马仕', '让克劳德', '开个会', '会议室', '多Agent', 'junjichu', 'office',
 ]
 
 // 多 Agent 并行：复杂任务/多角度分析/同时做几件事时注入 spawn_subagents
@@ -532,7 +533,7 @@ export function selectTools(ctx = {}) {
   if (mmCaps.includes('image')  && hits(body, IMAGE_GEN_TRIGGERS)) out.add(MM_GEN_TOOLS.image)
   // —— ActionLog 保活 ——
   // 上轮（或最近 10 次）调用过的工具强制带上：跨轮工作流不能因为关键词没命中就断链。
-  // 保活只覆盖白龙马的"已知工具"——installed 工具走单独的全注入路径。
+  // 保活只覆盖爻台的"已知工具"——installed 工具走单独的全注入路径。
   // 被抑制的工具跳过，避免 ActionLog 或扩展工具列表把明确撤下的旧工具捞回来。
   if (Array.isArray(recentActionLog)) {
     for (const entry of recentActionLog) {

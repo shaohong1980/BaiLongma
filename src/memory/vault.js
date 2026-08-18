@@ -47,10 +47,10 @@ function normalizeEntity(id) {
 // 常见实体 id 的友好显示名（优先 entities 表 label；缺省用这里的别名）
 const ENTITY_ALIASES = {
   'id:000001': '用户',
-  'agent:jarvis': '小白龙',
-  'jarvis': '小白龙',
+  'agent:jarvis': '爻台',
+  'jarvis': '爻台',
   'system': '系统',
-  'agent': '小白龙',
+  'agent': '爻台',
 }
 
 // 把原始实体 id 变成可读名（entities 表 label > 内置别名 > 原始 id）

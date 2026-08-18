@@ -107,9 +107,9 @@ export class KnowledgeSphere {
     this.spriteMap = new Map(); // nid -> { sprite, material, node }
     this.linkGeo = null;
 
-    // 半径 / 相机（固定比例，始终适配界面中央区域，不随节点数剧烈缩放）
+    // 半径 / 相机（固定比例，始终适配左上角记忆球小窗格，不随节点数剧烈缩放）
     this.radius = 120;
-    this.camDist = 550;
+    this.camDist = 340;
     this.camDistMin = 240;
     this.camDistMax = 1000;
 
@@ -152,9 +152,10 @@ export class KnowledgeSphere {
     const T = await loadThree();
     this.T = T;
 
-    // canvas 是替换元素，CSS inset:0 不会拉伸它；一律以窗口尺寸为准，避免 300×150 默认大小
-    const w = window.innerWidth || this.canvas.clientWidth;
-    const h = window.innerHeight || this.canvas.clientHeight;
+    // canvas 是替换元素，CSS inset:0 不会拉伸它；以画布实际显示尺寸为准（左上角记忆球小窗格）
+    const rect = this.canvas.getBoundingClientRect();
+    const w = rect.width || this.canvas.clientWidth || 280;
+    const h = rect.height || this.canvas.clientHeight || 280;
 
     // ── 场景 / 相机 ─────────────────────────────────────
     this.scene = new T.Scene();
@@ -1040,8 +1041,9 @@ export class KnowledgeSphere {
 
   _checkResize() {
     const c = this.canvas;
-    const w = window.innerWidth || c.clientWidth;
-    const h = window.innerHeight || c.clientHeight;
+    const rect = c.getBoundingClientRect();
+    const w = rect.width || c.clientWidth;
+    const h = rect.height || c.clientHeight;
     if (!w || !h) return;
     const dpr = this.renderer.getPixelRatio();
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
@@ -1095,7 +1097,7 @@ export class KnowledgeSphere2D {
     this.active = new Map();
 
     this.radius = 120;
-    this.camDist = 550;
+    this.camDist = 340;
     this.alpha = 0;
     this.params = { gravity: 1, repulsion: 1.35, nodeSize: 1 };
     this.physics = { shellK: 0.16, linkK: 0.05, repK: 30, minDist: 15, damp: 0.86 };
@@ -1120,9 +1122,10 @@ export class KnowledgeSphere2D {
 
   async init() {
     const canvas = this.canvas;
-    // canvas 是替换元素，CSS inset:0 不会拉伸它；以窗口尺寸为准
-    const w = window.innerWidth || canvas.clientWidth;
-    const h = window.innerHeight || canvas.clientHeight;
+    // canvas 是替换元素，CSS inset:0 不会拉伸它；以画布实际显示尺寸为准（左上角记忆球小窗格）
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width || canvas.clientWidth || 280;
+    const h = rect.height || canvas.clientHeight || 280;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
@@ -1616,10 +1619,28 @@ export class KnowledgeSphere2D {
     ctx.stroke();
   }
 
+  _checkResize() {
+    const c = this.canvas;
+    const rect = c.getBoundingClientRect();
+    const w = rect.width || c.clientWidth;
+    const h = rect.height || c.clientHeight;
+    if (!w || !h) return;
+    const dpr = this._dpr || Math.min(window.devicePixelRatio || 1, 2);
+    const W = Math.round(w * dpr);
+    const H = Math.round(h * dpr);
+    if (c.width !== W || c.height !== H) {
+      c.width = W;
+      c.height = H;
+      this._W = w;
+      this._H = h;
+    }
+  }
+
   _animate() {
     if (this._disposed) return;
     this.animFrame = requestAnimationFrame(() => this._animate());
     this._time += 1;
+    this._checkResize();
 
     if (this.alpha > 0) this._stepPhysics();
 

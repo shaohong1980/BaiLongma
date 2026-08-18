@@ -8,7 +8,7 @@
  * 3. 观察：方向是否相关、记忆检索是否准确、工具列表是否合理
  */
 import { getDB, resetAll, insertMemory, upsertEntity, insertConversation } from './db.js'
-import { runInjector, formatMemoriesForPrompt, formatTaskKnowledge } from './memory/injector.js'
+import { runInjector, formatMemoriesForPrompt } from './memory/injector.js'
 import { nowTimestamp } from './time.js'
 
 getDB()

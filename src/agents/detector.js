@@ -2,6 +2,7 @@ import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { isA2AEndpoint } from './a2a-client.js'
 
 const IS_WIN   = process.platform === 'win32'
 const IS_MAC   = process.platform === 'darwin'
@@ -421,5 +422,28 @@ export async function detectAgents() {
       })
     }
   }
+
+  // A2A 标准协议增强：对 HTTP 型 Agent，尝试发现其 A2A Agent Card
+  // （GET {baseUrl}/.well-known/agent.json 或 /agent.json）。命中即把调用通道
+  // 升级为 A2A（tasks/send 轮询），而非猜测 Ollama/OpenAI 兼容等非标准端点。
+  // 未命中保持原 HTTP 兼容通道；每个 Agent 探测一次，快速超时、绝不阻塞。
+  await enhanceWithA2A(results)
   return results
+}
+
+async function enhanceWithA2A(results) {
+  for (const r of results) {
+    if (!r.available || r.invokeType !== 'http' || !r.invokeCmd) continue
+    try {
+      const ok = await isA2AEndpoint(r.invokeCmd, { timeoutMs: 3000 })
+      if (ok) {
+        r.invokeType = 'a2a'
+        r.invokeArgs = []
+        r.notes = `${r.notes || ''} [A2A]`.trim()
+        console.log(`[Agents] ${r.name} 升级为 A2A 标准协议通道（${r.invokeCmd}）`)
+      }
+    } catch {
+      // 探测失败不影响已有结果
+    }
+  }
 }

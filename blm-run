@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# blm-run —— 用 Electron-as-Node 跑脚本（解决 better-sqlite3 ABI 不匹配）。
+# 用法：./blm-run scripts/foo.mjs [args...]
+# 等价于：ELECTRON_RUN_AS_NODE=1 electron <script> [args...]
+set -e
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ELECTRON_RUN_AS_NODE=1 "$ROOT/node_modules/.bin/electron.cmd" "$@"

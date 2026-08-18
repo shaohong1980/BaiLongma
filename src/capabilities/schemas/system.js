@@ -155,13 +155,13 @@ export const systemSchemas = {
     type: 'function',
     function: {
       name: 'junjichu',
-      description: 'Control the 军机处 (multi-agent meeting room with 8 imperial court ministers). Use when the user wants to open/close the 军机处 panel, issue an edict/command to the room (which runs the three-provinces-six-ministries pipeline: 分拣→规划→审议→派发→执行→回奏), ask a specific minister a question, check task status on the kanban, or control/review a task. Examples: "打开军机处"→open; "下旨：做一个CRM系统"→edict; "问问工部尚书怎么设计登录页"→ask with agent=coder; "军机处有什么任务"→status; "暂停任务task_001"→task_control.',
+      description: 'Control the 多Agent办公室 (enterprise multi-agent office: CEO决策者 + 主管Agent + 各职能员工). Use when the user wants to open/close the office panel, issue a task/command to the office (CEO决策者 拆解→分派相关员工→执行→汇总), ask a specific member a question, check task status on the kanban, or control/review a task. Examples: "打开多Agent办公室"→open; "下旨：做一个CRM系统"→edict; "问问克劳德怎么设计登录页"→ask with agent=coder; "办公室有什么任务"→status; "暂停任务task_001"→task_control.',
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['open', 'close', 'status', 'edict', 'ask', 'task_control', 'review'], description: 'open/close toggles the panel; status lists tasks; edict runs the three-provinces-six-ministries pipeline on content; ask has a minister respond (optionally agent); task_control pauses/cancels/resumes a task; review approves/rejects a task.' },
-          content: { type: 'string', description: 'For edict: the 旨意/command content. For ask: the question to the room or a specific minister.' },
-          agent: { type: 'string', description: 'For ask: optional minister id or name to address (coder=工部尚书, admin=礼部尚书, hubu=户部, bingbu=兵部, xingbu=刑部, libu=吏部, gm=军机大臣, host=掌印).' },
+          action: { type: 'string', enum: ['open', 'close', 'status', 'edict', 'ask', 'task_control', 'review'], description: 'open/close toggles the panel; status lists tasks; edict runs the CEO 拆解→分派→执行→汇总 workflow on content; ask has a member respond (optionally agent); task_control pauses/cancels/resumes a task; review approves/rejects a task.' },
+          content: { type: 'string', description: 'For edict: the task/command content. For ask: the question to the office or a specific member.' },
+          agent: { type: 'string', description: 'For ask: optional member id or name to address (coder=克劳德, admin=爱马仕, gm=CEO决策者, host=文件管理, hubu=电脑操作, bingbu=应用调度, xingbu=检索专员, libu=报表统计).' },
           task_id: { type: 'string', description: 'For task_control/review: the task id, e.g. task_001.' },
           control: { type: 'string', enum: ['pause', 'cancel', 'resume'], description: 'For task_control: the control action.' },
           pass: { type: 'boolean', description: 'For review: true to approve, false to reject (封驳).' },

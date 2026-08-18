@@ -33,6 +33,7 @@ const TOOL_RISK = {
   media_mode: 'low',
   hotspot_mode: 'low',
   worldcup_mode: 'low',
+  bagua_mode: 'low',
   map_mode: 'low',
   open_doc_panel: 'low',
   person_card_mode: 'low',

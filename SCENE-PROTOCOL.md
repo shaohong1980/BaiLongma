@@ -3,7 +3,7 @@
 > Agent 驱动界面的规范契约。core 与任意 UI shell 之间唯一的约定。
 > 实现两端时以本文为准;设计理念见桌面《Agent-驱动UI-设计方案.md》。
 >
-> 项目:BaiLongma · v1 草案 · 2026-06-23
+> 项目:Yaotai · v1 草案 · 2026-06-23
 >
 > 关键词 **必须 / 不得 / 应当 / 可以** 表示规范强度(对应 RFC 2119 的 MUST / MUST NOT / SHOULD / MAY)。
 

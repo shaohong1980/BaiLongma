@@ -11,7 +11,6 @@ import {
 } from '../../../db.js'
 import { emitEvent } from '../../../events.js'
 import { paths } from '../../../paths.js'
-import { SANDBOX_ROOT } from '../../sandbox.js'
 
 const IS_WIN = process.platform === 'win32'
 
@@ -263,7 +262,7 @@ function inferTrackMetaFromFile(filePath) {
   return { artist: '', title: base }
 }
 
-function scanMusicDirIntoLibrary(musicDir) {
+export function scanMusicDirIntoLibrary(musicDir) {
   const added = []
   let entries = []
   try {

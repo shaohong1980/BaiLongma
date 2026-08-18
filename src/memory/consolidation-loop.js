@@ -1,12 +1,18 @@
-import { getCandidateEntitiesForConsolidation, getMemoriesByEntity } from '../db.js'
+import { getCandidateEntitiesForConsolidation, getMemoriesByEntity, getMemoryCount } from '../db.js'
 import { runConsolidator } from './consolidator.js'
 import { maybeSyncVault } from './vault.js'
 import { maybeGenerateBriefing } from '../runtime/briefing.js'
 import { maybeRebuildGlobalSummaryTree } from './global-summary-tree.js'
 import { runIdleMaintenance, isIdleMaintenanceDue } from '../runtime/idle-maintenance.js'
 
-const RUN_INTERVAL_MS = 30 * 60 * 1000  // 30 分钟
 const BATCH_SIZE = 20                   // 上限让 LLM 一次能看全实体的近期记忆
+
+// 自适应周期：记忆量少时更频繁（尽快沉淀），量大时更稀疏（省 LLM 调用与算力）。
+function computeIntervalMs(memCount) {
+  if (memCount < 500) return 10 * 60 * 1000   // 小库：10 分钟
+  if (memCount < 5000) return 30 * 60 * 1000  // 中库：30 分钟（原默认）
+  return 60 * 60 * 1000                       // 大库：60 分钟
+}
 
 // 内存里的 round-robin 游标：下次从哪个候选实体开始（v1 不持久化）
 let cursor = 0
@@ -47,18 +53,38 @@ async function tick() {
 let started = false
 let timer = null
 
+// 递归调度：每次 tick 后按当前记忆量重算下一次间隔，替代固定 setInterval。
+async function scheduleNext() {
+  if (!started) return
+  try {
+    const memCount = getMemoryCount() || 0
+    const interval = computeIntervalMs(memCount)
+    timer = setTimeout(async () => {
+      timer = null
+      try {
+        await tick()
+      } catch (err) {
+        console.error('[整合循环] tick 异常:', err?.message || err)
+      }
+      scheduleNext()
+    }, interval)
+    console.log(`[整合循环] 下次运行约 ${Math.round(interval / 60000)} 分钟后（记忆 ${memCount} 条）`)
+  } catch (err) {
+    // getMemoryCount 异常不应让循环停摆：回退 30 分钟并继续
+    timer = setTimeout(scheduleNext, 30 * 60 * 1000)
+    console.warn('[整合循环] 调度异常（回退 30 分钟）:', err?.message || err)
+  }
+}
+
 export function startConsolidationLoop() {
   if (started) return
   started = true
   // 启动后等 5 分钟再跑第一次，避免和启动自检挤
-  setTimeout(() => {
-    tick()
-    timer = setInterval(tick, RUN_INTERVAL_MS)
-  }, 5 * 60 * 1000)
-  console.log(`[整合循环] 已注册，5 分钟后首次运行，之后每 ${RUN_INTERVAL_MS / 60000} 分钟一次`)
+  setTimeout(() => { scheduleNext() }, 5 * 60 * 1000)
+  console.log('[整合循环] 已注册，5 分钟后首次运行，之后按记忆量自适应周期')
 }
 
 export function stopConsolidationLoop() {
-  if (timer) { clearInterval(timer); timer = null }
+  if (timer) { clearTimeout(timer); timer = null }
   started = false
 }

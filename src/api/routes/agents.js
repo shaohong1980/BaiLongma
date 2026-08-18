@@ -1,6 +1,6 @@
 // 多 Agent 会议室 API
 import { getAllAgentConfigs, getAgentConfig, updateAgentConfig } from '../../multi-agent/config.js'
-import { bossSpeak, assignTask, getRoomHistory, resetRoom, getMeetingRound } from '../../multi-agent/room.js'
+import { bossSpeak, officeCommand, assignTask, getRoomHistory, resetRoom, getMeetingRound } from '../../multi-agent/room.js'
 import { listTasks, getTask, runEdictTask, resetTasks, controlTask, reviewTask } from '../../multi-agent/task-flow.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
 
@@ -44,11 +44,21 @@ export async function handleAgentRoutes(req, res, url) {
     return true
   }
 
-  // POST /room/message —— 老板发言（点名/推断 → 对应 Agent 响应）
+  // POST /room/office —— 多Agent办公室工作流（CEO 拆解 → 分派 → 执行 → 汇总）
+  if (req.method === 'POST' && url.pathname === '/room/office') {
+    try {
+      const body = await readJsonBody(req)
+      const result = await officeCommand(body?.content || body?.task)
+      jsonResponse(res, 200, { ok: true, ...result })
+    } catch (err) { jsonResponse(res, 400, { ok: false, error: err.message }) }
+    return true
+  }
+
+  // POST /room/message —— 老板发言（@点名 → 只让被点名的成员回答；否则点名/推断）
   if (req.method === 'POST' && url.pathname === '/room/message') {
     try {
       const body = await readJsonBody(req)
-      const result = await bossSpeak(body?.content)
+      const result = await bossSpeak(body?.content, body?.targetAgentIds)
       jsonResponse(res, 200, { ok: true, ...result })
     } catch (err) { jsonResponse(res, 400, { ok: false, error: err.message }) }
     return true

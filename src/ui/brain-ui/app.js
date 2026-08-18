@@ -5,25 +5,27 @@ import { initChat, friendlyChannelLabel } from "./chat.js";
 import { initPanelCollapse } from "./panel-collapse.js";
 import { ThoughtStream } from "./thought-stream.js";
 import { initVoicePanel } from "./voice-panel.js";
-import { initHotspot, toggleHotspot, setHotspotMode, moveVoicePanelToBody, restoreVoicePanel } from "./hotspot.js";
+import { initHotspot, toggleHotspot, setHotspotMode } from "./hotspot.js";
+import { initBagua, toggleBagua, setBaguaMode } from "./bagua.js";
+import { initMultiAgentPanel, openMultiAgentPanel, closeMultiAgentPanel } from "./multi-agent-panel.js";
 import { initWorldcup, toggleWorldcup, setWorldcupMode } from "./worldcup.js";
 import { initTyphoon, toggleTyphoon, setTyphoonMode } from "./typhoon.js";
 import { enrichVisiblePersonCardFromText, initPersonCard, setPersonCardMode, showPersonCardByName } from "./person-card.js";
 import { initDocPanel, setDocPanelMode } from "./doc.js";
 import { initMapPanel } from "./map-panel.js";
-import { initMultiAgentPanel, openMultiAgentPanel, closeMultiAgentPanel, refreshJunjichuKanban } from "./multi-agent-panel.js";
 import { initWechatPopup, showWechatPopup } from "./wechat-popup.js";
 import { initFeishuPopup, showFeishuPopup } from "./feishu-popup.js";
 import { attachJarvisAudioGraph, attachJarvisFx, isFxEnabledForVoice, setFxEnabledForVoice, getJarvisFxParams, setJarvisFxParams, resetJarvisFxParams, isFxUnlocked, tryUnlockFx } from "./tts-fx.js";
 import { buildVisemeTimeline, getVisemeAt } from "./viseme.js";
 import { initAudioOutputRouting, applyOutputSink, listOutputDevices, getOutputPreference, setOutputPreference } from "./audio-output.js";
+import { parseEntities, parseLinks, deterministicIndex, shuffleArray, createVisualOrder } from "./memory-graph.js";
 renderBrainUiApp(document.body);
 const THEME_KEY = "jarvis-brain-ui-theme";
 const PHYSICS_STORAGE_KEY = "jarvis-brain-ui-physics";
 const ACTIVATION_WARMUP_KEY = "bailongma_activation_warmup_until";
 const UI_ZOOM_STORAGE_KEY = "bailongma_ui_zoom_factor";
 const MAX_CHAT_HISTORY = 60;
-const DEFAULT_AGENT_NAME = "小白龙";
+const DEFAULT_AGENT_NAME = "爻台";
 const DEFAULT_UI_ZOOM = 1.1;
 const MIN_UI_ZOOM = 0.8;
 const MAX_UI_ZOOM = 1.8;
@@ -151,8 +153,8 @@ function initUiZoom() {
 function setAgentName(nextName) {
   const normalized = String(nextName || "").trim() || DEFAULT_AGENT_NAME;
   agentName = normalized;
-  document.title = `${normalized} · Cognitive Surface`;
-  if (brandNameEl) brandNameEl.textContent = `${normalized} AI Agent`;
+  document.title = `${normalized} · Yaotai Agent Studio`;
+  if (brandNameEl) brandNameEl.textContent = `${normalized} Agent Studio`;
   if (graphEl) graphEl.setAttribute("aria-label", `${normalized} memory graph`);
   const input = document.getElementById("msg-input");
   if (input && !chat?.isComposerLocked?.() && document.activeElement === input) input.placeholder = defaultInputPlaceholder();
@@ -245,8 +247,8 @@ function applyTheme(theme) {
 }
 
 (function initTheme() {
-  let saved = "midnight";
-  try { saved = localStorage.getItem(THEME_KEY) || "midnight"; } catch {}
+  let saved = "neon";
+  try { saved = localStorage.getItem(THEME_KEY) || "neon"; } catch {}
   applyTheme(saved);
 })();
 
@@ -285,6 +287,12 @@ let linkData = [];
 let sphere = null;
 let sphereReady = false;
 let _sphereInitPromise = null;
+
+// 作战指挥页「记忆图谱」卡片内的内嵌图谱（只读渲染，力学由全屏图谱驱动）
+let dashSphere = null;
+let dashSphereReady = false;
+let dashSphereFailed = false;
+let _dashSphereInitPromise = null;
 
 // 兼容 applyTheme() 里的空指针检查：渲染已由 3D 球体接管
 const nodeSel = { empty: () => !sphereReady || !nodeData.length };
@@ -340,7 +348,7 @@ function isConversationMemory(n) {
 function nodeColor(d) {
   // 核心节点（自身）用暖色高亮
   if (d._core) return themeColors.warm || "#ff9f1c";
-  // 对话记忆（与小白龙的会话产生）单独一类，白色
+  // 对话记忆（与爻台的会话产生）单独一类，白色
   if (isConversationMemory(d)) return "#ffffff";
   // 其余按 event_type 分类着色
   return NODE_TYPE_COLORS[d.event_type] || NODE_TYPE_DEFAULT;
@@ -350,20 +358,6 @@ function nodeRadius(d) {
   const base = d._core ? 9 : 3.4 + Math.min((d._deg || 0) * 0.9, 5.4);
   const childScale = 1 + Math.min(1.5, (d._childCount || 0) * 0.18);
   return base * childScale * physicsSettings.nodeSize;
-}
-
-function parseEntities(raw) {
-  try {
-    const p = typeof raw === "string" ? JSON.parse(raw || "[]") : (raw || []);
-    return Array.isArray(p) ? p : [];
-  } catch { return []; }
-}
-
-function parseLinks(raw) {
-  try {
-    const parsed = typeof raw === "string" ? JSON.parse(raw || "[]") : (raw || []);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch { return []; }
 }
 
 function semanticChildTargets(node) {
@@ -440,31 +434,6 @@ function renderLegend() {
       <span class="legend-count">${i.count}</span>
     </div>`
   ).join("");
-}
-
-function deterministicIndex(seed, mod) {
-  let hash = 2166136261;
-  const text = String(seed);
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return Math.abs(hash >>> 0) % mod;
-}
-
-function shuffleArray(items) {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
-function createVisualOrder(nodes) {
-  const coreNode = nodes.find(n => n._core || parseEntities(n.entities).includes("agent:jarvis")) || null;
-  const rest = shuffleArray(nodes.filter(n => !coreNode || n._nid !== coreNode._nid));
-  return coreNode ? [coreNode, ...rest] : rest;
 }
 
 function chooseVisualParent(child, candidates, childCounts) {
@@ -586,13 +555,14 @@ function showTip(d, clientX, clientY) {
 // ── 3D 球体渲染与力学 ─────────────────────────────────────
 
 function refreshNodeVisuals() {
-  if (!sphereReady) return;
-  sphere.refreshVisuals();
+  if (sphereReady) sphere.refreshVisuals();
+  if (dashSphereReady) dashSphere.refreshVisuals();
 }
 
 function highlightNodes(nids, duration = 2400) {
-  if (!sphereReady || !nids || !nids.length) return;
-  sphere.highlight(nids, duration);
+  if (!nids || !nids.length) return;
+  if (sphereReady) sphere.highlight(nids, duration);
+  if (dashSphereReady) dashSphere.highlight(nids, duration);
 }
 
 function naturalTwitch(big = Math.random() < 0.3) {
@@ -605,8 +575,8 @@ function naturalTwitch(big = Math.random() < 0.3) {
 }
 
 function updateSimulationForces() {
-  if (!sphereReady) return;
-  sphere.setPhysics(physicsSettings);
+  if (sphereReady) sphere.setPhysics(physicsSettings);
+  if (dashSphereReady) dashSphere.setPhysics(physicsSettings);
 }
 
 function applyPhysicsSettings(restartAlpha = 2) {
@@ -723,8 +693,7 @@ function initGraphDetail() {
 async function initKnowledgeSphere() {
   if (sphereReady || !MEMORY_GRAPH_ENABLED || !graphEl) return;
   if (_sphereInitPromise) return _sphereInitPromise;
-  // 立即显示画布层（避免初始化期间被 CSS display:none 遮挡）
-  graphEl.style.display = "block";
+  // 记忆球默认隐藏；由作战指挥页「全屏图谱」按钮展开（由 setSphereEnlarged 控制 display）
   _sphereInitPromise = (async () => {
     const opts = {
       getNodeColor: nodeColor,
@@ -732,7 +701,7 @@ async function initKnowledgeSphere() {
       getTheme: () => themeColors,
       onHover: showTip,
       onClick: (d) => {
-        if (!d) return;
+        if (!d) { setSphereEnlarged(false); return; }  // 全屏记忆球内点空白 → 还原
         highlightNodes([d._nid], 1400);
         openGraphNodeDetail(d);
       },
@@ -768,13 +737,80 @@ async function initKnowledgeSphere() {
   return _sphereInitPromise;
 }
 
+// 作战指挥页「记忆图谱」卡片内的内嵌图谱：与全屏图谱共用同一份 nodeData/linkData，
+// 但只做渲染，不参与力学布局（力学由全屏图谱驱动），避免两份力学同时写同一批节点互相打架。
+async function initDashSphere() {
+  const dashCanvas = document.getElementById("dash-graph");
+  if (dashSphereReady || !MEMORY_GRAPH_ENABLED || !dashCanvas) return;
+  if (_dashSphereInitPromise) return _dashSphereInitPromise;
+  _dashSphereInitPromise = (async () => {
+    const opts = {
+      getNodeColor: nodeColor,
+      getNodeRadius: nodeRadius,
+      getTheme: () => themeColors,
+      onHover: showTip,
+      onClick: (d) => {
+        if (!d) return;
+        highlightNodes([d._nid], 1400);
+        openGraphNodeDetail(d);
+      },
+    };
+    try {
+      const { KnowledgeSphere } = await import("./knowledge-sphere.js");
+      const s = new KnowledgeSphere(dashCanvas, opts);
+      await s.init();
+      s._stepPhysics = () => {}; // 只读：禁用内嵌图谱自己的力学推进
+      dashSphere = s;
+      dashSphereReady = true;
+      console.info("[graph] 作战指挥内嵌图谱已启用（WebGL）");
+    } catch (err) {
+      console.warn("[graph] 作战指挥内嵌图谱 3D 初始化失败，回退 2D:", err);
+      try {
+        const { KnowledgeSphere2D } = await import("./knowledge-sphere.js");
+        const s = new KnowledgeSphere2D(dashCanvas, opts);
+        await s.init();
+        dashSphere = s;
+        dashSphereReady = true;
+        console.info("[graph] 作战指挥内嵌图谱已启用（2D Canvas 回退）");
+      } catch (err2) {
+        console.warn("[graph] 作战指挥内嵌图谱初始化失败（3D 与 2D 均不可用）:", err2);
+        dashSphere = null;
+        dashSphereReady = false;
+        dashSphereFailed = true;
+      }
+    } finally {
+      _dashSphereInitPromise = null;
+    }
+    updateDashGraphEmptyState();
+  })();
+  return _dashSphereInitPromise;
+}
+
+// 内嵌图谱空态提示：未开启 / 加载中 / 渲染失败 / 正常渲染
+function updateDashGraphEmptyState() {
+  const el = document.getElementById("dash-graph-empty");
+  if (!el) return;
+  if (!MEMORY_GRAPH_ENABLED) {
+    el.textContent = "记忆图谱未开启 · 在设置 → 外观中开启";
+  } else if (dashSphereReady) {
+    el.style.display = "none";
+    return;
+  } else if (dashSphereFailed) {
+    el.textContent = "图谱渲染失败（当前环境不支持 WebGL）";
+  } else {
+    el.textContent = "图谱加载中…";
+  }
+  el.style.display = "flex";
+}
+
 // 纯 2D canvas 兜底球体：即使 WebGL / 3D / 2D 渲染全部不可用，也在画布中央画出
 // 一个带光环的静态球体，并把失败原因显示出来便于排查。不依赖任何模块。
 function drawStaticSphereFallback(canvas, err) {
   try {
     const ctx = canvas.getContext("2d");
-    const w = window.innerWidth || canvas.clientWidth;
-    const h = window.innerHeight || canvas.clientHeight;
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width || canvas.clientWidth || 280;
+    const h = rect.height || canvas.clientHeight || 280;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
@@ -821,13 +857,19 @@ function renderGraph(restartAlpha = 2) {
   if (!MEMORY_GRAPH_ENABLED || !sphereReady) {
     updateStats();
     renderLegend();
+    renderDashboard?.();
     return;
   }
   computeDegrees();
   markCore();
   updateStats();
   renderLegend();
+  renderDashboard?.();
   sphere.setData(nodeData, linkData, restartAlpha);
+  // 同步内嵌图谱（只读渲染同一份 nodeData/linkData）
+  if (dashSphereReady) {
+    dashSphere.setData(nodeData, linkData, restartAlpha);
+  }
 }
 
 async function loadMemories() {
@@ -866,6 +908,9 @@ async function loadMemories() {
     if (!sphereReady) {
       await initKnowledgeSphere();
     }
+    // 同步初始化作战指挥页内嵌图谱（读同一份 nodeData/linkData）
+    await initDashSphere();
+    updateDashGraphEmptyState();
     if (sphereReady) renderGraph(1.1);
   } catch (error) {
     console.warn("[graph] load failed:", error.message);
@@ -920,8 +965,10 @@ if (MEMORY_GRAPH_ENABLED) {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       sphere?.pause();
+      dashSphere?.pause();
     } else {
       sphere?.resume();
+      dashSphere?.resume();
       naturalTwitch(true); // 回到前台来一发大波当欢迎
     }
   });
@@ -994,7 +1041,7 @@ const AI_TOOL_GROUPS = {
   "执行命令": new Set(["exec_command", "exec_quick_command", "exec_task_command", "exec_background_command", "download_file", "kill_process", "list_processes"]),
   "上网": new Set(["fetch_url", "web_search", "browser_read"]),
   "调取记忆": new Set(["search_memory", "recall_memory", "probe_memory", "upsert_memory", "merge_memories", "downgrade_memory"]),
-  "推送界面": new Set(["ui_set", "focus_banner"]),
+  "推送界面": new Set(["ui_set", "focus_banner", "bagua_mode", "hotspot_mode", "worldcup_mode", "typhoon_mode", "map_mode", "open_doc_panel", "person_card_mode"]),
   "处理多媒体": new Set(["speak", "generate_lyrics", "generate_music", "generate_image", "music", "media_mode"]),
   "回复用户": new Set(["send_message", "express"]),
 };
@@ -1298,7 +1345,7 @@ function handle({ type, data = {} }) {
         if (!liveReplyActive) {
           liveReplyActive = true;
           liveRawText = "";
-          chat.beginLiveJarvisMsg({ alert: true });
+          chat.beginLiveJarvisMsg();
           if (liveTurnSpeak && isTTSStreamingEnabled()) beginStreamingTTS();
         }
       }
@@ -1430,10 +1477,12 @@ function handle({ type, data = {} }) {
       showBriefingCard(data?.content, data?.date);
       break;
     case "workbench_updated":
-      // 工作台数据变化（Agent 工具/UI 操作）→ 刷新右侧栏工作台
+      // 工作台数据变化（Agent 工具/UI 操作）→ 刷新作战指挥 + 待办工作页
       if (typeof window.__refreshWorkbench === "function") {
-        window.__refreshWorkbench().catch(() => {});
+        try { window.__refreshWorkbench(); } catch {}
       }
+      renderDashboard();
+      renderWorkbenchPage();
       break;
     case "skill_suggestion":
       // 复杂任务完成后 → 弹一张"要不要沉淀成技能"的轻提示卡
@@ -1491,6 +1540,14 @@ function handle({ type, data = {} }) {
     case "hotspot_mode":
       setHotspotMode(!!data.active || data.action === "show" || data.action === "open", { source: "agent_event" });
       break;
+    case "bagua_mode":
+      setBaguaMode(!!data.active || data.action === "show" || data.action === "open", { source: "agent_event" });
+      break;
+    case "junjichu_mode":
+      // 多Agent办公室：AI 工具打开/关闭
+      if (!!data.active || data.action === "open" || data.action === "show") openMultiAgentPanel();
+      else closeMultiAgentPanel();
+      break;
     case "worldcup_mode":
       setWorldcupMode(!!data.active || data.action === "show" || data.action === "open", { source: "agent_event" });
       break;
@@ -1499,20 +1556,6 @@ function handle({ type, data = {} }) {
       break;
     case "map_mode":
       window.dispatchEvent(new CustomEvent("bailongma:map-mode", { detail: data }));
-      break;
-    case "junjichu_mode":
-      // 小白龙对话/语音调动军机处：打开/关闭面板
-      if (data?.active === false) closeMultiAgentPanel();
-      else openMultiAgentPanel();
-      break;
-    case "edict_task":
-      // 军机处任务状态变化 → 刷新看板（若已打开）+ 通知面板显示完成
-      refreshJunjichuKanban();
-      window.dispatchEvent(new CustomEvent("bailongma:edict-task", { detail: data }));
-      break;
-    case "edict_progress":
-      // 三省六部流水线每步进度 → 像群聊一样实时显示
-      window.dispatchEvent(new CustomEvent("bailongma:edict-progress", { detail: data }));
       break;
     case "doc_panel_mode":
       setDocPanelMode(!!data.active || data.action === "open", { topicId: data.topic || null, source: "agent_event" });
@@ -1748,8 +1791,8 @@ function setTTSVisemeCode(code) {
   window.bailongmaVoice?.setViseme?.(code);
 }
 
-function startTTSVisemeLoop() {
-  ttsVisemeTimeline = buildVisemeTimeline(ttsVisemeText());
+async function startTTSVisemeLoop() {
+  ttsVisemeTimeline = await buildVisemeTimeline(ttsVisemeText());
   // 说话内容 → 语音球太极八卦图（用于定位卦象）
   window.bailongmaVoice?.setSpeakingText?.(ttsVisemeText());
   if (ttsVisemeRaf) { cancelAnimationFrame(ttsVisemeRaf); ttsVisemeRaf = 0; }
@@ -2140,6 +2183,10 @@ chat = initChat({
       toggleTyphoon();
       return;
     }
+    if (document.body.classList.contains('bagua-mode') && /关闭|退出|关掉|隐藏/.test(text)) {
+      toggleBagua();
+      return;
+    }
     if (document.body.classList.contains('person-card-mode') && /关闭|退出|关掉|隐藏/.test(text)) {
       setPersonCardMode(false, { source: 'chat_input' });
       return;
@@ -2152,6 +2199,10 @@ chat = initChat({
     }
     if (/台风|热带气旋/.test(text) && !document.body.classList.contains('typhoon-mode')) {
       toggleTyphoon();
+    }
+    // 易经易学看板：说「易经/八卦/六十四卦/64卦/太极/卜卦/起卦/周易」等即打开
+    if (/易经|八卦|六十四卦|64\s?卦|太极|卜卦|起卦|摇卦|周易|六爻/.test(text) && !document.body.classList.contains('bagua-mode')) {
+      toggleBagua();
     }
     const personQuery = extractPersonCardQuery(text);
     if (personQuery) {
@@ -2172,6 +2223,8 @@ connectSSE();
 loadAgentProfile();
 initPersonCard();
 initDocPanel().catch((err) => console.warn('[DocPanel] init failed:', err));
+initBagua();
+initMultiAgentPanel();
 chat.restoreChatHistory();
 chat.unlockAudioOnFirstGesture();
 
@@ -4470,10 +4523,6 @@ initVoicePanel({
   getChatInput:  () => document.getElementById("msg-input"),
   getSendBtn:    () => document.getElementById("send-btn"),
   getSendMessage: (options) => {
-    // 军机处打开时，语音识别文本直接发给军机处（不是主聊天）
-    if (window.__junjichuActive && typeof window.__junjichuVoice === "function") {
-      return window.__junjichuVoice(options?.text || '')
-    }
     return chat?.send?.(options);
   },
   getLang:       () => localStorage.getItem("bailongma-voice-lang") || "zh-CN",
@@ -4496,14 +4545,238 @@ initTyphoon();
 // ── Map panel（高德地图，对话里 map_mode 打开）──
 initMapPanel();
 
-// ── 多 Agent 办公室（可对话/布置任务）──
-initMultiAgentPanel();
-document.getElementById("multiagent-btn")?.addEventListener("click", openMultiAgentPanel);
-// 军机处语音：面板开关打开时，臣工回复经此事件交给 TTS 播放（带各自音色）
-window.addEventListener("bailongma:speak", (e) => {
-  const text = e.detail?.text
-  if (text) playTTSReply(text, e.detail?.voiceId)
+// ═══════════════ 侧边导航：页面切换（作战指挥 / AI 对话 / 待办工作 / 数据备份） ═══════════════
+function switchAppPage(page) {
+  document.body.classList.remove("page-dashboard", "page-chat", "page-workbench", "page-backup", "page-multiagent");
+  document.body.classList.add(`page-${page}`);
+  document.querySelectorAll(".sidebar .nav-item").forEach(n => n.classList.toggle("active", n.dataset.page === page));
+  // 内嵌图谱只在作战指挥页可见：切走时暂停省 GPU，切回时恢复
+  if (page === "dashboard") {
+    dashSphere?.resume();
+    renderDashboard();
+  } else {
+    dashSphere?.pause();
+  }
+  if (page === "workbench") renderWorkbenchPage();
+  // 同步多Agent办公室激活标记（供内部看板刷新判断）
+  window.__junjichuActive = page === "multiagent";
+}
+document.querySelectorAll(".sidebar .nav-item").forEach(item => {
+  item.addEventListener("click", () => {
+    const page = item.dataset.page;
+    if (page === "settings") { openSettingsRef?.(); return; }
+    if (page === "multiagent") { openMultiAgentPanel(); return; }
+    switchAppPage(page);
+  });
 });
+// 多Agent办公室页切换：打开/关闭时由 multi-agent-panel 派发事件驱动
+window.addEventListener("bailongma:multiagent-open", () => switchAppPage("multiagent"));
+window.addEventListener("bailongma:multiagent-close", () => switchAppPage("chat"));
+// 默认进入作战指挥中心
+document.body.classList.add("page-dashboard");
+
+// ── 作战指挥中心：指标 + 今日待办 + 记忆图谱 ──
+renderDashboard();
+function renderDashboard() {
+  updateDashGraphEmptyState();
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = String(v); };
+  // 记忆节点数
+  set("dash-nodes", nodeData.length);
+  // 待办 / 完成
+  fetch(`${API}/workbench`).then(r => r.json()).then(d => {
+    const pending = d.pending || [], done = d.done || [];
+    set("dash-todo", pending.length);
+    set("dash-done", done.length);
+    const badge = document.getElementById("sidebar-badge-todo");
+    if (badge) { badge.style.display = pending.length ? "inline-block" : "none"; badge.textContent = pending.length; }
+    const wrap = document.getElementById("dash-todo-list");
+    if (!wrap) return;
+    if (!pending.length) { wrap.innerHTML = '<div style="text-align:center;color:var(--dim);padding:24px;font-size:13px;">✓ 今日暂无待办，专注深耕</div>'; return; }
+    wrap.innerHTML = pending.slice(0, 6).map(t => `
+      <div class="today-item">
+        <div class="today-check"></div>
+        <div class="today-content">
+          <div class="today-title">${escHtml(t.title)}</div>
+          <div class="today-meta"><span style="color:var(--dim)">待办</span></div>
+        </div>
+        <div class="today-due">${escHtml(t.due_date || '待办')}</div>
+        <button class="today-action" data-wb-id="${escHtml(t.id)}">完成</button>
+      </div>`).join('');
+    wrap.querySelectorAll(".today-action").forEach(b => b.addEventListener("click", async () => {
+      try {
+        await fetch(`${API}/workbench/todos/${b.dataset.wbId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" })
+        });
+      } catch {}
+      window.__refreshWorkbench?.();
+      renderDashboard();
+    }));
+  }).catch(() => {});
+  // 记忆图谱图例（直接由节点数据生成，避免依赖主图例时序）
+  renderDashLegend();
+}
+function renderDashLegend() {
+  const el = document.getElementById("dash-legend");
+  if (!el) return;
+  if (!nodeData.length) { el.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:10px 0;">暂无记忆，去对话积累吧</div>'; return; }
+  const counts = new Map();
+  nodeData.forEach(n => {
+    const t = n._core ? "self" : (isConversationMemory(n) ? "conversation" : (n.event_type || "default"));
+    counts.set(t, (counts.get(t) || 0) + 1);
+  });
+  const items = Array.from(counts.entries()).map(([type, count]) => ({
+    name: type === "self" ? "自身" : type === "conversation" ? "对话" : (NODE_TYPE_LABELS[type] || type),
+    count,
+    color: type === "self" ? (themeColors.warm || "#ff9f1c") : type === "conversation" ? "#ffffff" : (NODE_TYPE_COLORS[type] || NODE_TYPE_DEFAULT),
+  })).sort((a, b) => b.count - a.count);
+  el.innerHTML = items.map(i => `
+    <div class="legend-item">
+      <span class="legend-dot" style="background:${i.color}"></span>
+      <span class="legend-name">${i.name}</span>
+      <span class="legend-count">${i.count}</span>
+    </div>`).join("");
+}
+// ── 待办工作台页：任务管理 ──
+let wbPageTab = "pending";
+async function renderWorkbenchPage() {
+  const wrap = document.getElementById("wb-page-list");
+  if (!wrap) return;
+  try {
+    const data = await fetch(`${API}/workbench`).then(r => r.json());
+    const list = (wbPageTab === "done" ? (data.done || []) : (data.pending || []));
+    if (!list.length) { wrap.innerHTML = `<div style="text-align:center;color:var(--dim);padding:30px;font-size:13px;">${wbPageTab === 'done' ? '暂无已完成事项' : '暂无待办，添加一个吧'}</div>`; return; }
+    wrap.innerHTML = list.map(t => `
+      <div class="task-item ${t.status === 'done' ? 'done' : ''}">
+        <div class="task-check ${t.status === 'done' ? 'done' : ''}" data-wb-toggle="${escHtml(t.id)}"></div>
+        <div class="task-body">
+          <div class="task-name">${escHtml(t.title)}</div>
+          <div class="task-meta"><span style="color:var(--dim)">${escHtml(t.due_date || '无截止')}</span></div>
+        </div>
+        <button class="task-del" data-wb-del="${escHtml(t.id)}">删除</button>
+      </div>`).join('');
+    wrap.querySelectorAll("[data-wb-toggle]").forEach(el => el.addEventListener("click", async () => {
+      const target = wbPageTab === "done" ? "pending" : "done";
+      try {
+        await fetch(`${API}/workbench/todos/${el.dataset.wbToggle}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: target })
+        });
+      } catch {}
+      window.__refreshWorkbench?.();
+      renderWorkbenchPage();
+    }));
+    wrap.querySelectorAll("[data-wb-del]").forEach(el => el.addEventListener("click", async () => {
+      try { await fetch(`${API}/workbench/todos/${el.dataset.wbDel}`, { method: "DELETE" }); } catch {}
+      window.__refreshWorkbench?.();
+      renderWorkbenchPage();
+    }));
+  } catch { wrap.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:20px;">加载失败</div>'; }
+}
+document.querySelectorAll(".task-tab[data-wt]").forEach(tab => tab.addEventListener("click", () => {
+  wbPageTab = tab.dataset.wt;
+  document.querySelectorAll(".task-tab[data-wt]").forEach(t => t.classList.toggle("active", t === tab));
+  renderWorkbenchPage();
+}));
+document.getElementById("wb-page-add")?.addEventListener("click", addWbPageTodo);
+document.getElementById("wb-page-input")?.addEventListener("keydown", (e) => { if (e.key === "Enter") addWbPageTodo(); });
+async function addWbPageTodo() {
+  const input = document.getElementById("wb-page-input");
+  const title = input?.value.trim();
+  if (!title) return;
+  input.value = "";
+  try {
+    await fetch(`${API}/workbench/todos`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title })
+    });
+  } catch {}
+  window.__refreshWorkbench?.();
+  renderWorkbenchPage();
+}
+
+// ── 数据备份页：导出 / 导入 / 清空 ──
+document.getElementById("backup-export")?.addEventListener("click", async () => {
+  let memories = [], workbench = null;
+  try { memories = await fetch(`${API}/memories?limit=500`).then(r => r.json()); } catch {}
+  try { workbench = await fetch(`${API}/workbench`).then(r => r.json()); } catch {}
+  const data = { app: "bailongma", exportedAt: new Date().toISOString(), memories, workbench };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `爻台-备份-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById("backup-file")?.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (data.workbench) {
+      for (const t of (data.workbench.pending || [])) {
+        try { await fetch(`${API}/workbench/todos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: t.title }) }); } catch {}
+      }
+      for (const t of (data.workbench.done || [])) {
+        try {
+          const r = await fetch(`${API}/workbench/todos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: t.title }) });
+          const j = await r.json();
+          const id = j.id || j.todo?.id;
+          if (id) await fetch(`${API}/workbench/todos/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" }) });
+        } catch {}
+      }
+    }
+    window.__refreshWorkbench?.();
+    renderDashboard();
+    renderWorkbenchPage();
+    alert("导入成功：待办已恢复");
+  } catch (err) { alert("导入失败：" + err.message); }
+  e.target.value = "";
+});
+
+// ── 图谱记忆球：作战指挥页「全屏图谱」按钮全屏展开 / Esc 还原 ──
+function setSphereEnlarged(enlarged) {
+  if (!graphEl) return;
+  if (enlarged && !graphEl.classList.contains("enlarged")) {
+    // 画布是 body 直接子元素（createGraphStage），fixed 定位直接相对视口
+    graphEl.style.display = "block";
+    graphEl.classList.add("enlarged");
+    document.body.classList.add("sphere-enlarged");
+  } else if (!enlarged && graphEl.classList.contains("enlarged")) {
+    graphEl.classList.remove("enlarged");
+    document.body.classList.remove("sphere-enlarged");
+    graphEl.style.display = "none";
+  }
+  if (sphere) { sphere.alpha = Math.max(sphere.alpha, 1); sphere.refreshVisuals?.(); }
+}
+// 顶栏太极八卦图点击 → 打开/关闭「易经 · 易学看板」（见 bagua.js），图谱全屏走作战指挥页按钮。
+document.getElementById("graph-close-btn")?.addEventListener("click", () => setSphereEnlarged(false));
+// 作战指挥页「全屏图谱」入口
+document.getElementById("dash-graph-btn")?.addEventListener("click", () => setSphereEnlarged(true));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && graphEl?.classList.contains("enlarged")) setSphereEnlarged(false);
+});
+
+// ── 顶栏：全屏 ──
+document.getElementById("fullscreen-btn")?.addEventListener("click", () => {
+  try {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
+  } catch {}
+});
+
+// ── 顶栏：投影（打开文档面板作为投影示例）──
+document.getElementById("project-btn")?.addEventListener("click", () => {
+  try { setDocPanelMode(true, { topicId: null, source: "ui-button" }); } catch (err) { console.warn("[project] ", err); }
+});
+
+// ── 聊天顶栏：心跳时钟 ──
+(function initChatTick() {
+  const tickEl = document.getElementById("chat-tick");
+  if (!tickEl) return;
+  const pad = n => String(n).padStart(2, "0");
+  const render = () => { const d = new Date(); tickEl.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+  render();
+  setInterval(render, 1000);
+})();
 
 // ── Media modes (video / image) ──
 (function initMediaModes() {
@@ -4616,8 +4889,8 @@ window.addEventListener("bailongma:speak", (e) => {
     videoActive = Boolean(visible);
     document.body.classList.toggle("video-mode", videoActive);
     videoBtn?.classList.toggle("active", videoActive);
-    if (videoActive) moveVoicePanelToBody();
-    else restoreVoicePanel();
+    // 太极图（语音球）保持与主界面一致：留在顶栏原位置，不搬走
+    if (videoActive) loadRecentVideos();
     window.dispatchEvent(new CustomEvent("bailongma:video-mode", {
       detail: { active: videoActive, kind: videoKind },
     }));
@@ -4892,10 +5165,18 @@ window.addEventListener("bailongma:speak", (e) => {
   const musicCoverArtist = document.getElementById("music-cover-artist");
   const musicLyricsScroll = document.getElementById("music-lyrics-scroll");
   const musicNoLyrics     = document.getElementById("music-no-lyrics");
+  const musicSearchEl     = document.getElementById("music-search");
+  const musicScanBtn      = document.getElementById("music-scan");
+  const musicLibList      = document.getElementById("music-library-list");
+  const musicAddPath      = document.getElementById("music-add-path");
+  const musicAddBtn       = document.getElementById("music-add-btn");
+  const musicModeBtn      = document.getElementById("music-mode");
 
   let musicActive  = false;
   let musicPlaying = false;
   let musicWasPlayingBeforeHide = false;
+  let musicPlayMode = "list";      // list 列表循环 | repeat-one 单曲循环 | shuffle 随机
+  let musicLibraryAll = [];
   let lrcLines     = [];
   let playlist     = [];
   let playlistIdx  = 0;
@@ -4969,7 +5250,7 @@ window.addEventListener("bailongma:speak", (e) => {
     const track = playlist[index];
     if (!track || !musicAudio) return;
 
-    musicAudio.src = localPathToUrl(track.src || "");
+    musicAudio.src = track.url || localPathToUrl(track.src || "");
     musicAudio.volume = parseFloat(musicVolInput?.value ?? "0.8");
 
     const title  = track.title  || "未知曲目";
@@ -4995,6 +5276,7 @@ window.addEventListener("bailongma:speak", (e) => {
 
     loadLrc(track.lrc || "");
     if (autoplay) setMusicPlaying(true);
+    renderMusicLibrary?.(musicSearchEl?.value || "");
   }
 
   function showMusic({
@@ -5040,12 +5322,123 @@ window.addEventListener("bailongma:speak", (e) => {
       musicWasPlayingBeforeHide = musicPlaying;
       setMusicPlaying(false);
       setMusicPanelVisible(false);
-    } else if (musicAudio?.src) {
+    } else {
+      // 首次点击也打开曲库面板（即使还没有加载任何曲目）
       if (videoActive) closeAndDestroyVideo();
       setMusicPanelVisible(true);
-      if (musicWasPlayingBeforeHide) setMusicPlaying(true);
+      if (musicWasPlayingBeforeHide && musicAudio?.src) setMusicPlaying(true);
     }
   }
+
+  // ── 曲库侧栏：加载 / 渲染 / 搜索 / 扫描 / 添加 / 播放模式 ──
+  const MUSIC_MODE_META = {
+    list:       { icon: "🔁", label: "列表" },
+    "repeat-one": { icon: "🔂", label: "单曲" },
+    shuffle:    { icon: "🔀", label: "随机" },
+  };
+  function renderMusicModeBtn() {
+    if (!musicModeBtn) return;
+    const meta = MUSIC_MODE_META[musicPlayMode] || MUSIC_MODE_META.list;
+    musicModeBtn.textContent = meta.icon;
+    musicModeBtn.title = `播放模式：${meta.label}循环（点击切换）`;
+    musicModeBtn.classList.toggle("mode-active", musicPlayMode !== "list");
+    musicModeBtn.querySelector(".mode-label")?.remove();
+    if (musicPlayMode !== "list") {
+      const span = document.createElement("span");
+      span.className = "mode-label";
+      span.textContent = meta.label;
+      musicModeBtn.appendChild(span);
+    }
+  }
+
+  function renderMusicLibrary(filter = "") {
+    if (!musicLibList) return;
+    const q = String(filter || "").trim().toLowerCase();
+    const rows = q
+      ? musicLibraryAll.filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(q))
+      : musicLibraryAll;
+    if (!rows.length) {
+      musicLibList.innerHTML = q
+        ? '<div class="music-library-empty">没有匹配的曲目</div>'
+        : '<div class="music-library-empty">曲库为空 · 点击「⟳ 扫描」从 music/ 目录收录，或让 AI 帮你下载</div>';
+      return;
+    }
+    const currentTrack = playlist[playlistIdx] || null;
+    const nowKey = currentTrack ? String(currentTrack.id || currentTrack.url || currentTrack.src || "") : "";
+    musicLibList.innerHTML = rows.map(t => {
+      const key = String(t.id || t.url || "");
+      const isNow = nowKey && key && nowKey === key;
+      return `
+        <div class="music-lib-item${isNow ? " playing" : ""}" data-key="${escHtml(key)}">
+          <span class="ml-eq">${isNow ? "♪" : ""}</span>
+          <div class="ml-body">
+            <div class="ml-title">${escHtml(t.title || "未知曲目")}</div>
+            <div class="ml-artist">${escHtml(t.artist || "未知歌手")}</div>
+          </div>
+        </div>`;
+    }).join("");
+    musicLibList.querySelectorAll(".music-lib-item").forEach(item => {
+      item.addEventListener("click", () => {
+        const key = item.dataset.key;
+        const t = musicLibraryAll.find(x => String(x.id || x.url) === key);
+        if (t) playLibraryTrack(t);
+      });
+    });
+  }
+
+  function playLibraryTrack(track) {
+    if (!track) return;
+    if (videoActive) closeAndDestroyVideo();
+    setMusicPanelVisible(true);
+    playlist = [track];
+    playlistIdx = 0;
+    loadTrack(0, true);
+  }
+
+  async function loadMusicLibrary() {
+    try {
+      const res = await fetch(`${API}/media/music/library?limit=200`);
+      const data = await res.json();
+      musicLibraryAll = (data && Array.isArray(data.tracks)) ? data.tracks : [];
+    } catch {
+      musicLibraryAll = [];
+    }
+    renderMusicLibrary(musicSearchEl?.value || "");
+  }
+
+  musicSearchEl?.addEventListener("input", () => renderMusicLibrary(musicSearchEl.value));
+  musicModeBtn?.addEventListener("click", () => {
+    musicPlayMode = musicPlayMode === "list" ? "repeat-one" : musicPlayMode === "repeat-one" ? "shuffle" : "list";
+    renderMusicModeBtn();
+  });
+  musicScanBtn?.addEventListener("click", async () => {
+    const original = musicScanBtn.textContent;
+    musicScanBtn.textContent = "…";
+    try {
+      const res = await fetch(`${API}/media/music/scan`, { method: "POST" });
+      const data = await res.json();
+      if (data && data.ok) await loadMusicLibrary();
+    } catch {}
+    finally { musicScanBtn.textContent = original; }
+  });
+  musicAddBtn?.addEventListener("click", async () => {
+    const p = musicAddPath?.value.trim();
+    if (!p) return;
+    try {
+      const res = await fetch(`${API}/media/music/add`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: p }),
+      });
+      const data = await res.json();
+      if (data && data.ok) {
+        musicAddPath.value = "";
+        await loadMusicLibrary();
+      }
+    } catch {}
+  });
+  musicAddPath?.addEventListener("keydown", (e) => { if (e.key === "Enter") musicAddBtn?.click(); });
+  renderMusicModeBtn();
+  loadMusicLibrary();
 
   if (musicAudio) {
     musicAudio.addEventListener("loadedmetadata", () => {
@@ -5060,11 +5453,17 @@ window.addEventListener("bailongma:speak", (e) => {
       syncLyrics(t);
     });
     musicAudio.addEventListener("ended", () => {
-      setMusicPlaying(false);
-      if (playlistIdx < playlist.length - 1) {
-        playlistIdx++;
-        loadTrack(playlistIdx, true);
+      if (!playlist.length) { setMusicPlaying(false); return; }
+      if (musicPlayMode === "repeat-one") { loadTrack(playlistIdx, true); return; }
+      if (playlist.length === 1) { setMusicPlaying(false); return; }
+      if (musicPlayMode === "shuffle") {
+        let next = playlistIdx;
+        while (playlist.length > 1 && next === playlistIdx) next = Math.floor(Math.random() * playlist.length);
+        playlistIdx = next;
+      } else {
+        playlistIdx = playlistIdx < playlist.length - 1 ? playlistIdx + 1 : 0;
       }
+      loadTrack(playlistIdx, true);
     });
   }
 
@@ -5138,6 +5537,75 @@ window.addEventListener("bailongma:speak", (e) => {
       window.bailongmaVoice?.pttEnd?.({ send: false });
     });
   })();
+
+  // ── 视频：URL 输入条 + 状态 + 最近播放 ──
+  const videoUrlInput = document.getElementById("video-url-input");
+  const videoUrlPlay  = document.getElementById("video-url-play");
+  const videoStatusEl = document.getElementById("video-status");
+
+  function setVideoStatus(text, isError = true) {
+    if (!videoStatusEl) return;
+    if (!text) { videoStatusEl.hidden = true; return; }
+    videoStatusEl.hidden = false;
+    videoStatusEl.textContent = text;
+    videoStatusEl.style.color = isError ? "var(--warn)" : "var(--cool)";
+  }
+
+  function playUrlInput() {
+    const raw = videoUrlInput?.value.trim();
+    if (!raw) return;
+    setVideoStatus("");
+    const source = normalizeUrl(raw);
+    const embed = iframeUrlFor(source);
+    const isDirectFile = /\.(mp4|webm|mov|m3u8)(\?|#|$)/i.test(source);
+    const isHttp = /^https?:\/\//i.test(source);
+    const isLocal = /^\//.test(source) || /^file:/i.test(source);
+    if (!embed && !isDirectFile && !isLocal && !(isHttp && /\.[a-z0-9]{2,5}(\?|#|$)/i.test(source))) {
+      setVideoStatus("无法识别链接：请粘贴 YouTube / Bilibili 视频链接，或直链 .mp4 / 本地文件路径");
+      return;
+    }
+    showVideo({ url: source, title: videoUrlInput.value.trim(), autoplay: true });
+    videoUrlInput.value = "";
+    setTimeout(loadRecentVideos, 500);
+  }
+  videoUrlPlay?.addEventListener("click", playUrlInput);
+  videoUrlInput?.addEventListener("keydown", (e) => { if (e.key === "Enter") playUrlInput(); });
+
+  if (videoFeed) {
+    videoFeed.addEventListener("error", () => {
+      if (videoKind === "file") setVideoStatus("无法播放该视频源：链接需可直接访问且支持跨域（或文件不存在）");
+    });
+  }
+
+  async function loadRecentVideos() {
+    const listEl = document.getElementById("video-recent-list");
+    if (!listEl) return;
+    try {
+      const res = await fetch(`${API}/media/history?limit=12`);
+      const rows = await res.json();
+      const vids = (Array.isArray(rows) ? rows : [])
+        .filter(r => r && (r.kind === "video" || r.kind === "youtube" || r.kind === "bilibili" || r.kind === "file"));
+      if (!vids.length) {
+        listEl.innerHTML = '<div class="video-recent-empty">暂无播放记录 · 粘贴链接或让 AI 帮你播视频</div>';
+        return;
+      }
+      listEl.innerHTML = vids.map(r => `
+        <div class="video-recent-item" data-url="${escHtml(r.url)}" data-title="${escHtml(r.title || r.url)}">
+          <span class="vr-play">▶</span>
+          <span class="vr-title">${escHtml(r.title || r.url)}</span>
+          <span class="vr-platform">${escHtml(r.platform || r.kind)}</span>
+        </div>`).join("");
+      listEl.querySelectorAll(".video-recent-item").forEach(item => {
+        item.addEventListener("click", () => {
+          setVideoStatus("");
+          showVideo({ url: item.dataset.url, title: item.dataset.title, autoplay: true });
+          setTimeout(loadRecentVideos, 500);
+        });
+      });
+    } catch {
+      listEl.innerHTML = '<div class="video-recent-empty">最近播放加载失败</div>';
+    }
+  }
 
   videoBtn?.addEventListener("click", toggleVideoPanelVisibility);
   videoExitBtn?.addEventListener("click", closeAndDestroyVideo);
@@ -5336,7 +5804,7 @@ window.addEventListener("bailongma:speak", (e) => {
   function openPanel(configured){
     setActive(true);
     hydrateHistory();   // 每次打开都拉一次历史，重建之前生成的视频队列
-    if(configured===false){ composeErr.textContent="尚未配置火山方舟（Seedance）API Key —— 把 key 发给小白龙即可（例如「火山视频 你的APIKey」），配置后就能在这里生成。"; composeErr.hidden=false; }
+    if(configured===false){ composeErr.textContent="尚未配置火山方舟（Seedance）API Key —— 把 key 发给爻台即可（例如「火山视频 你的APIKey」），配置后就能在这里生成。"; composeErr.hidden=false; }
     else composeErr.hidden=true;
     setTimeout(function(){ try{ promptInput.focus(); }catch(e){} },60);
   }

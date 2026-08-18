@@ -19,7 +19,7 @@ export function isCJK(text) {
   for (const ch of s) {
     if (/\s/.test(ch)) continue
     total++
-    if (/[㐀-䶿一-鿿　-〿＀-￯]/.test(ch)) cjk++
+    if (/[㐀-䶿一-鿿\u3000-\u303f＀-￯]/.test(ch)) cjk++
     if (total >= 240) break
   }
   return total > 0 && cjk / total > 0.2

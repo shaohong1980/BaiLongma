@@ -89,7 +89,7 @@ function hasNone(tools, names) {
   assert(has(tools, 'find_tool'), '5) TICK has capability discovery')
   assert(has(tools, 'search_memory'), '5) TICK has search_memory')
   assert(has(tools, 'set_tick_interval'), '5) TICK has set_tick_interval')
-  assert(tools.length === 9, `5) clean TICK baseline stays compact at 9 tools (got ${tools.length}: ${tools.join(',')})`)
+  assert(tools.length === 10, `5) clean TICK baseline stays compact at 10 tools (got ${tools.length}: ${tools.join(',')})`)
   assert(hasNone(tools, [
     'web_search', 'read_file', 'manage_reminder', 'manage_prefetch_task',
     'hotspot_mode', 'exec_command', 'install_tool', 'media_mode',

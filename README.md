@@ -1,4 +1,4 @@
-![Bailongma](https://github.com/xiaoyuanda666-ship-it/BaiLongma/blob/main/images/AGI128k.jpg)
+![Bailongma](https://github.com/xiaoyuanda666-ship-it/Yaotai/blob/main/images/AGI128k.jpg)
 
 # Bailongma
 
@@ -44,18 +44,20 @@ data/                  本地运行数据，打包时不会带入安装包
 
 ## 环境要求
 
-Bailongma 强制要求 **Node.js 20.18.x**（与 Electron 33 内置的 Node 20.18 一致，保证 `better-sqlite3` 原生模块 ABI 匹配）。版本不符时，启动守卫会直接报错退出，不会进入运行阶段。
+Bailongma 强制要求 **Node.js 22.x**（作为构建 / 脚本运行环境：npm、electron-rebuild、lint 等；运行时统一走 Electron 33 内置 Node，见下）。版本不符时，启动守卫会直接报错退出，不会进入运行阶段。
+
+> 升级说明：从 Node 20 → 22，是为了满足 `@electron/rebuild` 4.x 的 `node >=22.12` 声明——旧约束下 `npm install` 会因 engine 冲突直接失败。
 
 项目通过以下机制强制版本：
 
-- `package.json` 的 `engines` 字段声明 `>=20.18.0 <21.0.0`。
-- `.nvmrc` 指定 `20.18.3`，使用 nvm-windows / fnm 时执行 `nvm use` 即可切换到目标版本。
+- `package.json` 的 `engines` 字段声明 `>=22.0.0 <23.0.0`。
+- `.nvmrc` 指定 `22.20.0`，使用 nvm-windows / fnm 时执行 `nvm use` 即可切换到目标版本。
 - `.npmrc` 开启 `engine-strict=true`，版本不符时 `npm install` 会直接拒绝。
 - `scripts/check-node.mjs` 作为 `predev` / `prestart` / `prestart:backend` / `prestart:backend:lan` 的启动守卫，版本不符时打印切换提示并以非零码退出。
 
 ### 统一运行时（Electron）
 
-`better-sqlite3` 是原生模块，本项目统一在 **Electron 运行时**下运行：桌面端（`npm start`）与后端（`npm run dev` / `npm run start:backend`）都使用 Electron 内置的 Node 20.18，原生模块始终按 Electron ABI（130）编译，**无需在两种 ABI 之间来回切换**。
+`better-sqlite3` 是原生模块，本项目统一在 **Electron 运行时**下运行：桌面端（`npm start`）与后端（`npm run dev` / `npm run start:backend`）都使用 Electron 33 内置的 Node，原生模块始终按 Electron ABI（130）编译，**无需在两种 ABI 之间来回切换**。系统 Node 22 的 ABI 与 Electron 内置 Node 不同，但只作为运行 electron-rebuild / lint / npm 脚本的宿主，不直接加载 `better-sqlite3`。
 
 后端脚本通过 `ELECTRON_RUN_AS_NODE=1 electron ...` 运行，即把 Electron 当作普通 Node 使用：
 
@@ -269,6 +271,11 @@ npm run publish
 - 可以通过 API Token 让远程请求携带凭证访问。
 - 文件与工具能力经过执行器统一路由，部分危险操作会进入确认或策略流程。
 - Electron 桌面端启用上下文隔离，前端通过预加载桥接访问必要能力。
+
+## 已知依赖风险（决策记录）
+
+- **sharp（`@huggingface/transformers` 间接依赖）**：`npm audit` 报告 libvips 系列 CVE（GHSA-f88m-g3jw-g9cj 等），影响 sharp `<0.35.0`，且 0.34.x 无修复版。本项目仅用 transformers 做**纯文本嵌入**（bge-large-zh，`pipeline('feature-extraction')`），运行时**从不加载 sharp**（图像管线未触发），实际攻击面≈0；且 transformers 依赖链锁定 `sharp ^0.34`（最新版 4.2.0 仍未支持 0.35），升级需 npm overrides + 重建原生模块 + API 兼容风险。**决策：接受此风险**。若未来启用多模态/图像嵌入，需同步升级 transformers→sharp 0.35 链。
+- **undici / ws**：已随版本升级修复（`undici ^6.28.0`、`ws ^8.21.3`）。
 
 ## License
 

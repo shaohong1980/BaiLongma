@@ -9,7 +9,7 @@
 import { register } from 'node:module'
 register('./test-prompt-split-loader.mjs', import.meta.url)
 
-import { updateFocusFrame, MAX_FOCUS_DEPTH } from './memory/focus.js'
+import { updateFocusFrame } from './memory/focus.js'
 import { __internal as classifierInternal } from './memory/focus-classifier.js'
 
 let failed = 0

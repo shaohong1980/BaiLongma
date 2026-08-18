@@ -1,8 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 import { paths } from '../../paths.js'
-import { getMediaHistory, upsertMediaHistory } from '../../db.js'
-import { execGenerateVideo, getVideoHistory, saveGeneratedVideo } from '../../capabilities/tools/media.js'
+import { getMediaHistory, upsertMediaHistory, listMusicLibrary, upsertMusicTrack } from '../../db.js'
+import { execGenerateVideo, getVideoHistory, saveGeneratedVideo, scanMusicDirIntoLibrary } from '../../capabilities/tools/media.js'
 import { mimeFromChatMediaExt } from '../../chat-media.js'
 import { isPathInside, jsonResponse, readJsonBody } from '../utils.js'
 
@@ -122,6 +122,52 @@ export async function handleMediaRoutes(req, res, url) {
       jsonResponse(res, 200, { ok: true, jobs: getVideoHistory() })
     } catch (e) {
       jsonResponse(res, 200, { ok: false, jobs: [], error: e.message })
+    }
+    return true
+  }
+
+  // ── 音乐库 API（供前端音乐面板直接浏览/扫描/添加本地曲库）──
+  if (req.method === 'GET' && url.pathname === '/media/music/library') {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 300)
+    const rows = listMusicLibrary(limit).map(t => ({
+      id: t.id,
+      title: t.title,
+      artist: t.artist || '',
+      album: t.album || '',
+      lrc: t.lrc || '',
+      url: '/media/music/' + encodeURIComponent(path.basename(t.file_path || '')),
+    }))
+    jsonResponse(res, 200, { ok: true, count: rows.length, tracks: rows })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/media/music/scan') {
+    const added = scanMusicDirIntoLibrary(paths.musicDir)
+    jsonResponse(res, 200, { ok: true, scanned: added.length, tracks: added })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/media/music/add') {
+    try {
+      const body = await readJsonBody(req)
+      const filePath = String(body.path || '').trim()
+      if (!filePath) { jsonResponse(res, 400, { ok: false, error: 'path required' }); return true }
+      if (!fs.existsSync(filePath)) { jsonResponse(res, 400, { ok: false, error: `file not found: ${filePath}` }); return true }
+      const base = path.basename(filePath)
+      const ext = path.extname(base).toLowerCase()
+      const MIME_AUDIO = new Set(['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.opus'])
+      if (!MIME_AUDIO.has(ext)) { jsonResponse(res, 400, { ok: false, error: `unsupported audio format: ${ext}` }); return true }
+      const clean = base.replace(/\.(mp3|flac|wav|aac|ogg|m4a|opus)$/i, '').trim()
+      const parts = clean.split(/\s+-\s+/).map(p => p.trim()).filter(Boolean)
+      const track = upsertMusicTrack({
+        title: String(body.title || (parts.length >= 2 ? parts.slice(1).join(' - ') : clean)),
+        artist: String(body.artist || (parts.length >= 2 ? parts[0] : '')),
+        album: String(body.album || ''),
+        filePath,
+      })
+      jsonResponse(res, 200, { ok: true, track })
+    } catch (e) {
+      jsonResponse(res, 400, { ok: false, error: e.message })
     }
     return true
   }

@@ -2,7 +2,7 @@
 
 `UI = f(scene)` 的渲染端实现。它是 SceneStore(唯一真相源)的**纯投影**:
 只读 scene、写 DOM、把用户 `intent` 上行。无业务逻辑、无 fetch、不执行任何远端代码。
-协议见仓库根 `SCENE-PROTOCOL.md`,理念见《Agent-驱动UI-设计方案.md》。这是白龙马唯一的声明式 Agent-UI 通道。
+协议见仓库根 `SCENE-PROTOCOL.md`,理念见《Agent-驱动UI-设计方案.md》。这是爻台唯一的声明式 Agent-UI 通道。
 
 ## 文件结构
 
@@ -39,7 +39,7 @@ exit(⑦⑧)、choice → intent(⑥,点选项后看浏览器 console 的 `[inte
 
 ## 跑 live 测试(连运行中的 app)
 
-1. 启动 BaiLongma(scene server 监听 `ws://127.0.0.1:3721/scene`)。
+1. 启动 Yaotai(scene server 监听 `ws://127.0.0.1:3721/scene`)。
 2. 同样用静态服务器伺服本目录,浏览器打开 `index.html`。
 3. 右下角状态点变绿即握手成功;Agent 侧 `ui.set` 的变更会实时投影。choice 点击经 `sendIntent` 上行。
 

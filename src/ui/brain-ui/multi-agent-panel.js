@@ -1,415 +1,409 @@
-// multi-agent-panel.js —— 多 Agent 军机处（数字臣工）
-// 所有 Agent 在座（有形象/语音/引擎配置）；皇上发言全员可听，点名某位才响应。
-// 点臣工头像可配置：形象、语音、引擎（internal/custom/cli）、大模型。
+// multi-agent-panel.js —— 多Agent办公室 v4（办公桌版）
+// 可视化办公大厅：CEO 决策者坐镇会议桌首席，各职能员工在工位（显示器+椅子）。
+// 工作流：上级发指令 → CEO 拆解 → 分派相关员工 → 员工执行并到会议桌汇报 → CEO 汇总。
+// 也支持 @点名某员工直接交给他（后端 /room/message）。
 import { API } from './api-client.js'
 
 const $ = (id) => document.getElementById(id)
 let agents = []
-let configAgentId = null
-let speaking = false
+let selectedId = 'gm'
+let doneCount = 0
+let busy = false
 let voiceOn = localStorage.getItem('bailongma-junjichu-voice') === '1'
+const agentState = {}   // id -> { status, task, done, pos, seat, walking }
+const els = {}          // id -> { wrap, char, dot, monitor, bubble, bHead, bText }
+const SEATS = [{ x: 36, y: 42 }, { x: 64, y: 42 }, { x: 36, y: 56 }, { x: 64, y: 56 }, { x: 50, y: 66 }]
+const seatBusy = SEATS.map(() => null)
+const STATUS_CN = { working: '工作中', thinking: '思考中', idle: '空闲', reporting: '汇报中', sleep: '休息中' }
+const STATUS_COLOR = { working: '#22b07d', thinking: '#e8a13a', idle: '#9aa1b1', reporting: '#3b6ef6', sleep: '#7c86a0' }
 
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
-
 async function api(path, opts = {}) {
   const res = await fetch(API + path, opts)
   return res.json()
 }
 
-// ── 加载 / 渲染 ──
 async function loadAgents() {
   try {
     const data = await api('/agents')
     agents = data.agents || []
-    renderSeats()
-  } catch { $('ma-seats').innerHTML = '<div class="ma-seats-hint">臣工加载失败</div>' }
+    renderOffice()
+    if (!selectedId || !agents.some(a => a.id === selectedId)) selectedId = 'gm'
+    renderOfficeCard()
+  } catch { }
 }
 
-function renderSeats() {
-  const seats = $('ma-seats')
-  seats.innerHTML = `<span class="ma-seats-label">👥 在座成员（点击头像配置）</span>` +
-    agents.map(a => `
-      <div class="ma-seat" data-id="${esc(a.id)}" title="${esc(a.name)} · ${esc(a.role)} · ${esc(a.engine)}引擎 · 点击配置">
-        <span class="ma-seat-avatar" style="--ac:${esc(a.color)};background-image:${a.avatar_image ? `url('${esc(a.avatar_image)}')` : 'none'}">${a.avatar_image ? '' : esc(a.avatar)}</span>
-        <span class="ma-seat-online"></span>
-        <span class="ma-seat-name">${esc(a.name)}</span>
-        <span class="ma-seat-role">${esc(a.role)}</span>
-      </div>`).join("")
-  seats.querySelectorAll("[data-id]").forEach(el => el.addEventListener("click", () => openConfig(el.dataset.id)))
+function deskPos(a, i) {
+  if (a.ceo) return { x: 50, y: 27 }
+  const LAYOUT = [
+    { x: 13, y: 26 }, { x: 13, y: 50 }, { x: 13, y: 74 },
+    { x: 87, y: 26 }, { x: 87, y: 50 }, { x: 87, y: 74 },
+    { x: 50, y: 82 },
+  ]
+  return LAYOUT[(i - 1) % LAYOUT.length]
 }
 
-async function loadRoom() {
-  const box = $('ma-messages')
-  box.innerHTML = '<div class="ma-loading">军机处加载中…</div>'
-  try {
-    const data = await api('/room')
-    const msgs = data.messages || []
-    const round = data.round || 0
-    const roundEl = $('ma-round')
-    if (roundEl) roundEl.textContent = `轮次 ${round}/${20}`
-    box.innerHTML = ''
-    if (!msgs.length) box.innerHTML = '<div class="ma-empty">军机处空着。你是皇上，说点什么吧——点名某位臣工他就会回答。\n\n💡 开会示例：「主持人，开会：搭建一套企业微信机器人自动采集群消息的多Agent调度系统」\n点名示例：「Claude Code，先出个架构设计」</div>'
-    else { msgs.forEach(m => renderRoomMsg(m)); box.scrollTop = box.scrollHeight }
-  } catch { box.innerHTML = '<div class="ma-empty">军机处加载失败</div>' }
+function renderOffice() {
+  const floor = $('office-floor')
+  if (!floor) return
+  floor.querySelectorAll('.office-desk, .office-agent').forEach(n => n.remove())
+
+  agents.forEach((a, i) => {
+    const pos = deskPos(a, i)
+    const color = a.color || '#3b6ef6'
+    if (!a.ceo) {
+      const d = document.createElement('div')
+      d.className = 'office-desk'
+      d.style.left = (pos.x - 7) + '%'
+      d.style.top = (pos.y - 11) + '%'
+      d.innerHTML = '<div class="office-monitor"><span class="office-mui"><i></i><i></i><i></i></span></div><div class="office-chair"></div>'
+      floor.appendChild(d)
+      els[a.id] = { monitor: d.querySelector('.office-monitor') }
+    } else {
+      els[a.id] = { monitor: null }
+    }
+
+    const w = document.createElement('div')
+    w.className = 'office-agent' + (a.ceo ? ' office-ceo' : '')
+    w.id = 'agent-' + a.id
+    w.style.left = pos.x + '%'
+    w.style.top = pos.y + '%'
+    w.innerHTML = `
+      <div class="office-bubble"><div class="ob-head"></div><div class="ob-text"></div></div>
+      <div class="office-ring"></div>
+      <div class="office-char">
+        <span class="oc-ear l"></span><span class="oc-ear r"></span><span class="oc-body"></span>
+        <span class="oc-eye l"></span><span class="oc-eye r"></span>
+        <span class="oc-scarf" style="--scarf:${color}"></span>
+      </div>
+      <div class="office-nametag">${esc(a.name)}<small>${esc(a.role || '')}</small><span class="office-status st-idle"></span></div>
+    `
+    w.addEventListener('click', () => selectAgent(a.id))
+    floor.appendChild(w)
+
+    Object.assign(els[a.id], {
+      wrap: w, char: w.querySelector('.office-char'), dot: w.querySelector('.office-status'),
+      bubble: w.querySelector('.office-bubble'), bHead: w.querySelector('.ob-head'), bText: w.querySelector('.ob-text'),
+    })
+    agentState[a.id] = { status: 'idle', task: '—', done: 0, pos: { ...pos }, seat: -1, walking: false }
+  })
+  refreshStats()
 }
 
-// 语音：若开关打开，播放该 Agent 回复（带该臣工的音色 voiceId，经 CustomEvent 交给 app.js 的 TTS）
+function setStatus(id, status, task) {
+  const s = agentState[id]; if (!s) return
+  s.status = status
+  if (task !== undefined) s.task = task
+  const e = els[id]
+  if (e && e.dot) e.dot.className = 'office-status st-' + status
+  // 电脑显示屏：工作/汇报=青蓝亮起(扫描线)，思考=琥珀亮起，其余熄灭
+  if (e && e.monitor) {
+    const lit = status === 'working' || status === 'thinking' || status === 'reporting'
+    e.monitor.classList.toggle('on', lit)
+    e.monitor.classList.toggle('thinking', status === 'thinking')
+  }
+  if (e && e.char) {
+    // 小人物动作：工作中=打字 / 思考=眼珠转动 / 睡觉=闭眼歪头 / 汇报=打字高亮 / 走路=弹跳
+    const cls = ['office-char']
+    if (s.walking) cls.push('walking')
+    if (status === 'working' || status === 'reporting') cls.push('working')
+    else if (status === 'thinking') cls.push('thinking')
+    else if (status === 'sleep') cls.push('sleep')
+    e.char.className = cls.join(' ')
+  }
+  refreshStats()
+  if (id === selectedId) renderOfficeCard()
+}
+
+function bubble(id, head, text, ms = 3200) {
+  const e = els[id]; if (!e || !e.bubble) return
+  e.bHead.textContent = head
+  e.bText.textContent = String(text || '').slice(0, 120)
+  e.bubble.classList.add('show')
+  clearTimeout(e.bubble._t)
+  e.bubble._t = setTimeout(() => e.bubble.classList.remove('show'), ms)
+}
+
+function walkTo(id, target, done) {
+  const s = agentState[id]; if (!s) return
+  s.walking = true; s.pos = { ...target }
+  const w = els[id] && els[id].wrap; if (!w) { s.walking = false; done && done(); return }
+  w.classList.add('at-table')
+  if (els[id] && els[id].char) els[id].char.classList.add('walking')
+  w.style.left = target.x + '%'
+  w.style.top = target.y + '%'
+  setTimeout(() => {
+    s.walking = false
+    w.classList.remove('at-table')
+    if (els[id] && els[id].char) els[id].char.classList.remove('walking')
+    setStatus(id, s.status)
+    done && done()
+  }, 1000)
+}
+function goToTable(id, cb) {
+  const idx = seatBusy.findIndex(v => v === null)
+  if (idx < 0) { cb && cb(); return }
+  seatBusy[idx] = id; agentState[id].seat = idx
+  walkTo(id, SEATS[idx], cb)
+}
+function backToDesk(id, cb) {
+  const a = agents.find(x => x.id === id)
+  if (!a) { cb && cb(); return }
+  if (agentState[id].seat >= 0) { seatBusy[agentState[id].seat] = null; agentState[id].seat = -1 }
+  walkTo(id, deskPos(a, agents.indexOf(a)), cb)
+}
+
+function packet(fromId, toId, color = '#3b6ef6') {
+  const stage = $('office-stage'); const floor = $('office-floor')
+  if (!stage || !floor) return
+  const fr = floor.getBoundingClientRect()
+  const A = agentState[fromId] && agentState[fromId].pos, B = agentState[toId] && agentState[toId].pos
+  if (!A || !B) return
+  const x1 = fr.left + A.x / 100 * fr.width, y1 = fr.top + A.y / 100 * fr.height
+  const x2 = fr.left + B.x / 100 * fr.width, y2 = fr.top + B.y / 100 * fr.height
+  const p = document.createElement('div'); p.className = 'office-packet'; p.style.background = color
+  stage.appendChild(p)
+  const t0 = performance.now(), dur = 850
+  ;(function step(t) {
+    const k = Math.min(1, (t - t0) / dur), e = k * (2 - k)
+    p.style.left = (x1 + (x2 - x1) * e - 5) + 'px'
+    p.style.top = (y1 + (y2 - y1) * e - 5 - Math.sin(k * Math.PI) * 24) + 'px'
+    if (k < 1) requestAnimationFrame(step); else p.remove()
+  })(performance.now())
+}
+
+function officeMsg(type, name, text, extra = '') {
+  const box = $('office-messages'); if (!box) return
+  const time = new Date().toTimeString().slice(0, 8)
+  const div = document.createElement('div')
+  div.className = 'msg ' + (type === 'user' ? 'user' : type === 'done' ? 'done-msg' : type === 'system' ? 'system-msg' : 'agent-reply')
+  const cls = type === 'user' ? 'me' : type === 'system' ? 'system' : 'agent'
+  const displayName = type === 'user' ? '我' : name
+  div.innerHTML = '<span class="msg-time">' + time + '</span><span class="msg-name ' + cls + '">' + (type === 'done' ? '✅ ' + displayName : displayName) + '</span> ' + esc(text)
+  if (extra) { const em = document.createElement('span'); em.className = 'msg-extra'; em.textContent = extra; div.appendChild(em) }
+  box.prepend(div)
+  while (box.children.length > 120) box.lastChild.remove()
+}
+
+function refreshStats() {
+  let w = 0, t = 0, i = 0
+  Object.values(agentState).forEach(s => {
+    if (s.status === 'working' || s.status === 'reporting') w++
+    else if (s.status === 'thinking') t++
+    else i++
+  })
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v }
+  set('c-w', w); set('c-t', t); set('c-i', i); set('c-d', doneCount)
+}
+
+function updateClock() {
+  const el = $('office-clock'); if (el) el.textContent = new Date().toTimeString().slice(0, 8)
+}
+
+function selectAgent(id) {
+  selectedId = id
+  document.querySelectorAll('.office-agent').forEach(n => n.classList.remove('selected'))
+  const w = $('agent-' + id); if (w) w.classList.add('selected')
+  renderOfficeCard()
+}
+
+function renderOfficeCard() {
+  const card = $('office-agent-card'); if (!card) return
+  const a = agents.find(x => x.id === selectedId)
+  const s = agentState[selectedId]
+  if (!a || !s) { card.innerHTML = '<div class="office-card-empty">暂无成员</div>'; return }
+  const posText = a.ceo ? '会议桌 · 首席' : (s.seat >= 0 ? '会议桌 · 汇报位' : '自己的工位')
+  card.innerHTML = `
+    <div class="oc-top">
+      <div class="oc-avatar" style="--scarf:${esc(a.color || '#3b6ef6')}">${esc(a.avatar || '🤖')}</div>
+      <div>
+        <h3>${esc(a.name)}${a.ceo ? ' <span class="me-tag">CEO</span>' : ''}</h3>
+        <div class="oc-role">${esc(a.role || '')}</div>
+        <span class="oc-badge" style="background:${STATUS_COLOR[s.status] || '#9aa1b1'}">${STATUS_CN[s.status] || s.status}</span>
+      </div>
+    </div>
+    <div class="oc-desc">${esc(a.persona || '')}</div>
+    <div class="oc-kv"><span>当前任务</span><b>${esc(s.task || '—')}</b></div>
+    <div class="oc-kv"><span>位置</span><b>${posText}</b></div>
+    <div class="oc-kv"><span>累计完成</span><b>${s.done} 件</b></div>
+  `
+}
+
 function speak(text, voiceId) {
   if (!voiceOn || !text) return
   window.dispatchEvent(new CustomEvent('bailongma:speak', { detail: { text: String(text).slice(0, 300), voiceId: voiceId || '' } }))
 }
-function syncVoiceBtn() {
-  const btn = $('ma-voice-toggle')
-  if (btn) btn.textContent = voiceOn ? '🔊' : '🔇'
-}
 
-function fmtTime(ts) {
-  if (!ts) return ''
-  try {
-    const d = new Date(ts)
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  } catch { return '' }
-}
-
-function renderRoomMsg(m) {
-  const box = $('ma-messages')
-  if (m.role === 'boss') {
-    const div = document.createElement('div')
-    div.className = 'ma-msg ma-msg-boss'
-    div.innerHTML = `
-      <div class="ma-boss-block">
-        <span class="ma-boss-label">👑 皇上</span><span class="ma-time">${fmtTime(m.ts)}</span>
-        <div class="ma-bubble">${esc(m.content)}</div>
-      </div>`
-    box.appendChild(div)
-  } else {
-    const agent = agents.find(a => a.id === m.agentId)
-    const avatar = (m.avatar || agent?.avatar || '🤖')
-    const image = (agent?.avatar_image || '')
-    const color = agent?.color || '#888'
-    const roleLabel = agent?.role || m.role || ''
-    const div = document.createElement('div')
-    div.className = 'ma-msg ma-msg-agent'
-    div.innerHTML = `
-      <span class="ma-bubble-avatar" style="--ac:${esc(color)};background-image:${image ? `url('${esc(image)}')` : 'none'}">${image ? '' : esc(avatar)}</span>
-      <div class="ma-agent-msg-block">
-        <span class="ma-agent-msg-name">${esc(m.agentName || '臣工')}</span>
-        <span class="ma-agent-msg-role" style="--ac:${esc(color)}">${esc(roleLabel)}</span>
-        <span class="ma-time">${fmtTime(m.ts)}</span>
-        <div class="ma-bubble">${esc(m.content)}</div>
-      </div>`
-    box.appendChild(div)
+function resolveMentionedAgents(text) {
+  const lower = String(text || '').toLowerCase()
+  const ids = []
+  for (const a of agents) {
+    const name = String(a.name || '').toLowerCase().trim()
+    const role = String(a.role || '').toLowerCase().trim()
+    const id = String(a.id || '').toLowerCase().trim()
+    if ((name && lower.includes('@' + name)) || (role && lower.includes('@' + role)) || (id && lower.includes('@' + id))) ids.push(a.id)
   }
+  return [...new Set(ids)]
+}
+let mentionPopup = null
+let mentionTimer = null
+function ensureMentionPopup() {
+  if (mentionPopup && document.body.contains(mentionPopup)) return mentionPopup
+  mentionPopup = document.createElement('div')
+  mentionPopup.className = 'ma-mention-popup'
+  mentionPopup.hidden = true
+  const foot = document.querySelector('.office-foot'); (foot || document.body).appendChild(mentionPopup)
+  return mentionPopup
+}
+function closeMentionPopup() { if (mentionPopup) mentionPopup.hidden = true; if (mentionTimer) { clearTimeout(mentionTimer); mentionTimer = null } }
+function showMentionPopup(query) {
+  const popup = ensureMentionPopup()
+  const q = String(query || '').toLowerCase().trim()
+  const list = agents.filter(a => !q || (a.name + ' ' + (a.role || '') + ' ' + (a.id || '')).toLowerCase().includes(q)).slice(0, 8)
+  if (!list.length) { popup.hidden = true; return }
+  popup.innerHTML = list.map(a => '<div class="ma-mention-item" data-id="' + esc(a.id) + '"><span class="ma-mention-avatar" style="--ac:' + esc(a.color) + '">' + esc(a.avatar || '🤖') + '</span><span class="ma-mention-name">' + esc(a.name) + '</span><span class="ma-mention-role">' + esc(a.role || '') + '</span></div>').join('')
+  popup.hidden = false
+  popup.style.left = '18px'; popup.style.right = '96px'; popup.style.bottom = 'calc(100% + 6px)'
+  popup.querySelectorAll('.ma-mention-item').forEach(item => {
+    item.addEventListener('mousedown', (e) => { e.preventDefault(); const a = agents.find(x => x.id === item.dataset.id); if (a) applyMentionToInput(a); closeMentionPopup() })
+  })
+  clearTimeout(mentionTimer); mentionTimer = setTimeout(closeMentionPopup, 6000)
+}
+function applyMentionToInput(agent) {
+  const input = $('ma-input'); if (!input) return
+  const text = input.value, pos = input.selectionStart ?? text.length
+  const before = text.slice(0, pos), atIdx = before.lastIndexOf('@')
+  const start = atIdx >= 0 ? atIdx : pos
+  const mention = '@' + agent.name + ' '
+  input.value = text.slice(0, start) + mention + text.slice(pos)
+  const newPos = start + mention.length
+  input.focus(); input.setSelectionRange(newPos, newPos)
+}
+function handleMentionInput() {
+  const input = $('ma-input'); if (!input) return
+  const before = input.value.slice(0, input.selectionStart ?? input.value.length)
+  const atIdx = before.lastIndexOf('@')
+  if (atIdx < 0) { closeMentionPopup(); return }
+  const tail = before.slice(atIdx + 1)
+  if (/\s/.test(tail)) { closeMentionPopup(); return }
+  showMentionPopup(tail)
 }
 
-// ── 皇上发言 ──
-async function bossSpeak() {
-  if (speaking) return
-  const input = $('ma-input')
+async function sendCommand() {
+  const input = $('ma-input'); if (!input) return
   const text = input.value.trim()
-  if (!text) return
-  speaking = true
-  input.value = ''
-  renderRoomMsg({ role: 'boss', content: text, ts: new Date().toISOString() })
-  // 下旨/立项 → 走三省六部流水线
-  if (/^(下旨|立项|发布任务|开个项目|启动项目)[:：\s]/.test(text)) {
-    const loading = document.createElement('div')
-    loading.className = 'ma-msg ma-msg-hint'
-    loading.textContent = '⚙️ 已接旨，三省六部流水线启动（分拣→规划→审议→派发→执行→回奏）…'
-    $('ma-messages').appendChild(loading)
+  if (!text || busy) return
+  input.value = ''; closeMentionPopup()
+  officeMsg('user', '我', text)
+
+  const mentions = resolveMentionedAgents(text)
+  if (mentions.length) {
+    busy = true
+    officeMsg('system', '系统', '指令已交给：' + mentions.map(id => (agents.find(a => a.id === id) || {}).name || id).join('、'))
+    mentions.forEach(id => { setStatus(id, 'working', text); bubble(id, '⚙️ 接到任务', '收到！开始处理…') })
     try {
-      const data = await api('/task', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: text.replace(/^(下旨|立项|发布任务|开个项目|启动项目)[:：\s]+/, '') }) })
-      loading.textContent = ''
-      const t = data.task
-      loading.className = 'ma-msg ma-msg-hint'
-      loading.textContent = `✅ ${t.id} 状态：${STATUS_LABEL[t.status] || t.status}${t.status === 'rejected' ? '（' + (t.review?.note || '被封驳') + '）' : ''}。点「📜 军机处」看完整奏折。`
-      if (t.status === 'done') renderRoomMsg({ role: 'agent', agentId: 'gm', agentName: '回奏', content: (t.report || '').slice(0, 400) })
-    } catch (err) { loading.textContent = '下旨失败：' + err.message }
-    $('ma-messages').scrollTop = $('ma-messages').scrollHeight
-    if (!$('ma-kanban').hidden) loadKanban()
-    speaking = false
+      const data = await api('/room/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: text, targetAgentIds: mentions }) })
+      ;(data.responses || []).forEach(r => {
+        const a = agents.find(x => x.id === r.agentId)
+        setStatus(r.agentId, 'reporting', text)
+        bubble(r.agentId, '📢 汇报', String(r.reply).slice(0, 80), 5000)
+        officeMsg('agent', r.agentName, String(r.reply).slice(0, 400))
+        speak(r.reply, a && a.voice ? a.voice.voiceId : '')
+        setTimeout(() => { setStatus(r.agentId, 'idle', '—'); }, 1200)
+      })
+    } catch (err) { officeMsg('system', '系统', '指令处理失败：' + err.message) }
+    busy = false
     return
   }
-  const loading = document.createElement('div')
-  loading.className = 'ma-msg ma-msg-agent'
-  loading.innerHTML = `<span class="ma-bubble-avatar">⏳</span><div class="ma-agent-msg-block"><span class="ma-agent-msg-name">在朝的臣工</span><div class="ma-bubble">（思考中…）</div></div>`
-  $('ma-messages').appendChild(loading)
-  $('ma-messages').scrollTop = $('ma-messages').scrollHeight
+
+  // CEO 工作流（拆解 → 分派 → 执行 → 汇总）
+  busy = true
+  setStatus('gm', 'thinking', '拆解：' + text)
+  bubble('gm', '👔 CEO决策者', '收到指令：「' + text + '」，我来拆解…', 3000)
+  officeMsg('system', '系统', '「' + text + '」已收到，CEO 正在拆解…')
   try {
-    const data = await api('/room/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: text }) })
-    loading.remove()
-    const roundEl = $('ma-round')
-    if (roundEl && data.round) roundEl.textContent = `轮次 ${data.round}/${20}`
-    if (data.forced_end) {
-      const div = document.createElement('div')
-      div.className = 'ma-msg ma-msg-hint'
-      div.textContent = data.hint || '会议已达轮次上限'
-      $('ma-messages').appendChild(div)
-    } else if (data.no_target) {
-      const div = document.createElement('div')
-      div.className = 'ma-msg ma-msg-hint'
-      div.textContent = data.hint || ''
-      $('ma-messages').appendChild(div)
-    } else {
-      (data.responses || []).forEach(r => {
-        renderRoomMsg({ role: 'agent', agentId: r.agentId, agentName: r.agentName, avatar: r.avatar, content: r.reply })
-        const a = agents.find(x => x.id === r.agentId)
-        speak(r.reply, a?.voice?.voiceId || '')
-      })
+    const data = await api('/room/office', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: text }) })
+    if (data.ceoReply) officeMsg('agent', 'CEO决策者', String(data.ceoReply).slice(0, 400))
+    setStatus('gm', 'reporting', '分派中')
+    const workers = data.workerReplies || []
+    workers.forEach((r, i) => {
+      setTimeout(() => {
+        setStatus(r.agentId, 'working', text)
+        packet('gm', r.agentId, '#e05a5a')
+        bubble(r.agentId, '⚙️ 执行中', '正在处理…')
+        setTimeout(() => {
+          setStatus(r.agentId, 'reporting', text)
+          goToTable(r.agentId, () => {
+            bubble(r.agentId, '📢 当面汇报', String(r.reply).slice(0, 80), 5000)
+            packet(r.agentId, 'gm', '#22b07d')
+            officeMsg('agent', r.agentName, String(r.reply).slice(0, 400))
+            const a = agents.find(x => x.id === r.agentId)
+            speak(r.reply, a && a.voice ? a.voice.voiceId : '')
+            setTimeout(() => { backToDesk(r.agentId); setStatus(r.agentId, 'idle', '—') }, 1600)
+          })
+        }, 900)
+      }, 800 * (i + 1))
+    })
+    if (data.ceoSummary && String(data.ceoSummary).trim()) {
+      setTimeout(() => {
+        officeMsg('agent', 'CEO决策者', '【汇总】' + String(data.ceoSummary).slice(0, 500))
+        bubble('gm', '👔 CEO', '汇总完毕 ✅')
+      }, workers.length * 900 + 1600)
     }
+    if (data.ceoSummary && !/响应失败|失败/.test(String(data.ceoSummary))) doneCount++
+    refreshStats()
+    setTimeout(() => { setStatus('gm', 'idle', '—'); busy = false }, workers.length * 900 + 2600)
   } catch (err) {
-    loading.textContent = '发言失败：' + err.message
+    officeMsg('system', '系统', '指令处理失败：' + err.message)
+    setStatus('gm', 'idle', '—'); busy = false
   }
-  $('ma-messages').scrollTop = $('ma-messages').scrollHeight
-  speaking = false
-}
-
-// ── Agent 配置 ──
-function openConfig(id) {
-  configAgentId = id
-  const a = agents.find(x => x.id === id)
-  if (!a) return
-  $('ma-config-overlay').hidden = false
-  $('ma-config-title').textContent = `配置 ${a.name}（${a.role}）`
-  $('cfg-avatar').value = a.avatar || ''
-  $('cfg-avatar-image').value = a.avatar_image || ''
-  $('cfg-name').value = a.name || ''
-  $('cfg-role').value = a.role || ''
-  $('cfg-engine').value = a.engine || 'internal'
-  $('cfg-base-url').value = a.base_url || ''
-  $('cfg-api-key').value = ''
-  $('cfg-model').value = a.model || ''
-  $('cfg-cli-command').value = a.cli_command || ''
-  $('cfg-temperature').value = a.temperature ?? 0.5
-  $('cfg-voice-enabled').checked = !!a.voice?.enabled
-  $('cfg-voice-id').value = a.voice?.voiceId || ''
-  $('cfg-private-memory').value = a.private_memory || ''
-  syncEngineFields()
-}
-
-function syncEngineFields() {
-  const eng = $('cfg-engine').value
-  $('cfg-custom-fields').hidden = eng !== 'custom'
-  $('cfg-cli-fields').hidden = eng !== 'cli'
-}
-
-async function saveConfig() {
-  if (!configAgentId) return
-  const body = {
-    avatar: $('cfg-avatar').value.trim(),
-    avatar_image: $('cfg-avatar-image').value.trim(),
-    name: $('cfg-name').value.trim(),
-    role: $('cfg-role').value.trim(),
-    engine: $('cfg-engine').value,
-    base_url: $('cfg-base-url').value.trim(),
-    model: $('cfg-model').value.trim(),
-    cli_command: $('cfg-cli-command').value.trim(),
-    temperature: Number($('cfg-temperature').value) || 0.5,
-    voice: { enabled: $('cfg-voice-enabled').checked, voiceId: $('cfg-voice-id').value.trim() },
-    private_memory: $('cfg-private-memory').value.trim(),
-  }
-  const key = $('cfg-api-key').value.trim()
-  if (key) body.api_key = key
-  try {
-    await api(`/agents/${configAgentId}/config`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    $('ma-config-overlay').hidden = true
-    await loadAgents()
-  } catch (err) { alert('保存失败：' + err.message) }
-}
-
-async function assignTaskFromConfig() {
-  if (!configAgentId) return
-  const task = prompt('给这位臣工布置什么任务？')
-  if (!task) return
-  $('ma-config-overlay').hidden = true
-  renderRoomMsg({ role: 'boss', content: `【布置任务给 ${agents.find(a => a.id === configAgentId)?.name}】${task}` })
-  try {
-    const data = await api(`/agents/${configAgentId}/task`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task }) })
-    renderRoomMsg({ role: 'agent', agentId: data.agentId, agentName: data.agentName, avatar: data.avatar, content: data.reply })
-    const a = agents.find(x => x.id === configAgentId)
-    speak(data.reply, a?.voice?.voiceId || '')
-  } catch (err) { alert('布置失败：' + err.message) }
-}
-
-// ── 军机处看板 ──
-const STATUS_LABEL = { pending: '待分拣', planning: '规划中', review: '审议中', executing: '执行中', done: '已完成', rejected: '已封驳', cancelled: '已取消', paused: '已暂停', error: '异常' }
-
-async function loadKanban() {
-  const body = $('ma-kanban-body')
-  if (!body) return
-  try {
-    const data = await api('/task')
-    const tasks = data.tasks || []
-    body.innerHTML = ''
-    if (!tasks.length) { body.innerHTML = '<div class="ma-kanban-empty">暂无任务。说「下旨：做一个XX系统」启动三省六部流水线。</div>'; return }
-    tasks.forEach(t => body.appendChild(renderTaskCard(t)))
-  } catch { body.innerHTML = '<div class="ma-kanban-empty">看板加载失败</div>' }
-}
-
-function renderTaskCard(t) {
-  const card = document.createElement('div')
-  card.className = 'ma-task-card'
-  const status = t.status || 'pending'
-  card.innerHTML = `
-    <div class="ma-task-top">
-      <span class="ma-task-id">${esc(t.id)}</span>
-      <span class="ma-task-status st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>
-    </div>
-    <div class="ma-task-title">${esc(t.content)}</div>
-    <div class="ma-task-meta">${t.domain ? '分拣:' + esc(t.domain) + ' · ' : ''}执行:${esc(t.executor || '待派发')}</div>
-    <div class="ma-task-log" hidden></div>
-    <div class="ma-task-actions">
-      <button class="ma-ta-toggle" type="button">📜 奏折</button>
-      ${t.status === 'paused' ? '<button class="ma-ta-ctl" data-ctl="resume" type="button">恢复</button>' : ''}
-      ${t.status === 'executing' ? '<button class="ma-ta-ctl" data-ctl="pause" type="button">暂停</button>' : ''}
-      ${['pending','planning','review','executing','paused'].includes(t.status) ? '<button class="ma-ta-ctl" data-ctl="cancel" type="button">取消</button>' : ''}
-      ${t.status === 'review' ? '<button class="ma-ta-rev" data-pass="true" type="button">通过</button><button class="ma-ta-rev" data-pass="false" type="button">封驳</button>' : ''}
-    </div>`
-  // 奏折展开
-  card.querySelector('.ma-ta-toggle').addEventListener('click', () => {
-    const logEl = card.querySelector('.ma-task-log')
-    if (logEl.hidden) {
-      logEl.innerHTML = (t.log || []).map(e => `<div class="ma-log-line"><b>${esc(e.stage)}·${esc(e.agent)}</b><span>${esc(String(e.content||'').slice(0, 180))}</span></div>`).join('') || '<div class="ma-log-empty">（无记录）</div>'
-      logEl.hidden = false
-    } else logEl.hidden = true
-  })
-  // 干预
-  card.querySelectorAll('.ma-ta-ctl').forEach(btn => btn.addEventListener('click', async () => {
-    await api(`/task/${t.id}/control`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: btn.dataset.ctl }) })
-    loadKanban()
-  }))
-  // 审议
-  card.querySelectorAll('.ma-ta-rev').forEach(btn => btn.addEventListener('click', async () => {
-    const pass = btn.dataset.pass === 'true'
-    const note = pass ? '' : prompt('封驳理由：') || ''
-    await api(`/task/${t.id}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, note }) })
-    loadKanban()
-  }))
-  return card
-}
-
-function toggleKanban(show) {
-  const kb = $('ma-kanban')
-  if (!kb) return
-  kb.hidden = !show
-  if (show) loadKanban()
-}
-
-// 三省六部流水线实时过程 → 群聊式显示（每位臣工干活时冒泡）
-let currentPipelineTask = null
-function ensurePipelineStatus() {
-  const box = $('ma-messages')
-  if (box.querySelector('.ma-pipeline') && !box.querySelector('.ma-pipeline.done')) return
-  const s = document.createElement('div')
-  s.className = 'ma-msg ma-msg-hint ma-pipeline'
-  s.textContent = '⚙️ 三省六部流水线运行中（分拣→规划→审议→派发→执行→回奏）…'
-  box.appendChild(s)
-  box.scrollTop = box.scrollHeight
-}
-
-function renderEdictProgress(data) {
-  if (!data?.stage || !data?.agent) return
-  const box = $('ma-messages')
-  const isNewTask = data.taskId && data.taskId !== currentPipelineTask
-  if (isNewTask) {
-    currentPipelineTask = data.taskId
-    // 标记上一条流水线已结束
-    box.querySelectorAll('.ma-pipeline').forEach(el => { el.classList.add('done'); el.textContent += ' ✅' })
-  }
-  ensurePipelineStatus()
-  const div = document.createElement('div')
-  div.className = 'ma-msg ma-msg-pipeline'
-  const stageIcons = { '分拣': '🔀', '规划': '🗺️', '审议': '⚖️', '派发': '📮', '执行': '⚒️', '回奏': '📜', '异常': '⚠️' }
-  const icon = stageIcons[data.stage] || '·'
-  div.innerHTML = `<span class="ma-pipe-icon">${icon}</span><div class="ma-agent-msg-block"><span class="ma-agent-msg-name">${esc(data.stage)}·${esc(data.agent)}</span><div class="ma-bubble ma-pipe-bubble">${esc(String(data.content||'').slice(0, 200))}</div></div>`
-  box.appendChild(div)
-  box.scrollTop = box.scrollHeight
-}
-
-function renderEdictDone(data) {
-  if (!data?.id) return
-  const box = $('ma-messages')
-  box.querySelectorAll('.ma-pipeline').forEach(el => { el.classList.add('done'); if (!el.textContent.includes('✅')) el.textContent += ' ✅' })
-  const label = { done: '✅ 已完成', rejected: '❌ 已封驳', cancelled: '⛔ 已取消', paused: '⏸ 已暂停', error: '⚠️ 异常' }[data.status] || data.status
-  const div = document.createElement('div')
-  div.className = 'ma-msg ma-msg-hint'
-  div.textContent = `【${data.id}】${label}`
-  box.appendChild(div)
-  box.scrollTop = box.scrollHeight
 }
 
 export function initMultiAgentPanel() {
-  $('multiagent-exit')?.addEventListener('click', () => { $('multiagent-panel').hidden = true })
-  $('ma-send')?.addEventListener('click', bossSpeak)
-  $('ma-input')?.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); bossSpeak() } })
-  $('ma-config-close')?.addEventListener('click', () => { $('ma-config-overlay').hidden = true })
-  $('ma-config-cancel')?.addEventListener('click', () => { $('ma-config-overlay').hidden = true })
-  $('ma-config-save')?.addEventListener('click', saveConfig)
-  $('ma-config-task')?.addEventListener('click', assignTaskFromConfig)
-  $('cfg-engine')?.addEventListener('change', syncEngineFields)
-  $('ma-end-meet')?.addEventListener('click', endMeeting)
-  $('ma-kanban-toggle')?.addEventListener('click', () => toggleKanban($('ma-kanban').hidden))
-  $('ma-kanban-close')?.addEventListener('click', () => toggleKanban(false))
-  $('ma-kanban-refresh')?.addEventListener('click', loadKanban)
-  $('ma-voice-toggle')?.addEventListener('click', () => {
-    voiceOn = !voiceOn
-    localStorage.setItem('bailongma-junjichu-voice', voiceOn ? '1' : '0')
-    syncVoiceBtn()
-  })
-  // 流水线实时过程 + 完成事件
-  window.addEventListener('bailongma:edict-progress', (e) => renderEdictProgress(e.detail || {}))
-  window.addEventListener('bailongma:edict-task', (e) => renderEdictDone(e.detail || {}))
-  syncVoiceBtn()
-  loadAgents()
-  loadRoom()
-}
-
-// 结束会议：写入终止标记 + 重置军机处
-async function endMeeting() {
-  const box = $('ma-messages')
-  const close = document.createElement('div')
-  close.className = 'ma-msg ma-msg-hint'
-  close.textContent = '【集团全部任务已闭环，本次虚拟办公室会议正式结束】'
-  box.appendChild(close)
-  try { await api('/room/reset', { method: 'POST' }) } catch {}
-  const roundEl = $('ma-round')
-  if (roundEl) roundEl.textContent = '轮次 0/20'
-  // 提示重新开会
-  const tip = document.createElement('div')
-  tip.className = 'ma-msg ma-msg-hint'
-  tip.textContent = '军机处已归档重置。有新的任务就说「主持人，开会：…」'
-  box.appendChild(tip)
-  box.scrollTop = box.scrollHeight
-}
-
-// 军机处语音：打开时接管空格 PTT 的识别文本（发到军机处而非主聊天）
-window.__junjichuVoice = (text) => {
+  $('multiagent-exit')?.addEventListener('click', closeMultiAgentPanel)
+  $('ma-send')?.addEventListener('click', sendCommand)
   const input = $('ma-input')
-  if (input) {
-    input.value = String(text || '')
-    bossSpeak()
-    return true
-  }
-  return false
+  input?.addEventListener('input', handleMentionInput)
+  input?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeMentionPopup(); return }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (mentionPopup && !mentionPopup.hidden) {
+        e.preventDefault()
+        const first = mentionPopup.querySelector('.ma-mention-item')
+        if (first) { const a = agents.find(x => x.id === first.dataset.id); if (a) applyMentionToInput(a) }
+        closeMentionPopup(); return
+      }
+      e.preventDefault(); sendCommand()
+    }
+  })
+  input?.addEventListener('blur', () => setTimeout(closeMentionPopup, 200))
+  updateClock()
+  setInterval(updateClock, 1000)
+  loadAgents()
 }
 
 export function openMultiAgentPanel() {
-  const panel = $('multiagent-panel')
-  if (!panel) return
+  const panel = $('multiagent-panel'); if (!panel) return
   panel.hidden = false
   window.__junjichuActive = true
   if (!agents.length) loadAgents()
-  loadRoom()
+  if (!selectedId || !agents.some(a => a.id === selectedId)) selectedId = 'gm'
+  renderOfficeCard()
+  window.dispatchEvent(new CustomEvent('bailongma:multiagent-open'))
 }
 export function closeMultiAgentPanel() {
-  const panel = $('multiagent-panel')
-  if (panel) panel.hidden = true
+  const panel = $('multiagent-panel'); if (panel) panel.hidden = true
   window.__junjichuActive = false
+  window.dispatchEvent(new CustomEvent('bailongma:multiagent-close'))
 }
-export function refreshJunjichuKanban() {
-  if ($('ma-kanban') && !$('ma-kanban').hidden) loadKanban()
+export function refreshJunjichuKanban() { /* 兼容空实现 */ }
+export async function loadHomeKanban() { /* 兼容空实现 */ }
+
+window.__junjichuVoice = (text) => {
+  const input = $('ma-input'); if (input) { input.value = String(text || ''); sendCommand(); return true }
+  return false
 }

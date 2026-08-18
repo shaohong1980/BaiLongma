@@ -70,7 +70,10 @@ export async function runBackfill({ batchSize = 20, throttleMs = 100, force = fa
     try {
       const { getEmbeddingCredentials } = await import('../config.js')
       currentModel = getEmbeddingCredentials()?.model || null
-    } catch {}
+    } catch (err) {
+      // 读不到嵌入模型名会落到 embedding_model=null，后续排查"哪批向量用哪个模型"会缺依据
+      console.warn('[embedding-backfill] 读取嵌入配置失败:', err?.message || err)
+    }
 
     let rows
     try {

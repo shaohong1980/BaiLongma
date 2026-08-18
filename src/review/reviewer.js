@@ -1,7 +1,6 @@
 import { callLLM } from '../llm.js'
 import { setRateLimited } from '../quota.js'
 import { nowTimestamp } from '../time.js'
-import { TOOL_SCHEMAS } from '../capabilities/schemas.js'
 
 // ── 审视分身（Work Reviewer）────────────────────────────────────────────────────
 // 不是子 agent，是和 recognizer / consolidator 同一类的"后台人格"：独立提示词、独立

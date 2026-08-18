@@ -26,6 +26,11 @@ function initWakeWord({ codeRoot, logDir }) {
   if (child) return spawned
   const modelDir = resolveModelDir(codeRoot)
   const logFile = path.join(logDir, 'wake-word.log')
+  // ready 超时保护：模型加载/图构建可能在特定环境卡住（如模型精度混合或 onnxruntime 初始化），
+  // 不能让主进程永远等 ready。超时后标记禁用并警告，避免"spawned=true 但唤醒静默不工作"。
+  const READY_TIMEOUT_MS = 30000
+  let readyTimer = null
+  const clearReadyTimer = () => { if (readyTimer) { clearTimeout(readyTimer); readyTimer = null } }
   try {
     child = utilityProcess.fork(path.join(__dirname, 'kws-process.cjs'), [], {
       stdio: 'inherit',
@@ -34,8 +39,10 @@ function initWakeWord({ codeRoot, logDir }) {
     child.on('message', (msg) => {
       if (!msg) return
       if (msg.type === 'ready') {
+        clearReadyTimer()
         console.log('[wake] KWS 子进程就绪')
       } else if (msg.type === 'error') {
+        clearReadyTimer()
         console.error('[wake] KWS 子进程初始化失败(功能禁用):', msg.error)
       } else if (msg.type === 'hit') {
         console.log('[wake] 命中唤醒词:', msg.keyword)
@@ -43,6 +50,7 @@ function initWakeWord({ codeRoot, logDir }) {
       }
     })
     child.on('exit', (code) => {
+      clearReadyTimer()
       console.warn('[wake] KWS 子进程退出 code=' + code)
       child = null
       spawned = false
@@ -50,6 +58,11 @@ function initWakeWord({ codeRoot, logDir }) {
     // 等子进程真正起好再发 init,否则 fork 后立刻 post 可能在监听器挂上前丢失
     child.on('spawn', () => {
       try { child.postMessage({ type: 'init', modelDir, logFile }) } catch {}
+      readyTimer = setTimeout(() => {
+        clearReadyTimer()
+        console.error(`[wake] KWS 子进程 ${READY_TIMEOUT_MS / 1000}s 未就绪(模型加载卡住?)——唤醒功能禁用，请检查 kws-model 模型文件`)
+        spawned = false
+      }, READY_TIMEOUT_MS)
     })
     spawned = true
     return true
@@ -66,7 +79,7 @@ function initWakeWord({ codeRoot, logDir }) {
  */
 function feedPcm(buffer) {
   if (!child || !buffer) return
-  let ab = null
+  let ab
   if (buffer instanceof ArrayBuffer) ab = buffer
   else if (ArrayBuffer.isView(buffer)) ab = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
   else return

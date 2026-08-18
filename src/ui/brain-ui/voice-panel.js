@@ -54,7 +54,7 @@ export function initVoicePanel({
     cancelAutoSend: continuous.cancelAutoSend,
   });
 
-  // 唤醒会话编排（命中「小白龙」→ 悬浮球入场 → 10s 无话退场）。非 Electron 环境内部自动失能。
+  // 唤醒会话编排（命中「爻台」→ 悬浮球入场 → 10s 无话退场）。非 Electron 环境内部自动失能。
   const wake = createWakeFlow(core);
 
   // 安装模式策略钩子：continuous = 会话默认策略；PTT 通过 core.pttHolding 在其上叠加。
@@ -125,8 +125,14 @@ export function initVoicePanel({
     core.startRenderLoop();
   }
 
+  // 太极八卦图（语音球）兼作「易经 · 易学看板」入口：点击打开/关闭看板；
+  // 它仍是语音状态指示（说话亮卦），语音开关走顶栏 🎤 按钮。
+  panel.addEventListener('click', (e) => e.stopPropagation());
   btn?.addEventListener('click', toggleVoice);
-  canvas.addEventListener('click', toggleVoice);
+  canvas.addEventListener('click', (e) => {
+    e.stopPropagation();
+    window.dispatchEvent(new CustomEvent('bailongma:bagua-toggle'));
+  });
 
   core.setStatus('idle');
   openPanel();

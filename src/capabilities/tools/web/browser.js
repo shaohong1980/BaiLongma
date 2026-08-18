@@ -47,7 +47,7 @@ async function getPlaywrightChromium() {
     _playwrightChromium = mod.chromium
     return _playwrightChromium
   } catch (err) {
-    throw new Error(`Playwright is not bundled in this build: ${err.message || String(err)}`)
+    throw new Error(`Playwright is not bundled in this build: ${err.message || String(err)}`, { cause: err })
   }
 }
 

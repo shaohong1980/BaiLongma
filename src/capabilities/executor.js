@@ -6,12 +6,7 @@ import { upsertPrefetchTask, removePrefetchTask, listPrefetchTasks, setConfig as
 import { emitEvent, setStickyEvent } from '../events.js'
 import { getTerminalStreamSnapshot, recordTerminalStreamEvent } from '../terminal-stream.js'
 import { streamToolFileWriteExecutionPreview } from '../write-file-preview.js'
-import { setCustomInterval as setTickerInterval, getStatus as getTickerStatus } from '../ticker.js'
-import { setHotspotPanelState, getHotspotPanelState } from '../hotspots.js'
-import { setWorldcupPanelState, getWorldcupPanelState } from '../worldcup.js'
-import { setTyphoonPanelState, getTyphoonPanelState } from '../typhoon.js'
-import { setPersonCardPanelState, getPersonCardPanelState, getPersonCard } from '../person-cards.js'
-import { setDocPanelState, getDocPanelState } from '../docs.js'
+import { setCustomInterval as setTickerInterval } from '../ticker.js'
 import { setUserLocation } from '../weather.js'
 import { getAgentById, isDelegationAllowed } from '../agents/registry.js'
 import { installTool, uninstallTool, listInstalledTools, isInstalledTool, executeInstalledTool, getInstalledToolSchema } from './marketplace/index.js'
@@ -40,7 +35,8 @@ import { execAdoptRole } from './tools/roles.js'
 import { execCaptureScreen } from './tools/capture.js'
 import { execSpawnSubagents } from './tools/spawn.js'
 import { execJunjichu } from '../multi-agent/control.js'
-import { getMapServiceSettings } from '../map-service.js'
+import { execHotspotMode, execWorldcupMode, execTyphoonMode, execBaguaMode, execMapMode, execOpenDocPanel, execPersonCardMode } from "./tools/panels.js"
+import { runTask as runA2ATask } from '../agents/a2a-client.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
 import { execManageRule } from './tools/rules.js'
@@ -51,7 +47,6 @@ export { calculateNextDueAt } from './tools/reminders.js'
 export { autoSpeakForVoiceReply } from './tools/media.js'
 export { detectOpenFollowupQuestion } from '../runtime/delivery.js'
 
-import { config, setSecurity } from '../config.js'
 import { isExternalChannel } from '../identity.js'
 
 // 工具执行器：根据工具名和参数执行对应操作，返回结果字符串
@@ -298,6 +293,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execWorldcupMode(args)
       case 'typhoon_mode':
         return execTyphoonMode(args)
+      case 'bagua_mode':
+        return execBaguaMode(args)
       case 'map_mode':
         return execMapMode(args)
       case 'open_doc_panel':
@@ -362,7 +359,7 @@ async function executeToolUnchecked(name, args, context = {}) {
       case 'set_agent_name':
         return execSetAgentName(args)
       case 'delegate_to_agent':
-        return await execDelegateToAgent(args)
+        return await execDelegateToAgent(args, context)
       case 'grant_agent_delegation':
         return execGrantAgentDelegation(args)
       case 'complete_startup_self_check':
@@ -674,217 +671,6 @@ function execCapabilityDemo(args = {}, context = {}) {
   })
 }
 
-function execHotspotMode(args = {}) {
-  const action = String(args.action || 'status').trim().toLowerCase()
-  if (!['show', 'open', 'hide', 'close', 'toggle', 'status'].includes(action)) {
-    return JSON.stringify({ ok: false, tool: 'hotspot_mode', error: 'unsupported action' })
-  }
-
-  let nextActive = null
-  if (action === 'show' || action === 'open') nextActive = true
-  if (action === 'hide' || action === 'close') nextActive = false
-  if (action === 'toggle') nextActive = !getHotspotPanelState().active
-
-  const state = typeof nextActive === 'boolean'
-    ? setHotspotPanelState({ active: nextActive, source: 'agent_tool' })
-    : getHotspotPanelState()
-
-  if (typeof nextActive === 'boolean') {
-    emitEvent('hotspot_mode', {
-      action: state.active ? 'show' : 'hide',
-      active: state.active,
-      reason: typeof args.reason === 'string' ? args.reason : '',
-    })
-    emitEvent('action', {
-      tool: 'hotspot_mode',
-      summary: state.active ? '打开热点面板' : '关闭热点面板',
-      detail: args.reason || '',
-    })
-  }
-
-  return JSON.stringify({ ok: true, tool: 'hotspot_mode', state })
-}
-
-function execWorldcupMode(args = {}) {
-  const action = String(args.action || 'status').trim().toLowerCase()
-  if (!['show', 'open', 'hide', 'close', 'toggle', 'status'].includes(action)) {
-    return JSON.stringify({ ok: false, tool: 'worldcup_mode', error: 'unsupported action' })
-  }
-
-  let nextActive = null
-  if (action === 'show' || action === 'open') nextActive = true
-  if (action === 'hide' || action === 'close') nextActive = false
-  if (action === 'toggle') nextActive = !getWorldcupPanelState().active
-
-  const state = typeof nextActive === 'boolean'
-    ? setWorldcupPanelState({ active: nextActive, source: 'agent_tool' })
-    : getWorldcupPanelState()
-
-  if (typeof nextActive === 'boolean') {
-    emitEvent('worldcup_mode', {
-      action: state.active ? 'show' : 'hide',
-      active: state.active,
-      reason: typeof args.reason === 'string' ? args.reason : '',
-    })
-    emitEvent('action', {
-      tool: 'worldcup_mode',
-      summary: state.active ? '打开世界杯面板' : '关闭世界杯面板',
-      detail: args.reason || '',
-    })
-  }
-
-  return JSON.stringify({ ok: true, tool: 'worldcup_mode', state })
-}
-
-function execTyphoonMode(args = {}) {
-  const action = String(args.action || 'status').trim().toLowerCase()
-  if (!['show', 'open', 'hide', 'close', 'toggle', 'status'].includes(action)) {
-    return JSON.stringify({ ok: false, tool: 'typhoon_mode', error: 'unsupported action' })
-  }
-  let nextActive = null
-  if (action === 'show' || action === 'open') nextActive = true
-  if (action === 'hide' || action === 'close') nextActive = false
-  if (action === 'toggle') nextActive = !getTyphoonPanelState().active
-  const state = typeof nextActive === 'boolean'
-    ? setTyphoonPanelState({ active: nextActive, source: 'agent_tool' })
-    : getTyphoonPanelState()
-  if (typeof nextActive === 'boolean') {
-    emitEvent('typhoon_mode', { action: state.active ? 'show' : 'hide', active: state.active, reason: typeof args.reason === 'string' ? args.reason : '' })
-    emitEvent('action', { tool: 'typhoon_mode', summary: state.active ? '打开台风监测面板' : '关闭台风监测面板', detail: args.reason || '' })
-  }
-  return JSON.stringify({ ok: true, tool: 'typhoon_mode', state })
-}
-
-// map_mode：对话里打开高德地图面板（show/hide/toggle/status）
-// 高德 Key/安全密钥未配置时返回引导提示，不报错——让模型直接引导用户去设置页。
-function execMapMode(args = {}) {
-  const action = String(args.action || 'status').trim().toLowerCase()
-  if (!['show', 'open', 'hide', 'close', 'toggle', 'status'].includes(action)) {
-    return JSON.stringify({ ok: false, tool: 'map_mode', error: 'unsupported action' })
-  }
-
-  const settings = getMapServiceSettings()
-  const opening = (action === 'show' || action === 'open' || action === 'toggle')
-
-  if (opening && !settings.configured) {
-    return JSON.stringify({
-      ok: false,
-      tool: 'map_mode',
-      error: 'map_not_configured',
-      map: settings,
-      guidance: '高德地图还没配置好。请让用户到「设置 → 高级功能 → 地图服务」填写 Web 端 Key 和 安全密钥（securityJsCode）后，再让我打开地图。',
-    })
-  }
-
-  const payload = {
-    active: action === 'show' || action === 'open' || (action === 'toggle' && true),
-    action: action === 'show' || action === 'open' ? 'show' : (action === 'hide' || action === 'close' ? 'hide' : action),
-    location: typeof args.location === 'string' ? args.location.trim() : '',
-    title: typeof args.title === 'string' ? args.title.trim() : '',
-    zoom: Number.isFinite(Number(args.zoom)) ? Number(args.zoom) : undefined,
-    markers: Array.isArray(args.markers) ? args.markers.map(m => String(m)).slice(0, 20) : [],
-    keyword: typeof args.keyword === 'string' ? args.keyword.trim() : '',
-    reason: typeof args.reason === 'string' ? args.reason : '',
-  }
-
-  // toggle：读取面板状态做切换（无本地状态表，直接按当前 emit 判断；前端幂等处理）
-  if (action === 'toggle') {
-    // 前端 map-panel 维护实际开关状态；后端 toggle 一律发 show 让前端切换。
-    payload.active = true
-    payload.action = 'show'
-  }
-
-  emitEvent('map_mode', payload)
-  emitEvent('action', {
-    tool: 'map_mode',
-    summary: payload.action === 'hide' ? '关闭地图面板' : `打开地图${payload.location ? '：' + payload.location : ''}`,
-    detail: [payload.title, payload.keyword, (payload.markers || []).join(',')].filter(Boolean).join(' | ') || payload.reason,
-  })
-  return JSON.stringify({ ok: true, tool: 'map_mode', state: { active: payload.active, location: payload.location, configured: settings.configured } })
-}
-
-function execOpenDocPanel(args = {}) {
-  const action = String(args.action || 'open').trim().toLowerCase()
-  const nextActive = action !== 'close'
-  const validTopics = ['voice_asr', 'voice_tts', 'voice_config']
-
-  // 打开时 topic 必填；关闭时 topic 可省略（沿用当前面板已有的 topicId）
-  let topic = args.topic ? String(args.topic).trim() : null
-  if (nextActive && topic && !validTopics.includes(topic)) {
-    if (/asr|识别|麦克风/.test(topic)) topic = 'voice_asr'
-    else if (/tts|合成|声音/.test(topic)) topic = 'voice_tts'
-    else topic = 'voice_config'
-  }
-
-  const state = setDocPanelState({ active: nextActive, topicId: topic, source: 'agent_tool' })
-
-  const effectiveTopic = topic || state.topicId
-  emitEvent('doc_panel_mode', {
-    action: nextActive ? 'open' : 'close',
-    active: nextActive,
-    topic: effectiveTopic,
-    reason: typeof args.reason === 'string' ? args.reason : '',
-  })
-  emitEvent('action', {
-    tool: 'open_doc_panel',
-    summary: nextActive ? `打开文档面板（${effectiveTopic}）` : '关闭文档面板',
-    detail: args.reason || '',
-  })
-
-  return JSON.stringify({ ok: true, tool: 'open_doc_panel', topic: effectiveTopic, state })
-}
-
-function execPersonCardMode(args = {}) {
-  const action = String(args.action || 'status').trim().toLowerCase()
-  if (!['show', 'open', 'hide', 'close', 'update', 'toggle', 'status'].includes(action)) {
-    return JSON.stringify({ ok: false, tool: 'person_card_mode', error: 'unsupported action' })
-  }
-
-  let nextActive = null
-  if (action === 'show' || action === 'open' || action === 'update') nextActive = true
-  if (action === 'hide' || action === 'close') nextActive = false
-  if (action === 'toggle') nextActive = !getPersonCardPanelState().active
-
-  const name = String(args.name || args.person || '').trim()
-  const card = {
-    ...(name ? getPersonCard(name) : {}),
-    ...(args.card && typeof args.card === 'object' ? args.card : {}),
-  }
-  if (name) card.name = name
-  for (const key of ['title', 'summary', 'image', 'avatar', 'source']) {
-    if (typeof args[key] === 'string' && args[key].trim()) card[key] = args[key].trim()
-  }
-  if (Array.isArray(args.knownFor) || typeof args.knownFor === 'string') card.knownFor = args.knownFor
-  if (Array.isArray(args.tags) || typeof args.tags === 'string') card.tags = args.tags
-  if (Array.isArray(args.aliases) || typeof args.aliases === 'string') card.aliases = args.aliases
-
-  const state = typeof nextActive === 'boolean'
-    ? setPersonCardPanelState({
-        active: nextActive,
-        source: 'agent_tool',
-        card: (card.name || card.summary || card.title) ? card : null,
-        name,
-      })
-    : getPersonCardPanelState()
-
-  if (typeof nextActive === 'boolean') {
-    emitEvent('person_card_mode', {
-      action: state.active ? 'show' : 'hide',
-      active: state.active,
-      card: state.card,
-      reason: typeof args.reason === 'string' ? args.reason : '',
-    })
-    emitEvent('action', {
-      tool: 'person_card_mode',
-      summary: state.active ? `打开人物卡片${state.card?.name ? `：${state.card.name}` : ''}` : '关闭人物卡片',
-      detail: args.reason || '',
-    })
-  }
-
-  return JSON.stringify({ ok: true, tool: 'person_card_mode', state })
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 任务管理工具（通过 context 回调通知 index.js）
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1241,7 +1027,7 @@ function agentDocsHint(agent) {
   return hint
 }
 
-async function execDelegateToAgent({ agent_id, prompt: agentPrompt, context: agentContext = '', timeout = 60 }) {
+async function execDelegateToAgent({ agent_id, prompt: agentPrompt, context: agentContext = '', timeout = 60 }, toolContext = {}) {
   if (!isDelegationAllowed()) {
     return toolJson({ ok: false, error: '尚未获得 Agent 委托权限，请先询问用户并通过 grant_agent_delegation 获取授权。' })
   }
@@ -1263,6 +1049,42 @@ async function execDelegateToAgent({ agent_id, prompt: agentPrompt, context: age
     : agentPrompt.trim()
 
   const timeoutSec = Math.min(Math.max(Number(timeout) || 60, 5), 300)
+
+  // A2A 标准协议通道：通过 Agent Card 发现 + tasks/send 轮询与外部 Agent 通信。
+  // 这是 detector 对 HTTP 型 Agent 探测到 A2A 端点后升级的首选通道。
+  if (agent.invoke_type === 'a2a') {
+    const baseUrl = String(agent.invoke_cmd || '').trim()
+    if (!baseUrl) {
+      return toolJson({ ok: false, error: `Agent ${agent.name} 标记为 A2A 但缺少 base URL。` })
+    }
+    const r = await runA2ATask(baseUrl, {
+      text: fullPrompt,
+      metadata: { delegated_by: 'bailongma', target_agent: agent.id },
+      timeoutMs: timeoutSec * 1000,
+      signal: toolContext?.signal,
+    })
+    if (!r.ok) {
+      return toolJson({
+        ok: false,
+        error: r.state === 'input-required'
+          ? r.error
+          : `A2A 调用 ${agent.name} 失败${r.error ? `：${r.error}` : ''}`,
+        state: r.state || null,
+        task_id: r.taskId || null,
+        timed_out: r.timed_out || false,
+        ...agentDocsHint(agent),
+      })
+    }
+    return toolJson({
+      ok: true,
+      agent_id,
+      agent_name: agent.name,
+      channel: 'a2a',
+      task_id: r.taskId,
+      state: r.state,
+      reply: String(r.text || '').slice(0, 4000),
+    })
+  }
 
   if (agent.invoke_type === 'cli') {
     const safePrompt = fullPrompt.replace(/"/g, '\\"').replace(/\n/g, ' ')

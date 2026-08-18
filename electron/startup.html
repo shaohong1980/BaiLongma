@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bailongma 正在启动</title>
+  <title>爻台 正在启动</title>
   <style>
     :root {
       color-scheme: dark;
@@ -57,16 +57,17 @@
     }
 
     .mark {
-      width: 42px;
-      height: 42px;
-      border: 1px solid rgba(86, 214, 178, 0.52);
-      background: #10201f;
+      width: 46px;
+      height: 46px;
+      border: 1px solid rgba(0, 217, 255, 0.5);
+      background: radial-gradient(circle at 50% 50%, #0c1a26, #06101a);
+      border-radius: 50%;
       display: grid;
       place-items: center;
-      font-weight: 700;
-      letter-spacing: 0;
-      color: var(--accent);
-      box-shadow: 0 0 34px rgba(86, 214, 178, 0.12);
+      color: #00d9ff;
+      font-size: 28px;
+      line-height: 1;
+      box-shadow: 0 0 34px rgba(0, 217, 255, 0.2);
     }
 
     .brand {
@@ -294,10 +295,10 @@
   <main class="shell">
     <section class="identity" aria-live="polite">
       <div class="brand-row">
-        <div class="mark">BL</div>
+        <div class="mark">☯</div>
         <div class="brand">
-          <strong>Bailongma</strong>
-          <span id="version">Desktop Agent</span>
+          <strong>爻台</strong>
+          <span id="version">Yaotai Agent Studio</span>
         </div>
       </div>
       <h1>正在打开桌面</h1>
@@ -323,7 +324,7 @@
   <script>
     const fallbackSteps = [
       ['port', '准备本地端口', '锁定 3721 或备用端口'],
-      ['core', '启动本地核心', '加载 Bailongma runtime'],
+      ['core', '启动本地核心', '加载爻台 runtime'],
       ['resources', '准备工作区', '复制沙箱与音乐资源'],
       ['tools', '加载工具槽', '恢复已安装能力'],
       ['api', '启动本地 API', 'HTTP / SSE / WebSocket'],

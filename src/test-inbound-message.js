@@ -10,7 +10,8 @@ process.env.BAILONGMA_RESOURCES_DIR = process.cwd()
 let closeDBForTest = null
 
 function drainQueue(popMessage) {
-  while (popMessage()) {}
+  // 清空队列（故意空循环体）
+  while (popMessage()) { /* drain */ }
 }
 
 try {

@@ -21,7 +21,8 @@ data
 voice/*.json
 
 # 运行时生成的配置/数据（USER_DIR 落在仓库根目录时）
-llm
+# 注意：必须用 /llm/（仅根目录）——裸 "llm" 会误伤 src/llm/ 下的源码模块。
+/llm/
 api-capability-slots.json
 .dev-test
 

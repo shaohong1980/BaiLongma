@@ -276,7 +276,7 @@ export async function showPersonCardByName(name, { source = 'brain-ui' } = {}) {
       card: {
         name: query,
         title: '人物卡片',
-        summary: '暂时没有资料。可以让 Longma 补充这个人的身份和代表作品。',
+        summary: '暂时没有资料。可以让 爻台补充这个人的身份和代表作品。',
         knownFor: [],
         tags: ['待补充'],
         source: 'fallback',
@@ -291,7 +291,7 @@ export function initPersonCard() {
   renderPersonCard(currentCard || {
     name: '人物卡片',
     title: '待命',
-    summary: '当你不认识某位公众人物时，Longma 会在这里弹出一张简短人物卡片。',
+    summary: '当你不认识某位公众人物时，爻台会在这里弹出一张简短人物卡片。',
     knownFor: [],
     tags: ['standby'],
     source: 'standby',

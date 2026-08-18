@@ -4,7 +4,6 @@
 // Run: node src/test-capability-registry.js
 
 import {
-  CAPABILITIES,
   capabilityToolsFor,
   capabilityContextBlocks,
   findCapabilitiesByQuery,

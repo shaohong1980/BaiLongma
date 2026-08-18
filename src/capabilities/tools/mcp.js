@@ -1,5 +1,5 @@
 // MCP 工具实现：mcp_list_servers / mcp_call
-import { listServerTools, callMcpTool, listAllServersWithTools } from '../../mcp/client.js'
+import { callMcpTool, listAllServersWithTools } from '../../mcp/client.js'
 
 export async function execMcpListServers() {
   const r = await listAllServersWithTools()

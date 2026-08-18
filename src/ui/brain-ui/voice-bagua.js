@@ -28,15 +28,16 @@ function mix(a, b, t) {
 }
 
 // 先天八卦（伏羲八卦）：按圆周顺序乾兑离震坤艮坎巽，卦象自下而上，1=阳爻 0=阴爻
+// dir = 先天方位（上南下北左东右西）：乾南·兑东南·离东·震东北·坤北·艮西北·坎西·巽西南
 const TRIGRAMS = [
-  { name: '乾', elem: '天', lines: '111' },
-  { name: '兑', elem: '泽', lines: '110' },
-  { name: '离', elem: '火', lines: '101' },
-  { name: '震', elem: '雷', lines: '100' },
-  { name: '坤', elem: '地', lines: '000' },
-  { name: '艮', elem: '山', lines: '001' },
-  { name: '坎', elem: '水', lines: '010' },
-  { name: '巽', elem: '风', lines: '011' },
+  { name: '乾', elem: '天', lines: '111', dir: '南' },
+  { name: '兑', elem: '泽', lines: '110', dir: '东南' },
+  { name: '离', elem: '火', lines: '101', dir: '东' },
+  { name: '震', elem: '雷', lines: '100', dir: '东北' },
+  { name: '坤', elem: '地', lines: '000', dir: '北' },
+  { name: '艮', elem: '山', lines: '001', dir: '西北' },
+  { name: '坎', elem: '水', lines: '010', dir: '西' },
+  { name: '巽', elem: '风', lines: '011', dir: '西南' },
 ];
 
 // 时间卦：24 小时 ÷ 8 卦 = 每卦 3 小时
@@ -196,6 +197,16 @@ function drawTaiji(ctx, cx, cy, r, rot, yin, yang, rim) {
   ctx.stroke();
   ctx.shadowBlur = 0;
 
+  // 柔和反光（右上高光）：让太极更立体、更有"温润玉质"质感
+  const sheen = ctx.createRadialGradient(r * 0.45, -r * 0.45, r * 0.05, r * 0.4, -r * 0.4, r * 1.1);
+  sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
+  sheen.addColorStop(0.5, 'rgba(255,255,255,0.03)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sheen;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.98, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.restore();
 }
 
@@ -261,6 +272,28 @@ export function createVoiceBagua({ canvas, primaryColor, secondaryColor } = {}) 
     const nameR = S * 0.43;   // 卦名半径（安全留边）
     const dimAlpha = 0.62;
 
+    // 外圈装饰：8 个方位刻度 + 细环（先天八卦方位感）
+    ctx.save();
+    ctx.strokeStyle = rgba(primary, 0.28);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, S * 0.465, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (let i = 0; i < 8; i++) {
+      const a = -Math.PI / 2 + rotRing + (i / 8) * Math.PI * 2;
+      const r1 = S * 0.445, r2 = S * 0.465;
+      const litTick = (i === litIndex) && litIntensity > 0.02;
+      ctx.strokeStyle = litTick ? rgba(secondary, 0.9) : rgba(primary, 0.4);
+      ctx.lineWidth = litTick ? 1.6 : 1;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
     // 8 卦环
     for (let i = 0; i < 8; i++) {
       const angle = -Math.PI / 2 + rotRing + (i / 8) * Math.PI * 2;
@@ -297,13 +330,16 @@ export function createVoiceBagua({ canvas, primaryColor, secondaryColor } = {}) 
         ctx.shadowBlur = 0;
         ctx.restore();
       } else {
-        // 未亮：小号卦名（安全半径内）
+        // 未亮：卦名 + 先天方位（安全半径内）
         const nx = cx + Math.cos(angle) * nameR;
         const ny = cy + Math.sin(angle) * nameR;
-        ctx.globalAlpha = 0.6;
-        ctx.fillStyle = 'rgba(210,220,240,0.85)';
+        ctx.globalAlpha = 0.62;
+        ctx.fillStyle = 'rgba(210,220,240,0.9)';
         ctx.font = `600 ${Math.max(11, Math.round(S * 0.052))}px 'Inter','PingFang SC','Microsoft YaHei',sans-serif`;
-        ctx.fillText(trigram.name, nx, ny);
+        ctx.fillText(trigram.name, nx, ny - S * 0.02);
+        ctx.fillStyle = 'rgba(150,170,205,0.8)';
+        ctx.font = `500 ${Math.max(8, Math.round(S * 0.038))}px 'Inter','PingFang SC',sans-serif`;
+        ctx.fillText(trigram.dir, nx, ny + S * 0.032);
       }
       ctx.globalAlpha = 1;
     }

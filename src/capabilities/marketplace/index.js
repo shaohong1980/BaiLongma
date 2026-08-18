@@ -21,7 +21,7 @@ const BUILTIN_NAMES = new Set([
   'download_file', 'kill_process', 'list_processes', 'web_search',
   'fetch_url', 'browser_read', 'browser_act', 'deep_research', 'search_memory', 'probe_memory', 'upsert_memory', 'skip_recognition',
   'speak', 'generate_lyrics', 'generate_music', 'generate_image', 'set_tick_interval',
-  'media_mode', 'hotspot_mode', 'worldcup_mode', 'typhoon_mode', 'map_mode', 'open_doc_panel', 'person_card_mode', 'music',
+  'media_mode', 'hotspot_mode', 'worldcup_mode', 'typhoon_mode', 'bagua_mode', 'map_mode', 'open_doc_panel', 'person_card_mode', 'music',
   'manage_reminder', 'schedule_reminder', 'manage_prefetch_task', 'ui_set',
   'manage_todo', 'weekly_review', 'adopt_role', 'ask_memory', 'capture_screen', 'spawn_subagents', 'junjichu',
   'manage_rule', 'focus_banner', 'voice_retire',
@@ -125,7 +125,7 @@ function compileExecute(name, code, permissions = {}, { legacyUnsafeGlobals = fa
   let fn
   try {
     // AsyncFunction 构造器接受参数名列表 + 函数体
-    // eslint-disable-next-line no-new-func
+     
     fn = legacyUnsafeGlobals
       ? new Function('args', 'helpers', `"use strict";\nreturn (async () => {\n${code}\n})()`)
       : new Function(
@@ -141,7 +141,7 @@ function compileExecute(name, code, permissions = {}, { legacyUnsafeGlobals = fa
           `"use strict";\nreturn (async () => {\n${code}\n})()`,
         )
   } catch (err) {
-    throw new Error(`工具 "${name}" 代码语法错误：${err.message}`)
+    throw new Error(`工具 "${name}" 代码语法错误：${err.message}`, { cause: err })
   }
   return async (args) => {
     const helpers = buildHelpers(permissions)

@@ -49,6 +49,22 @@ export const uiSchemas = {
     }
   },
 
+  bagua_mode: {
+    type: 'function',
+    function: {
+      name: 'bagua_mode',
+      description: 'Control the I Ching dashboard (易经·易学看板). It displays an animated Taiji, the eight trigrams (八卦), the full 64 hexagrams (六十四卦) with their classic judgments (卦辞), and a six-line divination (六爻起卦) feature. Open it when the user wants to view the bagua, browse a hexagram, ask about I Ching / the Book of Changes, or cast a hexagram for divination; close it when asked. status checks current state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['show', 'open', 'hide', 'close', 'toggle', 'status'], description: 'show/open opens the I Ching dashboard; hide/close closes it; toggle switches it; status only checks state.' },
+          reason: { type: 'string', description: 'Optional short reason for opening or closing.' },
+        },
+        required: ['action']
+      }
+    }
+  },
+
   map_mode: {
     type: 'function',
     function: {

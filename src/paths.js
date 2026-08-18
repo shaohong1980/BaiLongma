@@ -63,8 +63,6 @@ export const paths = {
   musicDir:           ensureDir(path.join(USER_DIR, 'music')),
 
   indexHtml: path.join(RESOURCES_DIR, 'index.html'),
-  dashboardHtml: path.join(RESOURCES_DIR, 'dashboard.html'),
-  brainHtml: path.join(RESOURCES_DIR, 'brain.html'),
   brainUiHtml: path.join(RESOURCES_DIR, 'brain-ui.html'),
   websiteHtml: path.join(RESOURCES_DIR, 'website.html'),
   systemPromptHtml: path.join(RESOURCES_DIR, 'systemPrompt.html'),

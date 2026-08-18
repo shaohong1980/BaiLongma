@@ -3,7 +3,7 @@
 > 一套让 Agent 控制界面、且界面与 Agent 核心彻底解耦的架构。
 > 目标:支持未来开发多款界面(含电影级动画 UI),core 零改动即可换皮。
 >
-> 项目:BaiLongma · 起草:Yuanda + Claude Opus 4.8 · 2026-06-23
+> 项目:Yaotai · 起草:Yuanda + Claude Opus 4.8 · 2026-06-23
 
 ---
 

@@ -2,13 +2,13 @@
 // capability-registry.js —— 能力机制（Capability Mechanism）唯一真相源
 //
 // 背景 / 第一性原理：
-//   白龙马里「一个领域的能力」原本被切成 3~4 片，散在不同文件、靠重复的关键词表
+//   爻台里「一个领域的能力」原本被切成 3~4 片，散在不同文件、靠重复的关键词表
 //   手动同步：工具半在 tool-router.js（XXX_TRIGGERS + XXX_TOOLS），工作流半在
 //   prompt.js（XXX_BLOCK + shouldInjectXxx），数据预喂半在 runtime-injector.js
 //   （buildXxxRuntimeContext）。每改一个领域要同时动两三个文件、对齐两份关键词。
 //
 //   能力 = 一段工作流上下文（prompt 块）+ 配套工具 + 运行时数据预喂，由情境触发、
-//   打包一起注入，且白龙马能自我感知、按需主动激活。本模块把上述三半收敛成一个
+//   打包一起注入，且爻台能自我感知、按需主动激活。本模块把上述三半收敛成一个
 //   声明式单元，让每个能力的关键词、工具、工作流、数据只剩一处。
 //
 // 关键设计：保留「分面解耦」。现有架构故意让 tools / context / prefeed 各有自己的
@@ -28,6 +28,7 @@ import { isSoftwareInstallRequest, SOFTWARE_INSTALL_TRIGGERS } from '../software
 import { buildHotspotRuntimeContext } from '../hotspots.js'
 import { buildWorldcupRuntimeContext } from '../worldcup.js'
 import { buildTyphoonRuntimeContext } from '../typhoon.js'
+import { buildBaguaRuntimeContext } from '../bagua.js'
 import { buildWeatherRuntimeContext } from '../weather.js'
 import { listApiSlotCapabilities } from './api-slots.js'
 
@@ -38,6 +39,7 @@ export const HOTSPOT_TOOLS = ['hotspot_mode']
 // 要联网，所以 WEB_TOOLS 一并带上。
 export const WORLDCUP_TOOLS = ['worldcup_mode', ...WEB_TOOLS]
 export const TYPHOON_TOOLS = ['typhoon_mode']
+export const BAGUA_TOOLS = ['bagua_mode']
 export const MAP_TOOLS = ['map_mode']
 export const SOFTWARE_INSTALL_TOOLS = ['install_software', 'list_processes']
 
@@ -62,6 +64,11 @@ const WORLDCUP_TRIGGERS = [
 const TYPHOON_TRIGGERS = [
   '台风', '热带气旋', '台风路径', '台风预警', '风圈', '登陆台风', 'typhoon', 'tropical cyclone',
 ]
+const BAGUA_TRIGGERS = [
+  '易经', '周易', '八卦', '六十四卦', '64卦', '太极', '阴阳', '五行',
+  '卜卦', '起卦', '摇卦', '六爻', '看卦', '卦象', '卦辞',
+  'iching', 'i ching', 'bagua', 'trigram', 'hexagram', 'taiji',
+]
 const MAP_TRIGGERS = [
   '地图', '高德', '位置', '在哪', '在哪儿', '在哪个', '导航', '路线', '怎么去', '怎么走',
   '附近的', '周边', '周边有', '附近有', '打开看看', '看看地图', '显示地图', '卫星图',
@@ -73,6 +80,7 @@ const WEATHER_KEYWORD_RE = /天气|温度|气温|下雨|降雨|下雪|台风|雾
 const HOTSPOT_KEYWORD_RE = /热点|热搜|热门|新闻|今日|趋势|榜单|头条|热议|微博热搜|trending|headline/i
 const WORLDCUP_KEYWORD_RE = /世界杯|赛况|比分|赛程|对阵|积分榜|小组赛|淘汰赛|揭幕战|进球|几比几|world ?cup|worldcup|fifa/i
 const TYPHOON_KEYWORD_RE = /台风|热带气旋|台风路径|台风预警|风圈|登陆台风|typhoon|tropical cyclone/i
+const BAGUA_KEYWORD_RE = /易经|周易|八卦|六十四卦|64\s?卦|太极|阴阳|五行|卜卦|起卦|摇卦|六爻|看卦|卦象|卦辞|\biching\b|\bi\s?ching\b|\bbagua\b|\btrigram\b|\bhexagram\b|\btaiji\b/i
 const MAP_KEYWORD_RE = /地图|高德|位置|在哪|在哪儿|导航|路线|怎么去|怎么走|附近的|周边|附近有|卫星图|\bmap\b|\bamap\b|\bnavigate\b|\bdirections\b|\bnearby\b/i
 
 // ---- 工作流块（prompt 注入用；从 prompt.js / index.js 搬来，文本逐字保留）----
@@ -103,6 +111,11 @@ const TYPHOON_CONTEXT_BLOCK = `### Typhoon Monitoring Panel
 - You have a typhoon_mode tool that opens a visual typhoon monitoring panel. It shows current active-typhoon tracks, intensity, wind circles, and forecast tracks from the Central Meteorological Observatory. It is NOT pre-loaded each turn — if it is not in your current tool list, call find_tool("台风 路径 typhoon") first to load it.
 - Open it (action="show") when the user explicitly asks to view typhoon paths, tracking, or monitoring; close it (action="hide") when asked.
 - The panel's data is for situational awareness. Do not present it as a replacement for official local emergency instructions.`
+
+const BAGUA_CONTEXT_BLOCK = `### I Ching Dashboard (易经 · 易学看板)
+- You have a bagua_mode tool that opens an I Ching dashboard — animated Taiji, the eight trigrams (八卦), all 64 hexagrams (六十四卦) with their classic judgments (卦辞), and a six-line divination (六爻起卦) feature. It is NOT pre-loaded each turn — if it is not in your current tool list, call find_tool("易经 八卦 看板 bagua") first to load it.
+- Open it (action="show") when the user wants to view the bagua / I Ching, browse a specific hexagram, or cast a hexagram for divination; close it (action="hide") when asked.
+- While the panel is open, let the dashboard display the hexagram texts; do not fabricate long verbatim 卦辞 / 爻辞. For interpretations, answer briefly from your knowledge and point to the dashboard for the full text.`
 
 const MAP_CONTEXT_BLOCK = `### Map Panel (Amap / Gaode) — 打开地图
 - **这是打开地图的唯一正确方式：调用 map_mode 工具**，它会在 Bailongma 界面内弹出交互地图面板（标准图层、支持城市/地址/坐标定位、标点与周边搜索）。
@@ -198,6 +211,18 @@ export const CAPABILITIES = [
     toolWhen: () => false,
     context: TYPHOON_CONTEXT_BLOCK,
     prefeed: (ctx) => buildTyphoonRuntimeContext(ctx.rawText || ''),
+  },
+  {
+    id: 'bagua',
+    label: '易经易学看板',
+    summary: '打开易经易学看板（bagua_mode）：太极、八卦、六十四卦卦辞与六爻起卦。',
+    triggers: BAGUA_TRIGGERS,
+    tools: BAGUA_TOOLS,
+    detect: (ctx) => BAGUA_KEYWORD_RE.test(ctx.rawText || ''),
+    // 工具不自动注入（面板工具）；只递规则块，Agent 想用时 find_tool 装载。
+    toolWhen: () => false,
+    context: BAGUA_CONTEXT_BLOCK,
+    prefeed: (ctx) => buildBaguaRuntimeContext(ctx.rawText || ''),
   },
   {
     id: 'map',

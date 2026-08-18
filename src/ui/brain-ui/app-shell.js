@@ -3,10 +3,67 @@ import { createWorldcupPanel } from './worldcup-panel.js';
 import { createTyphoonPanel } from './typhoon-panel.js';
 import { createPersonCardPanel } from './person-card-panel.js';
 import { createDocPanel } from './doc-panel.js';
+import { createBaguaPanel } from './bagua-panel.js';
 
 const createGraphStage = () => `
 <div class="grid-overlay"></div>
-<canvas id="graph" aria-label="Longma 记忆节点图"></canvas>
+
+<!-- 图谱记忆球画布：默认隐藏；由作战指挥页「全屏图谱」按钮 / 点画布空白 全屏展开 -->
+<canvas id="graph" aria-label="爻台 记忆节点图" hidden></canvas>
+
+<!-- 图谱记忆球全屏展开时的分类图例（节点类型颜色说明） -->
+<div class="legend" id="legend"></div>
+
+<!-- 图谱记忆球全屏展开时的控制条：重置节点图 / 图谱调节 / 关闭 -->
+<div class="graph-controls" id="graph-controls">
+  <button class="reset-view" id="reset-view-btn" type="button">↻ 重置节点图</button>
+  <section class="physics-control" id="physics-control">
+    <button class="physics-toggle" id="physics-toggle" type="button" aria-expanded="false">
+      <span class="physics-toggle-label">图谱调节</span>
+      <span class="physics-toggle-icon">▾</span>
+    </button>
+    <div class="physics-panel" id="physics-panel">
+      <div class="physics-panel-inner">
+        <div class="physics-field">
+          <div class="physics-field-head">
+            <label class="physics-field-label" for="gravity-slider">引力</label>
+            <span class="physics-field-value" id="gravity-value">1.00x</span>
+          </div>
+          <input class="physics-slider" id="gravity-slider" type="range" min="0" max="5" step="0.02" value="2">
+        </div>
+        <div class="physics-field">
+          <div class="physics-field-head">
+            <label class="physics-field-label" for="repulsion-slider">斥力</label>
+            <span class="physics-field-value" id="repulsion-value">1.00x</span>
+          </div>
+          <input class="physics-slider" id="repulsion-slider" type="range" min="0" max="5" step="0.02" value="2">
+        </div>
+        <div class="physics-field">
+          <div class="physics-field-head">
+            <label class="physics-field-label" for="node-size-slider">节点大小</label>
+            <span class="physics-field-value" id="node-size-value">1.00x</span>
+          </div>
+          <input class="physics-slider" id="node-size-slider" type="range" min="0" max="5" step="0.02" value="2">
+        </div>
+      </div>
+    </div>
+  </section>
+  <button class="graph-close" id="graph-close-btn" type="button" title="关闭图谱 (Esc)">✕</button>
+</div>
+
+<!-- 晨间简报（浮层卡片，默认隐藏；AI 生成简报后出现） -->
+<div class="brief-card brief-float" id="brief-card" hidden>
+  <div class="brief-head">
+    <span class="brief-title">🌅 晨间简报</span>
+    <button class="brief-close" id="brief-close" type="button" title="关闭">×</button>
+  </div>
+  <div class="brief-body" id="brief-body"></div>
+  <div class="brief-goals" id="brief-goals"></div>
+  <button class="brief-gen" id="brief-gen" type="button">生成 / 刷新简报</button>
+</div>
+
+<!-- 用户消息处理流（L1）隐藏容器：保持功能、不占界面 -->
+<div id="si-l1" hidden></div>
 
 <!-- 知识图谱节点详情弹层：点击记忆节点弹出内容 + 相关记忆（P2-1） -->
 <div class="graph-detail-overlay" id="graph-detail-overlay" hidden>
@@ -30,147 +87,46 @@ const createGraphStage = () => `
 </div>
 `;
 
-const createPrimaryPanel = () => `
-<aside id="panel-l1" class="panel">
-  <header class="panel-identity">
-    <div class="brand-mark"></div>
-    <div class="brand-copy">
-      <div class="brand-title" id="agent-brand-name">Longma AI Agent</div>
+const createNavbar = () => `
+<header class="navbar" id="navbar">
+  <div class="nav-left">
+    ${createVoicePanel()}
+    <div class="nav-brand">
+      <span class="brand-title" id="agent-brand-name">爻台 · Yaotai Agent Studio</span>
     </div>
-    <button class="voice-btn" id="voice-btn" title="麦克风 开/关" type="button">🎤</button>
-    <button class="multiagent-btn" id="multiagent-btn" title="多 Agent 办公室" type="button">🤝</button>
-    <button class="video-btn" id="video-btn" title="视频模式 (V)" type="button" hidden>⊞</button>
-    <button class="music-btn" id="music-btn" title="音乐模式 (M)" type="button" hidden>♪</button>
-    <button class="settings-btn" id="settings-btn" title="设置" type="button">⚙</button>
-  </header>
-
-  <div class="stream-meta">
-    <div>
-      <div class="stream-title-text">用户消息处理器</div>
-      <!-- <div class="stream-subtitle">user message · react</div> -->
-    </div>
-    <span class="pill" id="pill-l1">实时</span>
+    <span class="conn-badge" id="conn-state"><span class="live-dot"></span>Token流</span>
   </div>
-
-  <!-- AI 当前正在做什么：纯派生展示，从 tool_call 事件流自动归类，AI 不需要做任何额外动作。
-       北极星：通信问题靠界面侧派生可视化解决，不逼 AI 学人开口。 -->
-  <div class="ai-activity" id="ai-activity">
-    <span class="ai-activity-dot" id="ai-activity-dot"></span>
-    <span class="ai-activity-label" id="ai-activity-label">空闲</span>
-    <span class="ai-activity-detail" id="ai-activity-detail"></span>
+  <div class="nav-center">
+    <span class="nav-stat"><span class="label">节点</span><span class="val" id="node-count">0</span></span>
+    <span class="nav-stat"><span class="label">连线</span><span class="val" id="link-count">0</span></span>
+    <span class="nav-stat"><span class="label">TOK/S</span><span class="val" id="tok-rate">—</span></span>
+    <span class="nav-stat" id="mem-recall-stat" title="近 1 小时记忆召回次数 / 平均拉取条数。点击查看明细"><span class="label">召回/H</span><span class="val" id="mem-recall-rate">—</span></span>
+    <span class="nav-stat" id="mem-extract-stat" title="近 1 小时记忆抽取次数 / 平均写入条数。点击查看明细"><span class="label">抽取/H</span><span class="val" id="mem-extract-rate">—</span></span>
   </div>
-
-  ${createVoicePanel()}
-
-  <!-- 晨间简报：每天早上自动生成，可手动刷新；下方展示活跃目标 -->
-  <div class="brief-card" id="brief-card" hidden>
-    <div class="brief-head">
-      <span class="brief-title">🌅 晨间简报</span>
-      <button class="brief-close" id="brief-close" type="button" title="关闭">×</button>
-    </div>
-    <div class="brief-body" id="brief-body"></div>
-    <div class="brief-goals" id="brief-goals"></div>
-    <button class="brief-gen" id="brief-gen" type="button">生成 / 刷新简报</button>
+  <div class="nav-right">
+    <button class="nav-icon" id="project-btn" type="button" title="投影界面（scene 声明式界面）">◉</button>
+    <button class="nav-icon" id="video-btn" title="视频模式 (V)：粘贴链接播放" type="button">⊞</button>
+    <button class="nav-icon" id="music-btn" title="音乐模式 (M)：本地曲库播放" type="button">♪</button>
+    <button class="nav-icon" id="settings-btn" title="设置" type="button">⚙</button>
+    <button class="nav-icon" id="fullscreen-btn" title="全屏" type="button">⛶</button>
   </div>
-
-  <div class="legend" id="legend"></div>
-
-  <div class="stream">
-    <div class="stream-inner" id="si-l1"></div>
-  </div>
-
-  <div class="panel-actions">
-    <button class="reset-view" id="reset-view-btn" type="button">重置节点图</button>
-
-    <section class="physics-control" id="physics-control">
-      <button class="physics-toggle" id="physics-toggle" type="button" aria-expanded="false">
-        <span class="physics-toggle-label">图谱调节</span>
-        <span class="physics-toggle-icon">▾</span>
-      </button>
-      <div class="physics-panel" id="physics-panel">
-        <div class="physics-panel-inner">
-          <div class="physics-field">
-            <div class="physics-field-head">
-              <label class="physics-field-label" for="gravity-slider">引力</label>
-              <span class="physics-field-value" id="gravity-value">1.00x</span>
-            </div>
-            <input class="physics-slider" id="gravity-slider" type="range" min="0" max="5" step="0.02" value="2">
-          </div>
-          <div class="physics-field">
-            <div class="physics-field-head">
-              <label class="physics-field-label" for="repulsion-slider">斥力</label>
-              <span class="physics-field-value" id="repulsion-value">1.00x</span>
-            </div>
-            <input class="physics-slider" id="repulsion-slider" type="range" min="0" max="5" step="0.02" value="2">
-          </div>
-          <div class="physics-field">
-            <div class="physics-field-head">
-              <label class="physics-field-label" for="node-size-slider">节点大小</label>
-              <span class="physics-field-value" id="node-size-value">1.00x</span>
-            </div>
-            <input class="physics-slider" id="node-size-slider" type="range" min="0" max="5" step="0.02" value="2">
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
-</aside>
+</header>
 `;
 
 const createSecondaryPanel = () => `
-<aside id="panel-l2" class="panel">
-  <div class="l2-top">
-    <header class="panel-stats">
-      <div class="stat">
-        <span class="stat-label">状态</span>
-        <div class="stat-value live" id="conn-state"><span class="live-dot"></span>Token流</div>
-      </div>
-      <div class="stat">
-        <span class="stat-label">节点</span>
-        <div class="stat-value" id="node-count">0</div>
-      </div>
-      <div class="stat">
-        <span class="stat-label">连线</span>
-        <div class="stat-value" id="link-count">0</div>
-      </div>
-      <div class="stat">
-        <span class="stat-label">tok/s</span>
-        <div class="stat-value" id="tok-rate">—</div>
-      </div>
-      <div class="stat" id="mem-recall-stat" title="近 1 小时记忆召回次数 / 平均拉取条数。点击查看明细">
-        <span class="stat-label">召回/h</span>
-        <div class="stat-value" id="mem-recall-rate">—</div>
-      </div>
-      <div class="stat" id="mem-extract-stat" title="近 1 小时记忆抽取次数 / 平均写入条数。点击查看明细">
-        <span class="stat-label">抽取/h</span>
-        <div class="stat-value" id="mem-extract-rate">—</div>
-      </div>
-    </header>
-
-    <!-- 专注帧 UI 已隐藏（后端 focus stack 仍在工作，给 LLM 注入上下文）。
-         要恢复观察面板时把对应 HTML 还原即可——app.js 渲染逻辑保留着，靠 getElementById 返回 null 自动 no-op。 -->
-
-    <div class="stream-meta">
-      <div>
-        <div class="stream-title-text">自主行动机制 · Tick</div>
-        <div class="stream-subtitle">心跳 · 思考 · 工具</div>
-      </div>
-      <span class="pill pill-warm" id="pill-l2">流式传输</span>
-    </div>
-
-    <div class="stream">
-      <div class="stream-inner" id="si-l2"></div>
-    </div>
-  </div>
-
-  ${createWorkbenchPanel()}
+<aside id="panel-l2" class="panel panel-right">
+  <!-- 自主行动机制 · Tick 活动流（右上角） -->
+  <section class="section tick-section">
+    <div class="section-title"><span>自主行动机制 · Tick</span><span class="pill pill-warm" id="pill-l2">流式传输</span></div>
+    <div class="tick-stream" id="si-l2"></div>
+  </section>
 </aside>
 `;
 
 const createWorkbenchPanel = () => `
 <section class="workbench" id="workbench">
   <header class="workbench-head">
-    <span class="workbench-title">▦ 工作台</span>
+    <span class="workbench-title">▦ 待办工作台</span>
     <span class="workbench-counts">
       <span class="wb-count" data-count="pending" title="待办事项">待办 <b id="wb-pending-count">0</b></span>
       <span class="wb-count" data-count="done" title="完成事项">完成 <b id="wb-done-count">0</b></span>
@@ -218,14 +174,31 @@ const createWorkbenchPanel = () => `
 
 const createConsole = () => `
 <section class="console" id="chat-area">
+  <!-- 顶部状态条：心跳 / 思考 / AI 活动 -->
+  <div class="chat-top" id="chat-top">
+    <div class="chat-top-left">
+      <span class="chat-heart">♡ 心跳</span>
+      <span class="chat-tick" id="chat-tick">--:--:--</span>
+      <span class="chat-divider">|</span>
+      <div class="ai-activity" id="ai-activity">
+        <span class="ai-activity-dot" id="ai-activity-dot"></span>
+        <span class="ai-activity-label" id="ai-activity-label">空闲</span>
+        <span class="ai-activity-detail" id="ai-activity-detail"></span>
+      </div>
+    </div>
+    <div class="chat-top-right">
+      <span class="chat-stream-pill">流式传输</span>
+    </div>
+  </div>
+
   <div id="chat-history">
     <div id="chat-messages"></div>
   </div>
   <div id="paste-attachments" class="paste-attachments" hidden></div>
   <div id="input-row">
     <div id="slash-menu" class="slash-menu" role="listbox" aria-label="命令" hidden></div>
-    <span class="prompt-mark">▸</span>
-    <textarea id="msg-input" rows="1" placeholder="向 Longma 发送消息…（输入 / 调出命令，Shift+Enter 换行）" autocomplete="off"></textarea>
+    <button class="input-mic" id="voice-btn" title="麦克风 开/关" type="button">🎤</button>
+    <textarea id="msg-input" rows="1" placeholder="向爻台发送消息…（输入 / 调出命令，Shift+Enter 换行）" autocomplete="off"></textarea>
     <button id="send-btn" type="button">发送</button>
   </div>
 </section>
@@ -233,7 +206,8 @@ const createConsole = () => `
 
 const createThemeSwitcher = () => `
 <div class="theme-switcher" id="theme-switcher">
-  <div class="theme-dot active" data-t="midnight" title="Midnight Steel"></div>
+  <div class="theme-dot active" data-t="neon" title="Neon 霓虹"></div>
+  <div class="theme-dot" data-t="midnight" title="Midnight Steel"></div>
   <div class="theme-dot" data-t="phosphor" title="Phosphor CRT"></div>
   <div class="theme-dot" data-t="violet" title="Violet Lab"></div>
   <div class="theme-dot" data-t="rose" title="Rose Dusk"></div>
@@ -244,6 +218,42 @@ const createThemeSwitcher = () => `
 
 const createTooltip = () => `
 <div id="tip"></div>
+`;
+
+// 多 Agent 办公室：成员配置弹层（全局 fixed，从军机处打开）
+const createMultiAgentConfigOverlay = () => `
+<div class="ma-config-overlay" id="ma-config-overlay" hidden>
+  <div class="ma-config-modal">
+    <div class="ma-config-head">
+      <span id="ma-config-title">配置成员</span>
+      <button class="ma-config-close" id="ma-config-close" type="button" title="关闭">×</button>
+    </div>
+    <div class="ma-config-body">
+      <label>头像 emoji<input id="cfg-avatar" type="text" placeholder="🤖" autocomplete="off" spellcheck="false"></label>
+      <label>头像图片 URL<input id="cfg-avatar-image" type="text" placeholder="https://…" autocomplete="off" spellcheck="false"></label>
+      <label>名称<input id="cfg-name" type="text" autocomplete="off" spellcheck="false"></label>
+      <label>官职 / 角色<input id="cfg-role" type="text" autocomplete="off" spellcheck="false"></label>
+      <label>引擎<select id="cfg-engine"><option value="internal">internal</option><option value="custom">custom</option><option value="cli">cli</option></select></label>
+      <div id="cfg-custom-fields" hidden>
+        <label>Base URL<input id="cfg-base-url" type="text" placeholder="http://localhost:11434/v1" autocomplete="off" spellcheck="false"></label>
+        <label>API Key<input id="cfg-api-key" type="password" placeholder="留空保持原值" autocomplete="new-password"></label>
+        <label>模型<input id="cfg-model" type="text" placeholder="qwen2.5 / gpt-4o…" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <div id="cfg-cli-fields" hidden>
+        <label>CLI 命令<input id="cfg-cli-command" type="text" placeholder="claude --output-format json" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <label>温度<input id="cfg-temperature" type="number" min="0" max="2" step="0.1" value="0.5"></label>
+      <label style="flex-direction:row;align-items:center;gap:8px;">开启语音<input id="cfg-voice-enabled" type="checkbox" style="width:auto;flex:none;"></label>
+      <label>语音音色 ID<input id="cfg-voice-id" type="text" placeholder="留空用默认" autocomplete="off" spellcheck="false"></label>
+      <label>私库记忆<textarea id="cfg-private-memory" placeholder="该成员的专属记忆（可为空）" autocomplete="off" spellcheck="false"></textarea></label>
+    </div>
+    <div class="ma-config-actions">
+      <button class="ma-config-task" id="ma-config-task" type="button">布置任务</button>
+      <button class="ma-config-save" id="ma-config-save" type="button">保存</button>
+      <button id="ma-config-cancel" type="button">取消</button>
+    </div>
+  </div>
+</div>
 `;
 
 const createSettingsModal = () => `
@@ -284,7 +294,7 @@ const createSettingsModal = () => `
             <div class="settings-section-label">AI 名字</div>
             <div class="settings-row">
               <label class="settings-label" for="settings-agent-name">显示名</label>
-              <input class="settings-input" id="settings-agent-name" type="text" maxlength="32" autocomplete="off" spellcheck="false" placeholder="小白龙">
+              <input class="settings-input" id="settings-agent-name" type="text" maxlength="32" autocomplete="off" spellcheck="false" placeholder="爻台">
             </div>
             <div class="settings-row-action">
               <button class="settings-save-btn" id="settings-save-agent-name" type="button">保存</button>
@@ -293,7 +303,7 @@ const createSettingsModal = () => `
           </div>
           <div class="settings-section">
             <div class="settings-section-label">记忆节点图</div>
-            <p class="settings-hint">开启后在背景显示记忆节点力导向图，会占用额外 CPU/GPU 资源，低配设备建议关闭。修改后需刷新页面生效。</p>
+            <p class="settings-hint">开启后在「作战指挥」页右侧显示记忆节点图谱，会占用额外 CPU/GPU 资源，低配设备建议关闭。修改后需刷新页面生效。</p>
             <div class="settings-row">
               <label class="settings-label" for="settings-memory-graph-toggle">显示记忆节点图</label>
               <input id="settings-memory-graph-toggle" type="checkbox" style="width:auto;flex:none;">
@@ -828,7 +838,7 @@ const createSettingsModal = () => `
           </div>
           <div class="settings-section">
             <div class="settings-section-label">局域网访问</div>
-            <p class="settings-hint">允许同一局域网内的设备访问本机白龙马 API，用于多台白龙马互相通信。开启或关闭后需要重启应用生效。</p>
+            <p class="settings-hint">允许同一局域网内的设备访问本机爻台 API，用于多台爻台互相通信。开启或关闭后需要重启应用生效。</p>
             <div class="settings-row">
               <label class="settings-label" for="security-lan-access">允许局域网访问</label>
               <label class="settings-toggle">
@@ -1002,8 +1012,8 @@ const createSettingsModal = () => `
 
 const createVoicePanel = () => `
 <div class="voice-panel" id="voice-panel">
-  <canvas id="voice-canvas" width="160" height="160"></canvas>
-  <canvas id="voice-fallback-canvas" width="160" height="160" hidden></canvas>
+  <canvas id="voice-canvas" width="160" height="160" title="太极八卦 · 点击打开易学看板（语音开关在 🎤）"></canvas>
+  <canvas id="voice-fallback-canvas" width="160" height="160" hidden title="太极八卦 · 点击打开易学看板（语音开关在 🎤）"></canvas>
   <div class="voice-transcript" id="voice-transcript"></div>
 </div>
 `;
@@ -1014,11 +1024,20 @@ const createVideoPanel = () => `
     <div class="media-stage-title" id="video-title">视频</div>
     <button class="video-exit-btn" id="video-exit-btn" type="button" title="关闭视频">x</button>
   </div>
+  <div class="video-input-bar">
+    <input id="video-url-input" type="text" placeholder="粘贴 YouTube / Bilibili / 直链 .mp4 链接…" autocomplete="off" spellcheck="false" />
+    <button id="video-url-play" type="button" title="播放">▶</button>
+  </div>
+  <div class="video-status" id="video-status" hidden></div>
   <div class="video-surface" id="video-surface">
     <div class="video-backdrop" id="video-backdrop"></div>
     <video id="video-feed" playsinline controls></video>
     <iframe id="video-frame" title="视频播放器" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen hidden></iframe>
     <div class="video-empty" id="video-empty">无视频源</div>
+  </div>
+  <div class="video-recent">
+    <div class="video-recent-title">最近播放</div>
+    <div class="video-recent-list" id="video-recent-list"></div>
   </div>
 </div>
 `;
@@ -1089,35 +1108,53 @@ const createAIVideoPanel = () => `
 const createMusicPanel = () => `
 <div class="music-panel" id="music-panel">
   <div class="media-stage-head">
-    <div class="media-stage-title" id="music-panel-title">音乐</div>
+    <div class="media-stage-title" id="music-panel-title">音乐 · 本地曲库</div>
     <button class="music-exit-btn" id="music-exit-btn" type="button" title="退出音乐模式">×</button>
   </div>
-  <div class="music-stage">
-    <div class="music-turntable">
-      <div class="music-vinyl" id="music-vinyl">
-        <div class="music-groove music-groove-1"></div>
-        <div class="music-groove music-groove-2"></div>
-        <div class="music-groove music-groove-3"></div>
-        <div class="music-groove music-groove-4"></div>
-        <div class="music-cover" id="music-cover">
-          <div class="music-cover-title" id="music-cover-title">♪</div>
-          <div class="music-cover-artist" id="music-cover-artist"></div>
+
+  <div class="music-body">
+    <div class="music-main">
+      <div class="music-turntable">
+        <div class="music-vinyl" id="music-vinyl">
+          <div class="music-groove music-groove-1"></div>
+          <div class="music-groove music-groove-2"></div>
+          <div class="music-groove music-groove-3"></div>
+          <div class="music-groove music-groove-4"></div>
+          <div class="music-cover" id="music-cover">
+            <div class="music-cover-title" id="music-cover-title">♪</div>
+            <div class="music-cover-artist" id="music-cover-artist"></div>
+          </div>
+          <div class="music-spindle"></div>
         </div>
-        <div class="music-spindle"></div>
+        <div class="music-tonearm-group" id="music-tonearm-group">
+          <div class="music-tonearm-pivot"></div>
+          <div class="music-arm-shaft"></div>
+          <div class="music-headshell">
+            <div class="music-stylus"></div>
+          </div>
+        </div>
       </div>
-      <div class="music-tonearm-group" id="music-tonearm-group">
-        <div class="music-tonearm-pivot"></div>
-        <div class="music-arm-shaft"></div>
-        <div class="music-headshell">
-          <div class="music-stylus"></div>
-        </div>
+      <div class="music-lyrics-pane" id="music-lyrics-pane">
+        <div class="music-lyrics-scroll" id="music-lyrics-scroll"></div>
+        <div class="music-no-lyrics" id="music-no-lyrics" hidden>— 无歌词 —</div>
       </div>
     </div>
-    <div class="music-lyrics-pane" id="music-lyrics-pane">
-      <div class="music-lyrics-scroll" id="music-lyrics-scroll"></div>
-      <div class="music-no-lyrics" id="music-no-lyrics" hidden>— 无歌词 —</div>
+
+    <div class="music-library">
+      <div class="music-library-head">
+        <input class="music-search" id="music-search" type="text" placeholder="搜索曲库（歌名 / 歌手）" autocomplete="off" spellcheck="false" />
+        <button class="music-scan" id="music-scan" type="button" title="扫描 music 目录入库">⟳</button>
+      </div>
+      <div class="music-library-list" id="music-library-list">
+        <div class="music-library-empty">曲库为空 · 点击「⟳ 扫描」从 music/ 目录收录，或直接让 AI 帮你下载</div>
+      </div>
+      <div class="music-add-row">
+        <input class="music-add-path" id="music-add-path" type="text" placeholder="本地音频路径（可选）" autocomplete="off" spellcheck="false" />
+        <button class="music-add-btn" id="music-add-btn" type="button" title="添加本地文件到曲库">＋</button>
+      </div>
     </div>
   </div>
+
   <div class="music-footer">
     <div class="music-meta">
       <div class="music-meta-title" id="music-meta-title">—</div>
@@ -1129,6 +1166,7 @@ const createMusicPanel = () => `
       <span class="music-time" id="music-time-total">0:00</span>
     </div>
     <div class="music-controls-row">
+      <button class="music-ctrl music-ctrl-mode" id="music-mode" type="button" title="播放模式：列表循环 / 单曲循环 / 随机播放">🔁</button>
       <button class="music-ctrl" id="music-prev" type="button" title="上一首">⏮</button>
       <button class="music-ctrl music-ctrl-play" id="music-play" type="button" title="播放/暂停">▶</button>
       <button class="music-ctrl" id="music-next" type="button" title="下一首">⏭</button>
@@ -1163,107 +1201,175 @@ const createMapPanel = () => `
     <div class="map-canvas" id="map-canvas"></div>
   </div>
 </div>
+`;/* ═══════════════ 侧边导航（参照 workspace.html） ═══════════════ */
+const createSidebar = () => `
+<aside class="sidebar" id="sidebar">
+  <div class="nav-section-title">导航</div>
+  <div class="nav-item active" data-page="dashboard" title="作战指挥中心">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <span>作战指挥</span>
+    <span class="nav-badge cyan" id="sidebar-badge-todo" style="display:none">0</span>
+  </div>
+  <div class="nav-item" data-page="chat" title="与爻台对话">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <span>AI 对话</span>
+  </div>
+  <div class="nav-item" data-page="multiagent" title="多Agent办公室（原多智能体会议室 / 军机处）">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <span>多Agent办公室</span>
+  </div>
+  <div class="nav-item" data-page="workbench" title="待办工作台">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    <span>待办工作</span>
+  </div>
+  <div class="nav-item" data-page="backup" title="数据备份">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+    <span>数据备份</span>
+  </div>
+</aside>
 `;
 
-const createPanelTabs = () => `
-<button id="panel-l1-tab" class="panel-tab panel-tab-left" aria-label="切换左面板" title="切换左面板 [ "></button>
-<button id="panel-l2-tab" class="panel-tab panel-tab-right" aria-label="切换右面板" title="切换右面板 ] "></button>
-`;
-
-// 多 Agent 虚拟集团会议室（群聊风格）：顶部成员头像，消息气泡带形象/名字/角色，董事长发言靠右。
-const createMultiAgentPanel = () => `
-<div class="multiagent-panel" id="multiagent-panel" hidden>
-  <!-- 顶部：会议室标题 + 成员 + 轮次 + 控制 -->
-  <div class="multiagent-head">
-    <span class="multiagent-title">🏯 军机处</span>
-    <span class="multiagent-seal" title="御批">朕准</span>
-    <span class="ma-round" id="ma-round" title="会议轮次（上限20）">轮次 0/20</span>
-    <button class="ma-voice-toggle" id="ma-voice-toggle" type="button" title="臣工语音回复（TTS）">🔇</button>
-    <button class="ma-kanban-toggle" id="ma-kanban-toggle" type="button" title="军机处任务看板">📜 军机处</button>
-    <button class="ma-end-meet" id="ma-end-meet" type="button" title="结束会议">散朝</button>
-    <button class="multiagent-exit" id="multiagent-exit" type="button" title="关闭军机处">×</button>
-  </div>
-
-  <!-- 在座成员（群头像） -->
-  <div class="ma-seats" id="ma-seats">
-    <div class="ma-seats-hint">员工就座中…</div>
-  </div>
-
-  <!-- 军机处看板：任务状态可视化 + 奏折审计 + 干预 -->
-  <div class="ma-kanban" id="ma-kanban" hidden>
-    <div class="ma-kanban-head">
-      <span class="ma-kanban-title">📜 军机处看板</span>
-      <span class="ma-kanban-hint">下旨：在发言框说「下旨：…」或点这里</span>
-      <button class="ma-kanban-refresh" id="ma-kanban-refresh" type="button">刷新</button>
-      <button class="ma-kanban-close" id="ma-kanban-close" type="button">×</button>
-    </div>
-    <div class="ma-kanban-body" id="ma-kanban-body">
-      <div class="ma-kanban-empty">暂无任务。说「下旨：做一个XX系统」启动三省六部流水线。</div>
-    </div>
-  </div>
-
-  <!-- 会议对话流 -->
-  <div class="ma-messages" id="ma-messages"></div>
-
-  <!-- 董事长发言区 -->
-  <div class="ma-input-row">
-    <span class="ma-boss-tag">👑 皇上</span>
-    <textarea id="ma-input" rows="1" placeholder="下旨：… 或点名某位臣工 · 也可按住空格直接说话"></textarea>
-    <button id="ma-send" type="button" title="发旨（点名者响应）">下旨</button>
-  </div>
-
-  <!-- Agent 配置弹层 -->
-  <div class="ma-config-overlay" id="ma-config-overlay" hidden>
-    <div class="ma-config-modal">
-      <div class="ma-config-head">
-        <span id="ma-config-title">Agent 配置</span>
-        <button class="ma-config-close" id="ma-config-close" type="button">×</button>
+/* ═══════════════ 主区页面（作战指挥 / 待办工作 / 数据备份） ═══════════════ */
+const createMainPages = () => `
+<main class="main" id="main">
+  <!-- 作战指挥中心 -->
+  <div class="page" id="page-dashboard">
+    <div class="page-header">
+      <div>
+        <div class="page-title">作战指挥中心</div>
+        <div class="page-subtitle">今日待办 · 记忆图谱 · 项目进度 · 一切尽在掌握</div>
       </div>
-      <div class="ma-config-body">
-        <label>形象 emoji <input id="cfg-avatar" type="text" maxlength="4"></label>
-        <label>形象图片 URL（可选）<input id="cfg-avatar-image" type="text" placeholder="https://… 或本地路径"></label>
-        <label>名字 <input id="cfg-name" type="text"></label>
-        <label>角色 <input id="cfg-role" type="text"></label>
-        <label>引擎
-          <select id="cfg-engine">
-            <option value="internal">internal（白龙马主模型+人格）</option>
-            <option value="custom">custom（自定义 OpenAI 兼容端点）</option>
-            <option value="cli">cli（Claude Code / Codex / Hermes 等）</option>
-          </select>
-        </label>
-        <div id="cfg-custom-fields">
-          <label>Base URL <input id="cfg-base-url" type="text" placeholder="https://api.xxx.com/v1"></label>
-          <label>API Key <input id="cfg-api-key" type="password" placeholder="留空保持现有"></label>
-          <label>模型 <input id="cfg-model" type="text" placeholder="如 gpt-4o / deepseek-chat"></label>
+    </div>
+    <div class="briefing">
+      <div class="card metric-card card-glow">
+        <div class="card-title">今日待办</div>
+        <div class="metric-value" id="dash-todo">0</div>
+        <div class="metric-label">条待办事项</div>
+      </div>
+      <div class="card metric-card purple card-glow">
+        <div class="card-title">已完成</div>
+        <div class="metric-value" id="dash-done">0</div>
+        <div class="metric-label">条已完成</div>
+      </div>
+      <div class="card metric-card orange card-glow">
+        <div class="card-title">记忆节点</div>
+        <div class="metric-value" id="dash-nodes">0</div>
+        <div class="metric-label">条记忆图谱</div>
+      </div>
+      <div class="card metric-card card-glow">
+        <div class="card-title">连接状态</div>
+        <div class="metric-value" id="dash-conn">●</div>
+        <div class="metric-label" id="dash-conn-label">Token流</div>
+      </div>
+    </div>
+    <div class="dash-grid">
+      <div class="card card-glow">
+        <div class="section-header"><div class="section-title">今日待办</div><div style="font-size:11px;color:var(--dim)">点击快速处理</div></div>
+        <div class="today-list" id="dash-todo-list"></div>
+      </div>
+      <div class="card card-glow">
+        <div class="section-header"><div class="section-title">记忆图谱</div><button class="dash-graph-btn" id="dash-graph-btn" type="button" title="全屏查看记忆图谱">⛶ 全屏图谱</button></div>
+        <div class="dash-graph-wrap" id="dash-graph-wrap">
+          <canvas id="dash-graph" class="dash-graph-canvas" aria-label="记忆图谱"></canvas>
+          <div class="dash-graph-empty" id="dash-graph-empty">记忆图谱未开启 · 在设置 → 外观中开启</div>
         </div>
-        <div id="cfg-cli-fields" hidden>
-          <label>CLI 命令 <input id="cfg-cli-command" type="text" placeholder="如 claude -p \'{prompt}\' 或 codex exec \'{prompt}\'"></label>
-        </div>
-        <label>温度 <input id="cfg-temperature" type="number" min="0" max="2" step="0.1" value="0.5"></label>
-        <label class="ma-cfg-check"><input id="cfg-voice-enabled" type="checkbox"> 语音回复（TTS）</label>
-        <label>语音音色（可选）<input id="cfg-voice-id" type="text" placeholder="如 zh_female_xiaohe"></label>
-        <label>私有记忆（仅该员工自己可见）
-          <textarea id="cfg-private-memory" rows="3" placeholder="存放演算草稿、内部清单、历史沉淀…"></textarea>
-        </label>
-      </div>
-      <div class="ma-config-actions">
-        <button class="ma-config-save" id="ma-config-save" type="button">保存</button>
-        <button class="ma-config-cancel" id="ma-config-cancel" type="button">取消</button>
-        <button class="ma-config-task" id="ma-config-task" type="button">布置任务</button>
+        <div class="legend" id="dash-legend"></div>
       </div>
     </div>
   </div>
-</div>
+
+  <!-- 多Agent办公室（v4 办公桌版：CEO 决策者坐镇会议桌，各员工在工位） -->
+  <div class="page" id="page-multiagent">
+    <div class="office-panel" id="multiagent-panel">
+      <header class="office-head">
+        <div class="office-logo">🐾 多Agent办公室 <small>v4</small></div>
+        <div class="office-stats">
+          <span class="office-stat"><i class="office-dot" style="background:#22b07d"></i>工作 <b id="c-w">0</b></span>
+          <span class="office-stat"><i class="office-dot" style="background:#e8a13a"></i>思考 <b id="c-t">0</b></span>
+          <span class="office-stat"><i class="office-dot" style="background:#9aa1b1"></i>空闲 <b id="c-i">0</b></span>
+          <span class="office-stat">✅ 完成 <b id="c-d">0</b></span>
+          <span class="office-clock" id="office-clock">--:--:--</span>
+        </div>
+        <button class="office-exit" id="multiagent-exit" type="button" title="退出多Agent办公室">×</button>
+      </header>
+
+      <main class="office-main">
+        <div class="office-stage" id="office-stage">
+          <div class="office-floor" id="office-floor">
+            <div class="office-table"><span>信息交互区 · 会议桌</span></div>
+            <div class="office-tip">输入指令 → CEO 拆解分派 → 员工执行并到会议桌汇报</div>
+          </div>
+        </div>
+
+        <div class="office-side">
+          <div class="office-sec-title">AGENT 档案</div>
+          <div class="office-card" id="office-agent-card"></div>
+          <div class="office-sec-title">💬 对话 &amp; 日志</div>
+          <div class="office-messages" id="office-messages"></div>
+        </div>
+      </main>
+
+      <footer class="office-foot">
+        <input id="ma-input" placeholder="输入指令或任务，例如：整理本周会议纪要…（@点名某员工则直接交给他）" autocomplete="off" spellcheck="false" />
+        <button id="ma-send" type="button">📣 发送</button>
+      </footer>
+    </div>
+  </div>
+
+  <!-- 待办工作台 -->
+  <div class="page" id="page-workbench">
+    <div class="page-header">
+      <div>
+        <div class="page-title">待办工作台</div>
+        <div class="page-subtitle">管理任务 · 完成进度 · 每周复盘</div>
+      </div>
+    </div>
+    <div class="card card-glow">
+      <div class="task-tabs">
+        <div class="task-tab active" data-wt="pending">待办</div>
+        <div class="task-tab" data-wt="done">已完成</div>
+      </div>
+      <div class="task-list" id="wb-page-list"></div>
+      <div class="add-task-bar">
+        <input id="wb-page-input" placeholder="+ 添加待办（回车确认）" autocomplete="off">
+        <button class="btn btn-primary" id="wb-page-add">添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据备份 -->
+  <div class="page" id="page-backup">
+    <div class="page-header">
+      <div>
+        <div class="page-title">数据备份</div>
+        <div class="page-subtitle">导出 JSON · 导入恢复</div>
+      </div>
+    </div>
+    <div class="card card-glow">
+      <div class="settings-row">
+        <div><div class="settings-label">📥 导出 JSON 备份</div><div class="settings-desc">下载当前记忆与待办数据</div></div>
+        <button class="btn" id="backup-export">导出</button>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-label">📤 导入恢复</div><div class="settings-desc">从 JSON 备份恢复（覆盖当前待办）</div></div>
+        <label class="btn">选择文件<input type="file" id="backup-file" accept=".json" hidden></label>
+      </div>
+    </div>
+  </div>
+</main>
 `;
 
 export function createBrainUiMarkup() {
   return [
+    createNavbar(),
+    createSidebar(),
+    createMainPages(),
     createGraphStage(),
-    createPrimaryPanel(),
     createSecondaryPanel(),
     createConsole(),
     createTooltip(),
     createSettingsModal(),
+    createMultiAgentConfigOverlay(),
     createVideoPanel(),
     createAIVideoPanel(),
     createMusicPanel(),
@@ -1274,11 +1380,11 @@ export function createBrainUiMarkup() {
     createTyphoonPanel(),
     createPersonCardPanel(),
     createDocPanel(),
-    createMultiAgentPanel(),
+    createBaguaPanel(),
   ].join("\n\n");
 }
 
 export function renderBrainUiApp(root = document.body) {
-  root.dataset.theme = "midnight";
+  root.dataset.theme = "neon";
   root.innerHTML = createBrainUiMarkup();
 }

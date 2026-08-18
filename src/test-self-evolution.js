@@ -50,7 +50,7 @@ try {
     timestamp: '2026-06-29T00:01:00.000Z',
   })
 
-  const first = evo.recordSelfEvolutionFromMemories([
+  const first = await evo.recordSelfEvolutionFromMemories([
     { mem_id: 'lesson_file_work_verify_after_patch', action: 'inserted' },
     { mem_id: 'fact_user_prefers_green_tea', action: 'inserted' },
   ])
@@ -63,7 +63,7 @@ try {
   assert(state.learned_count === 1, 'learned count tracks unique recent memories')
   assert(state.recent[0]?.mem_id === 'lesson_file_work_verify_after_patch', 'recent journal stores the learned memory')
 
-  const second = evo.recordSelfEvolutionFromMemories([
+  const second = await evo.recordSelfEvolutionFromMemories([
     { mem_id: 'lesson_file_work_verify_after_patch', action: 'updated' },
   ])
 

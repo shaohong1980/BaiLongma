@@ -301,21 +301,25 @@ const VISIBLE_CLAUSE = 'visibility = 1'
 
 // 候选实体：fact/person 记忆数 ≥3 的 entity ID，按出现次数倒序
 // 只统计 visible 行（否则已经被合并隐藏的记忆还会反复让同一 entity 被挑出来）
+// 实现：把 entities JSON 数组的展开（json_each）、计数、过滤、排序、分页全部下推到
+// SQLite 端，避免把全表 entities 列拉到 JS 内存逐条 JSON.parse（记忆量大时是 O(N) 全表扫描）。
+// json_valid + json_type 兜底：历史脏数据（非法 JSON / 非数组）不参与计数，与旧 JS 行为一致。
 export function getCandidateEntitiesForConsolidation(limit = 10) {
   const db = getDB()
-  const rows = db.prepare(`SELECT entities FROM memories WHERE event_type IN ('fact','person') AND ${VISIBLE_CLAUSE}`).all()
-  const counts = new Map()
-  for (const r of rows) {
-    try {
-      const arr = JSON.parse(r.entities || '[]')
-      for (const e of arr) counts.set(e, (counts.get(e) || 0) + 1)
-    } catch {}
-  }
-  return [...counts.entries()]
-    .filter(([e, c]) => e && c >= 3)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, limit)
-    .map(([entity, count]) => ({ entity, count }))
+  return db.prepare(`
+    SELECT j.value AS entity, COUNT(*) AS count
+    FROM memories m
+    JOIN json_each(
+      CASE WHEN json_valid(m.entities) = 1 AND json_type(m.entities) = 'array'
+           THEN m.entities ELSE '[]' END
+    ) AS j
+    WHERE m.event_type IN ('fact','person') AND ${VISIBLE_CLAUSE}
+      AND j.value IS NOT NULL AND j.value <> ''
+    GROUP BY j.value
+    HAVING count >= 3
+    ORDER BY count DESC, MIN(m.id) ASC
+    LIMIT ?
+  `).all(limit)
 }
 
 // 读取配置
@@ -1193,17 +1197,25 @@ export function getRecentConversation(entityId, limit = 20, maxHours = 24, { inc
     return rows.reverse()
   }
 
-  // 线索模型（DynamicMemoryPool.md 8.3 原语 4）：absorbed 棘轮退役。
-  // 写端（markConversationsAbsorbed）已无人调用；读端也不再按 focus_absorbed 过滤——
-  // 历史上被时间区间误标记的行不该永久隐藏（误丢的代价是失忆，不可恢复）。
-  // "主线深化时不看子线索原文"由读时选择（thread_id + buildThreadView）天然完成。
+  // 线索模型（DynamicMemoryPool.md 8.3 原语 4）：已压缩回填的子帧对话被 focus-compress.js
+  // 标记 focus_absorbed=1，读端默认不注入（主线深化时剔除残留噪声）；但保留「最近
+  // RECENT_RAW_CONTEXT_FLOOR 条 raw」豁免——连续性优先，刚压缩完的对话仍在最近窗口内可见，
+  // 避免"刚说过的话立刻从上下文消失"。写端只在成功写出 conclusion 后才标记，误标记由写端控制。
   const rows = db.prepare(`
     SELECT ${CONVERSATION_COLUMNS} FROM conversations
     WHERE (from_id = ? OR to_id = ?)
     AND timestamp >= ?
+    AND (
+      focus_absorbed = 0
+      OR id IN (
+        SELECT id FROM conversations
+        WHERE (from_id = ? OR to_id = ?) AND timestamp >= ?
+        ORDER BY id DESC LIMIT ?
+      )
+    )
     ORDER BY timestamp DESC, id DESC
     LIMIT ?
-  `).all(normalizedId, normalizedId, cutoff, safeLimit)
+  `).all(normalizedId, normalizedId, cutoff, normalizedId, normalizedId, cutoff, RECENT_RAW_CONTEXT_FLOOR, safeLimit)
   return rows.reverse() // 按时间正序返回
 }
 
@@ -1223,13 +1235,19 @@ export function getRecentConversationTimeline(limit = 20, maxHours = 24, { inclu
     return rows.reverse()
   }
 
-  // absorbed 棘轮退役（同 getRecentConversation 的说明）：不再按 focus_absorbed 过滤。
+  // 与 getRecentConversation 相同：默认隐藏已压缩回填的 absorbed 行，保留最近 raw floor 豁免。
   const rows = db.prepare(`
     SELECT ${CONVERSATION_COLUMNS} FROM conversations
     WHERE timestamp >= ?
+    AND (
+      focus_absorbed = 0
+      OR id IN (
+        SELECT id FROM conversations WHERE timestamp >= ? ORDER BY id DESC LIMIT ?
+      )
+    )
     ORDER BY timestamp DESC, id DESC
     LIMIT ?
-  `).all(cutoff, safeLimit)
+  `).all(cutoff, cutoff, RECENT_RAW_CONTEXT_FLOOR, safeLimit)
   return rows.reverse()
 }
 
@@ -1427,61 +1445,66 @@ function cosineSimilarity(aBuf, bBuf) {
   return denom > 0 ? dot / denom : -1
 }
 
-// 全表扫描所有有 embedding 的 memories，返回 cosine 相似度 top-N。
+// 扫描所有有 embedding 的 memories，返回 cosine 相似度 top-N。
 // 输入 queryBuffer：Buffer，包裹 Float32Array。
 // 返回：每条形如 {...memoryRow, _vecScore: number}。
 //
-// Wave 1 优化：scaling 防御 —— 行数超过 VEC_FULL_SCAN_LIMIT 时直接返回 []，
-// 让上层走 FTS5 兜底。理由：纯 JS cosine 在 N×1024 维度下 N>5k 后单次
-// 召回会到几百毫秒，把主路径同步阻塞拖到秒级。当前 DB 实测 0 行 embedding，
-// 这条是预防 embedding-backfill 跑起来后突然变慢的"未来 bug"。
-// 真要支持大表向量召回应接 sqlite-vec 扩展或外部 ANN，此处先保命。
-const VEC_FULL_SCAN_LIMIT = 5000
+// Wave 2 优化：分块扫描 —— 从"一次性拉全表（N×1024 维 ≈ 4KB/行 BLOB）"改为
+// 按 id 分批拉取（VEC_SCAN_BATCH_SIZE 行/批），内存峰值恒定，且把可召回规模
+// 从 5k 提升到 50k（VEC_HARD_LIMIT）。超过硬上限仍静默跳过走 FTS5 兜底——
+// 纯 JS cosine 的 O(N×dim) 始终有物理上限，真正大表应接 sqlite-vec / 外部 ANN。
+const VEC_SCAN_BATCH_SIZE = 500
+const VEC_HARD_LIMIT = 50_000
 
 export function searchByEmbedding(queryBuffer, limit = 20) {
   if (!queryBuffer || !(queryBuffer instanceof Buffer) || queryBuffer.byteLength === 0) return []
   const db = getDB()
 
   // 只比与 query 同维度的向量：切换嵌入模型后旧维度向量（如云端 1536/2048）既不参与
-  // 召回、也不挤占 VEC_FULL_SCAN_LIMIT 名额。embedding_dim IS NULL 是迁移前写入的历史行，
+  // 召回、也不挤占可召回规模。embedding_dim IS NULL 是迁移前写入的历史行，
   // 一并纳入候选，由 cosineSimilarity 的 byteLength 守卫兜底剔除真正不同维度的。
   const queryDim = Math.floor(queryBuffer.byteLength / 4)
   const DIM_CLAUSE = `(embedding_dim = ${queryDim} OR embedding_dim IS NULL)`
 
   // 上限保护：先 COUNT，超限直接返回。better-sqlite3 + WAL + 索引扫描，几 ms 就回。
+  let count = 0
   try {
     const countRow = db.prepare(`SELECT COUNT(*) AS c FROM memories WHERE embedding IS NOT NULL AND ${DIM_CLAUSE} AND ${VISIBLE_CLAUSE}`).get()
-    if (countRow && countRow.c > VEC_FULL_SCAN_LIMIT) {
-      // 静默跳过，不打 warn——这条会被 inject 链路每条消息都走一次，
-      // 噪声日志反而干扰调试。需要时把这里改成节流日志。
-      return []
-    }
+    count = countRow?.c || 0
   } catch {
-    // 老库 schema 未迁移：COUNT 失败 → 走原路径让 SELECT 自己决定 fallback
+    // 老库 schema 未迁移：COUNT 失败 → 走分块 SELECT 的 fallback
   }
-
-  let rows
-  try {
-    // 软隐藏过滤：被隐藏的记忆即使有 embedding 也不参与召回
-    rows = db.prepare(`SELECT * FROM memories WHERE embedding IS NOT NULL AND ${DIM_CLAUSE} AND ${VISIBLE_CLAUSE}`).all()
-  } catch {
-    // 老库 embedding_dim 列未迁移：退回不带维度过滤的原查询（cosine 守卫仍会剔除异维度）
-    try {
-      rows = db.prepare(`SELECT * FROM memories WHERE embedding IS NOT NULL AND ${VISIBLE_CLAUSE}`).all()
-    } catch {
-      return []
-    }
+  if (count === 0) return []
+  if (count > VEC_HARD_LIMIT) {
+    // 静默跳过，不打 warn——这条会被 inject 链路每条消息都走一次，
+    // 噪声日志反而干扰调试。需要时把这里改成节流日志。
+    return []
   }
-  if (!rows.length) return []
 
   const scored = []
-  for (const row of rows) {
-    const score = cosineSimilarity(queryBuffer, row.embedding)
-    if (score <= -1) continue
-    // 别把 BLOB 一路传到调用方（大、没用、JSON 序列化会出乱码）
-    const { embedding: _drop, ...rest } = row
-    scored.push({ ...rest, _vecScore: score })
+  const safeLimit = Math.max(1, Math.floor(Number(limit) || 20))
+  let offset = 0
+  // 分块扫描：每次只取一批行，避免一次把全表 BLOB 拉进内存。
+  while (offset < count) {
+    let rows
+    try {
+      rows = db.prepare(`SELECT * FROM memories WHERE embedding IS NOT NULL AND ${DIM_CLAUSE} AND ${VISIBLE_CLAUSE} ORDER BY id LIMIT ? OFFSET ?`).all(VEC_SCAN_BATCH_SIZE, offset)
+    } catch {
+      // 老库 embedding_dim 列未迁移：退回不带维度过滤的原查询（cosine 守卫仍会剔除异维度）
+      try {
+        rows = db.prepare(`SELECT * FROM memories WHERE embedding IS NOT NULL AND ${VISIBLE_CLAUSE} ORDER BY id LIMIT ? OFFSET ?`).all(VEC_SCAN_BATCH_SIZE, offset)
+      } catch { break }
+    }
+    if (!rows || rows.length === 0) break
+    for (const row of rows) {
+      const score = cosineSimilarity(queryBuffer, row.embedding)
+      if (score <= -1) continue
+      // 别把 BLOB 一路传到调用方（大、没用、JSON 序列化会出乱码）
+      const { embedding: _drop, ...rest } = row
+      scored.push({ ...rest, _vecScore: score })
+    }
+    offset += VEC_SCAN_BATCH_SIZE
   }
   scored.sort((a, b) => b._vecScore - a._vecScore)
-  return scored.slice(0, Math.max(0, limit))
+  return scored.slice(0, safeLimit)
 }

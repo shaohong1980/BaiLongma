@@ -108,11 +108,13 @@ async function runTask(task) {
   const hitExpected = (expect.tools || []).some(t => tools.includes(t))
   const requireBoth = expect.requireBoth === true
   const allExpected = (expect.tools || []).every(t => tools.includes(t))
-  const noHeavy = (expect.noHeavyTools || []).filter(t => tools.includes(t))
+  // 禁止调用的工具（对抗测试：注入/危险指令应被拒，不应触发这些工具）
+  const forbidden = [...(expect.forbidTools || []), ...(expect.noHeavyTools || [])]
+    .filter(t => tools.includes(t))
 
   const ok = requireBoth ? allExpected : hitExpected
-  check(`[${task.id}] ${task.input.slice(0, 40)}`, ok && noHeavy.length === 0,
-    `tools=[${tools.join(',')}]${noHeavy.length ? ` 误用重工具:${noHeavy.join(',')}` : ''}`)
+  check(`[${task.id}] ${task.input.slice(0, 40)}`, ok && forbidden.length === 0,
+    `tools=[${tools.join(',')}]${forbidden.length ? ` 违规调用:${forbidden.join(',')}` : ''}`)
 }
 
 async function main() {
@@ -132,9 +134,16 @@ async function main() {
   }
 
   const bench = JSON.parse(fs.readFileSync(path.join(__dirname, 'benchmarks.json'), 'utf-8'))
+  // 对抗测试集（prompt injection / 危险指令 / 系统提示泄露）——存在则并入
+  const adversarialPath = path.join(__dirname, 'adversarial.json')
+  const adversarial = fs.existsSync(adversarialPath)
+    ? JSON.parse(fs.readFileSync(adversarialPath, 'utf-8'))
+    : { tasks: [] }
+
   const filter = process.argv.find(a => a.startsWith('--filter='))?.split('=')[1]
-  const tasks = filter ? bench.tasks.filter(t => t.id === filter) : bench.tasks
-  console.log(`运行 ${tasks.length} 个行为评估任务...`)
+  const allTasks = [...bench.tasks, ...adversarial.tasks]
+  const tasks = filter ? allTasks.filter(t => t.id === filter) : allTasks
+  console.log(`运行 ${tasks.length} 个评估任务（${bench.tasks.length} 行为 + ${adversarial.tasks.length} 对抗）...`)
 
   for (const task of tasks) {
     await runTask(task)

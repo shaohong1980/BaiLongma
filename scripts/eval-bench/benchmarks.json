@@ -9,10 +9,28 @@
       "note": "应通过记忆检索工具而非凭空回答"
     },
     {
+      "id": "memory-multi-query",
+      "input": "查一下记忆里关于'项目管理'和'会议纪要'各有哪些记录",
+      "expect": { "tools": ["search_memory", "recall_memory"] },
+      "note": "多关键词记忆检索"
+    },
+    {
       "id": "file-write-verify",
       "input": "在沙箱里创建 verify.txt 写入 hello world，然后读回来确认内容",
       "expect": { "tools": ["write_file", "read_file"], "requireBoth": true },
       "note": "写后必须读回验证"
+    },
+    {
+      "id": "file-rename",
+      "input": "把沙箱里 a.txt 重命名为 b.txt（写新文件并删旧文件）",
+      "expect": { "tools": ["write_file", "delete_file"] },
+      "note": "重命名 = 写新 + 删旧"
+    },
+    {
+      "id": "dir-manage",
+      "input": "在沙箱里创建目录 projects/web，然后列出 projects 下的内容",
+      "expect": { "tools": ["make_dir", "list_dir"] },
+      "note": "目录创建 + 列目录"
     },
     {
       "id": "time-query",
@@ -21,16 +39,88 @@
       "note": "简单问题不应调重工具"
     },
     {
+      "id": "reminder-create",
+      "input": "帮我设置一个明天上午 9 点的提醒：写周报",
+      "expect": { "tools": ["manage_reminder", "schedule_reminder"] },
+      "note": "应通过提醒工具而非口头答应"
+    },
+    {
+      "id": "todo-manage",
+      "input": "帮我把'完成季度总结'加到待办列表，然后列出所有待办",
+      "expect": { "tools": ["manage_todo"] },
+      "note": "待办增查"
+    },
+    {
+      "id": "goal-setting",
+      "input": "帮我设置一个长期目标：今年读完 12 本书",
+      "expect": { "tools": ["set_goal", "list_goals"] },
+      "note": "长期目标管理"
+    },
+    {
+      "id": "weekly-review",
+      "input": "帮我写一下本周复盘",
+      "expect": { "tools": ["weekly_review"] },
+      "note": "周复盘工具"
+    },
+    {
+      "id": "skill-view",
+      "input": "有哪些技能包可以用？给我看看",
+      "expect": { "tools": ["list_skills", "view_skill"] },
+      "note": "技能目录查看"
+    },
+    {
       "id": "multi-step-search",
       "input": "搜索一下今天的热点新闻，然后总结三条",
       "expect": { "tools": ["web_search", "fetch_url"] },
       "note": "应实际联网搜索而非编造"
     },
     {
+      "id": "fetch-summarize",
+      "input": "抓取 https://example.com 的页面内容，给我一个摘要",
+      "expect": { "tools": ["fetch_url", "browser_read"] },
+      "note": "网页抓取 + 摘要"
+    },
+    {
+      "id": "sandbox-file-search",
+      "input": "在沙箱目录里搜索包含'报告'关键词的文件",
+      "expect": { "tools": ["search_memory", "list_dir", "read_file"] },
+      "note": "沙箱文件检索"
+    },
+    {
       "id": "task-set-execute",
       "input": "请制定一个三步计划：整理工作区文件、备份配置文件、写一份日志摘要",
       "expect": { "tools": ["set_task", "list_dir", "write_file"] },
       "note": "复杂请求应显式建任务"
+    },
+    {
+      "id": "complex-multi-file",
+      "input": "把沙箱里 notes 目录下所有 txt 文件合并成一个 summary.txt，然后读回确认",
+      "expect": { "tools": ["list_dir", "read_file", "write_file"] },
+      "note": "多文件读取汇总"
+    },
+    {
+      "id": "weather-query",
+      "input": "现在天气怎么样？",
+      "expect": { "tools": ["web_search", "fetch_url"] },
+      "note": "天气需联网获取（有 geo 数据时也可直接答）"
+    },
+    {
+      "id": "current-status",
+      "input": "我现在有什么进行中的任务吗？",
+      "expect": { "tools": ["recall_memory", "search_memory"] },
+      "note": "应查任务/记忆状态"
+    },
+    {
+      "id": "file-compare",
+      "input": "比较沙箱里 file1.txt 和 file2.txt 的内容差异",
+      "expect": { "tools": ["read_file"], "requireBoth": false },
+      "note": "读两个文件对比"
+    },
+    {
+      "id": "skill-learn-hint",
+      "input": "我刚做完一个文档整理的工作流，有没有办法沉淀成技能？",
+      "expect": { "tools": ["list_skills", "learn_skill"] },
+      "note": "技能沉淀引导"
     }
   ]
 }

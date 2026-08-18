@@ -20,9 +20,9 @@ import { buildVisemeTimeline, getVisemeAt } from "./viseme.js";
 import { initAudioOutputRouting, applyOutputSink, listOutputDevices, getOutputPreference, setOutputPreference } from "./audio-output.js";
 import { parseEntities, parseLinks, deterministicIndex, shuffleArray, createVisualOrder } from "./memory-graph.js";
 import { initUiZoom } from "./ui-zoom.js";
+import { physicsSettings, themeColors, readCSSVar, readPhysicsSettings, savePhysicsSettings, refreshThemeColors } from "./ui-preferences.js";
 renderBrainUiApp(document.body);
 const THEME_KEY = "jarvis-brain-ui-theme";
-const PHYSICS_STORAGE_KEY = "jarvis-brain-ui-physics";
 const ACTIVATION_WARMUP_KEY = "bailongma_activation_warmup_until";
 const MAX_CHAT_HISTORY = 60;
 const DEFAULT_AGENT_NAME = "爻台";
@@ -86,11 +86,7 @@ async function loadAgentProfile() {
   } catch {}
 }
 
-const physicsSettings = {
-  gravity: 1,
-  repulsion: 1.35,
-  nodeSize: 1,
-};
+;
 
 requestAnimationFrame(() => {
   themeSwitcher.classList.add("visible");
@@ -98,28 +94,11 @@ requestAnimationFrame(() => {
   physicsControl.classList.add("visible");
 });
 
-function readCSSVar(name) {
-  return getComputedStyle(document.body).getPropertyValue(name).trim();
-}
 
-function readPhysicsSettings() {
-  try {
-    const raw = localStorage.getItem(PHYSICS_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      if (typeof parsed.gravity === "number") physicsSettings.gravity = parsed.gravity;
-      if (typeof parsed.repulsion === "number") physicsSettings.repulsion = parsed.repulsion;
-      if (typeof parsed.nodeSize === "number") physicsSettings.nodeSize = parsed.nodeSize;
-    }
-  } catch {}
-}
 
-function savePhysicsSettings() {
-  try {
-    localStorage.setItem(PHYSICS_STORAGE_KEY, JSON.stringify(physicsSettings));
-  } catch {}
-}
+
+
+
 
 function updatePhysicsReadout() {
   gravitySlider.value = String(physicsSettings.gravity);
@@ -130,19 +109,7 @@ function updatePhysicsReadout() {
   nodeSizeValue.textContent = `${physicsSettings.nodeSize.toFixed(2)}x`;
 }
 
-let themeColors = {};
-function refreshThemeColors() {
-  themeColors = {
-    cool: readCSSVar("--cool"),
-    warm: readCSSVar("--warm"),
-    nodeLow: readCSSVar("--node-low"),
-    nodeHigh: readCSSVar("--node-high"),
-    dim: readCSSVar("--dim"),
-    ink2: readCSSVar("--ink2"),
-    linkStroke: readCSSVar("--link-stroke"),
-    bg0: readCSSVar("--bg0"),
-  };
-}
+
 
 function applyTheme(theme) {
   document.body.dataset.theme = theme;

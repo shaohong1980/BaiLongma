@@ -14,6 +14,13 @@ import { buildAutonomousTickDirections } from './runtime/tick-policy.js'
 
 getDB()
 
+// test-runner 是调用真实 LLM 的集成测试。未激活（无 API key）时快速跳过，
+// 避免在 CI / 无 key 环境白等网络超时（此前实测无 key 会卡 ~193s）。
+if (config.needsActivation) {
+  console.log('SKIP: 未激活（无 LLM API key）——test-runner 需真实 LLM，跳过')
+  process.exit(0)
+}
+
 const state = {
   action: null,
   task: null,

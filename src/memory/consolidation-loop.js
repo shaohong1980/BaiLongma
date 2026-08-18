@@ -1,4 +1,5 @@
 import { getCandidateEntitiesForConsolidation, getMemoriesByEntity, getMemoryCount } from '../db.js'
+import { getMemoryHealth, formatMemoryHealth } from './health.js'
 import { runConsolidator } from './consolidator.js'
 import { maybeSyncVault } from './vault.js'
 import { maybeGenerateBriefing } from '../runtime/briefing.js'
@@ -69,6 +70,11 @@ async function scheduleNext() {
       scheduleNext()
     }, interval)
     console.log(`[整合循环] 下次运行约 ${Math.round(interval / 60000)} 分钟后（记忆 ${memCount} 条）`)
+    // P2 记忆健康度：每周期输出一次质量报告（低价值/冗余/分布），供调优整理与注入策略
+    try {
+      const health = getMemoryHealth()
+      if (health) console.log(`[记忆健康度] ${formatMemoryHealth(health)}`)
+    } catch {}
   } catch (err) {
     // getMemoryCount 异常不应让循环停摆：回退 30 分钟并继续
     timer = setTimeout(scheduleNext, 30 * 60 * 1000)

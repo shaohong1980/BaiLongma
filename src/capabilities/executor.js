@@ -38,6 +38,7 @@ import { execJunjichu } from '../multi-agent/control.js'
 import { execHotspotMode, execWorldcupMode, execTyphoonMode, execBaguaMode, execMapMode, execOpenDocPanel, execPersonCardMode } from "./tools/panels.js"
 import { runTask as runA2ATask } from '../agents/a2a-client.js'
 import { recordReflection, buildReflectionFromFailure } from '../memory/reflection.js'
+import { deliveryVerifyNoticeFromLogs } from '../runtime/delivery-verify.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
 import { execManageRule } from './tools/rules.js'
@@ -702,33 +703,12 @@ function execSetTask({ description, steps = [] }, context) {
   return hints.length ? `${base}\n\n${hints.map(h => '⚠ ' + h).join('\n')}` : base
 }
 
-// 收尾软门（2026-06-10）：complete_task 照常执行（不拦截——第一原则），但 runtime 查一眼
-// action_log——任务期间产出过文件/执行过命令、却没有任何验证类动作（fetch_url / browser_read /
-// review_work）时，把这个事实作为证据附在返回值里。实测失败模式：写完文件开个浏览器就汇报
-// 做好了，页面 404 两次都是用户先发现的。
-const VERIFY_TOOL_NAMES = new Set(['fetch_url', 'browser_read', 'review_work'])
-const ARTIFACT_TOOL_NAMES = new Set(['write_file', 'make_dir'])
-
+// 收尾软门（P2：统一到 src/runtime/delivery-verify.js）：complete_task 照常执行
+// （不拦截——第一原则），但 runtime 查一眼 action_log——任务期间产出过文件/执行过命令、
+// 却没有任何验证类动作（fetch_url / browser_read / review_work / 读回）时，把证据附在返回值里。
 function unverifiedDeliveryNotice() {
   try {
-    const logs = getRecentActionLogs(40) || []   // 旧→新
-    let lastArtifactIdx = -1
-    for (let i = logs.length - 1; i >= 0; i--) {
-      const t = logs[i]?.tool || ''
-      const summary = String(logs[i]?.summary || '')
-      if (ARTIFACT_TOOL_NAMES.has(t)) { lastArtifactIdx = i; break }
-      // 起服务也算产出动作
-      if (t === 'exec_command' && /node |npm start|server|serve|python .*http/i.test(summary)) { lastArtifactIdx = i; break }
-    }
-    if (lastArtifactIdx < 0) return ''
-    for (let i = lastArtifactIdx + 1; i < logs.length; i++) {
-      const t = logs[i]?.tool || ''
-      const summary = String(logs[i]?.summary || '')
-      if (VERIFY_TOOL_NAMES.has(t)) return ''
-      if (t === 'exec_command' && /curl|invoke-webrequest|invoke-restmethod|--check|--test/i.test(summary)) return ''
-      if (t === 'read_file') return ''   // 读回产物也算一种核对
-    }
-    return '注意：本任务产出了文件/起了服务，但收尾前没有任何验证动作（fetch_url / browser_read / review_work / 读回产物）。任务已照常收尾——如果你还没亲自确认成果真的能跑，现在就去验证；发现问题立刻修复并如实告知用户，别等用户先发现。'
+    return deliveryVerifyNoticeFromLogs(getRecentActionLogs(40) || [])
   } catch {
     return ''
   }

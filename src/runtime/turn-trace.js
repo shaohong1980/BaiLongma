@@ -236,3 +236,64 @@ export function getTraceStatus() {
   ensureLoaded()
   return { enabled, count: traces.length, maxTurns: MAX_TURNS }
 }
+
+// ── OTel 导出（OTLP/JSON 近似）──
+// 把 turn-trace 转成 OpenTelemetry trace 结构（resourceSpans/scopeSpans/spans），
+// 供 AgentOps/LangSmith 类平台消费。主 span = 一次 turn，rounds = 子 span。
+export function toOtelSpans(trace) {
+  if (!trace || !trace.traceId) return []
+  const startNano = String(Date.parse(trace.startedAt || new Date().toISOString()) * 1e6)
+  const endNano = String((trace.finishedAt ? Date.parse(trace.finishedAt) : Date.now()) * 1e6)
+  const attrs = (obj = {}) => Object.entries(obj)
+    .filter(([, v]) => v !== undefined && v !== null && v !== '')
+    .map(([key, value]) => ({ key, value: { stringValue: String(value).slice(0, 500) } }))
+
+  const roundSpans = (trace.rounds || []).map((r, i) => ({
+    traceId: trace.traceId,
+    spanId: genSpanId(),
+    parentSpanId: trace.spanId,
+    name: `round_${r.round ?? i}`,
+    kind: 'INTERNAL',
+    startTimeUnixNano: startNano,
+    endTimeUnixNano: endNano,
+    status: { code: r.aborted ? 'STATUS_CODE_ERROR' : 'STATUS_CODE_OK' },
+    attributes: attrs({ round: r.round, content_len: (r.content || '').length, tool_calls: (r.toolCalls || []).length }),
+  }))
+
+  const mainSpan = {
+    traceId: trace.traceId,
+    spanId: trace.spanId,
+    ...(trace.parentSpanId ? { parentSpanId: trace.parentSpanId } : {}),
+    name: 'turn',
+    kind: 'INTERNAL',
+    startTimeUnixNano: startNano,
+    endTimeUnixNano: endNano,
+    status: {
+      code: trace.status?.code === 'ERROR' ? 'STATUS_CODE_ERROR' : 'STATUS_CODE_OK',
+      ...(trace.status?.description ? { message: trace.status.description } : {}),
+    },
+    attributes: attrs({
+      seq: trace.seq,
+      delivered: trace.delivered,
+      aborted: trace.aborted,
+      label: trace.meta?.label,
+      channel: trace.meta?.channel,
+      from: trace.meta?.fromId,
+      round_count: (trace.rounds || []).length,
+      message_count: (trace.messages || []).length,
+    }),
+  }
+  return [mainSpan, ...roundSpans]
+}
+
+export function exportOtelTraces(limit = 10) {
+  ensureLoaded()
+  const n = Math.max(1, Math.min(limit, MAX_TURNS))
+  const recent = traces.slice(-n)
+  return {
+    resourceSpans: [{
+      resource: { attributes: [{ key: 'service.name', value: { stringValue: 'bailongma' } }] },
+      scopeSpans: [{ scope: { name: 'bailongma.turn' }, spans: recent.flatMap(toOtelSpans) }],
+    }],
+  }
+}

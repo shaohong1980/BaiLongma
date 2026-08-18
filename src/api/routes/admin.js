@@ -4,7 +4,7 @@ import { getDB } from '../../db.js'
 import { emitEvent as defaultEmitEvent } from '../../events.js'
 import { paths } from '../../paths.js'
 import { startLoop as defaultStartLoop, stopLoop as defaultStopLoop } from '../../control.js'
-import { clearTraces, getTrace, getTraces, getTraceStatus } from '../../runtime/turn-trace.js'
+import { clearTraces, getTrace, getTraces, getTraceStatus, exportOtelTraces } from '../../runtime/turn-trace.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
 
 function contextFunction(context, name, fallback) {
@@ -50,6 +50,13 @@ export async function handleAdminRoutes(req, res, url, context = {}) {
   if (req.method === 'GET' && url.pathname === '/admin/traces') {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '80'), 80)
     jsonResponse(res, 200, { ok: true, status: getTraceStatus(), traces: getTraces(limit) })
+    return true
+  }
+
+  // OTel 导出：OTLP/JSON 结构，供 AgentOps/LangSmith 类平台消费
+  if (req.method === 'GET' && url.pathname === '/admin/traces/otel') {
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '10'), 80)
+    jsonResponse(res, 200, exportOtelTraces(limit))
     return true
   }
 

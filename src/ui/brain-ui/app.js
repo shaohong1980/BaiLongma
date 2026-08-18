@@ -19,18 +19,13 @@ import { attachJarvisAudioGraph, attachJarvisFx, isFxEnabledForVoice, setFxEnabl
 import { buildVisemeTimeline, getVisemeAt } from "./viseme.js";
 import { initAudioOutputRouting, applyOutputSink, listOutputDevices, getOutputPreference, setOutputPreference } from "./audio-output.js";
 import { parseEntities, parseLinks, deterministicIndex, shuffleArray, createVisualOrder } from "./memory-graph.js";
+import { initUiZoom } from "./ui-zoom.js";
 renderBrainUiApp(document.body);
 const THEME_KEY = "jarvis-brain-ui-theme";
 const PHYSICS_STORAGE_KEY = "jarvis-brain-ui-physics";
 const ACTIVATION_WARMUP_KEY = "bailongma_activation_warmup_until";
-const UI_ZOOM_STORAGE_KEY = "bailongma_ui_zoom_factor";
 const MAX_CHAT_HISTORY = 60;
 const DEFAULT_AGENT_NAME = "爻台";
-const DEFAULT_UI_ZOOM = 1.1;
-const MIN_UI_ZOOM = 0.8;
-const MAX_UI_ZOOM = 1.8;
-const UI_ZOOM_STEP = 0.1;
-const UI_ZOOM_WHEEL_STEP = 0.05;
 const MEMORY_GRAPH_STORAGE_KEY = "bailongma-memory-graph-enabled";
 const MEMORY_GRAPH_ENABLED = localStorage.getItem(MEMORY_GRAPH_STORAGE_KEY) !== "false";
 
@@ -54,7 +49,6 @@ const IGNORED_VERSION_KEY = "bailongma_ignored_update_version";
 const SUPPRESS_UPDATES_KEY = "bailongma_suppress_update_notifications";
 
 let agentName = DEFAULT_AGENT_NAME;
-let currentUiZoom = DEFAULT_UI_ZOOM;
 let chat = null;
 // 由 initSettings() 内部赋值，供 chat.js 的斜杠命令打开设置面板
 let openSettingsRef = null;
@@ -68,87 +62,7 @@ function defaultInputPlaceholder() {
   return `向 ${agentName} 发消息…`;
 }
 
-function clampZoomFactor(factor) {
-  return Math.min(MAX_UI_ZOOM, Math.max(MIN_UI_ZOOM, Number(factor) || DEFAULT_UI_ZOOM));
-}
 
-function saveUiZoom(factor) {
-  try {
-    localStorage.setItem(UI_ZOOM_STORAGE_KEY, String(factor));
-  } catch {}
-}
-
-function loadSavedUiZoom() {
-  try {
-    const raw = Number(localStorage.getItem(UI_ZOOM_STORAGE_KEY));
-    if (Number.isFinite(raw)) return clampZoomFactor(raw);
-  } catch {}
-  return DEFAULT_UI_ZOOM;
-}
-
-function applyUiZoom(factor, { persist = true } = {}) {
-  const nextZoom = clampZoomFactor(factor);
-  currentUiZoom = nextZoom;
-
-  const bridge = window.bailongma;
-  if (bridge?.isElectron && typeof bridge.setZoomFactor === "function") {
-    bridge.setZoomFactor(nextZoom);
-  } else {
-    document.documentElement.style.zoom = String(nextZoom);
-  }
-
-  if (persist) saveUiZoom(nextZoom);
-}
-
-function stepUiZoom(delta) {
-  const nextZoom = Math.round((currentUiZoom + delta) * 100) / 100;
-  applyUiZoom(nextZoom);
-}
-
-function initUiZoom() {
-  const bridge = window.bailongma;
-  const initialZoom = loadSavedUiZoom();
-
-  if (!bridge?.isElectron) {
-    applyUiZoom(initialZoom, { persist: false });
-  } else {
-    try {
-      const bridgeZoom = bridge.getZoomFactor?.();
-      if (typeof bridgeZoom === "number" && Number.isFinite(bridgeZoom)) {
-        currentUiZoom = clampZoomFactor(bridgeZoom);
-      }
-    } catch {}
-    applyUiZoom(initialZoom, { persist: false });
-  }
-
-  window.addEventListener("wheel", (event) => {
-    if (!event.ctrlKey && !event.metaKey) return;
-    event.preventDefault();
-    stepUiZoom(event.deltaY < 0 ? UI_ZOOM_WHEEL_STEP : -UI_ZOOM_WHEEL_STEP);
-  }, { passive: false, capture: true });
-
-  window.addEventListener("keydown", (event) => {
-    if (!event.ctrlKey && !event.metaKey) return;
-
-    const key = event.key;
-    if (key === "+" || key === "=" || key === "Add") {
-      event.preventDefault();
-      stepUiZoom(UI_ZOOM_STEP);
-      return;
-    }
-
-    if (key === "-" || key === "_" || key === "Subtract") {
-      event.preventDefault();
-      stepUiZoom(-UI_ZOOM_STEP);
-      return;
-    }
-
-    if (key === "0") {
-      event.preventDefault();
-      applyUiZoom(DEFAULT_UI_ZOOM);
-    }
-  });
-}
 
 function setAgentName(nextName) {
   const normalized = String(nextName || "").trim() || DEFAULT_AGENT_NAME;

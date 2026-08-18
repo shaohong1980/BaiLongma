@@ -682,7 +682,24 @@ function execSetTask({ description, steps = [] }, context) {
   const cleanSteps = steps.map(s => String(s).trim()).filter(Boolean)
   if (cleanSteps.length === 0) return '错误：steps 不能全为空，请提供具体执行步骤'
   context.onSetTask(description.trim(), cleanSteps)
-  return `任务已开启：${description}\n步骤（${cleanSteps.length} 个）：\n${cleanSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}\n\n计划已记录。现在开始第 1 步「${cleanSteps[0]}」的 执行→观察→判断 微循环；每步一出结果就调 update_task_step 落状态，note 写一句关键结论。`
+
+  // 计划器软校验（P3：对齐 Plan-and-Execute 的计划合理性引导，只提示不拦截）
+  const hints = []
+  if (cleanSteps.length > 10) {
+    hints.push('步骤过多（>10），建议合并成更粗的里程碑（每步一个可验证交付），避免执行时频繁记账')
+  }
+  if (cleanSteps.length < 3) {
+    hints.push('步骤较少——若任务确实复杂建议拆细到可独立验证的子步；若确实简单可继续')
+  }
+  // 产出类任务缺验证步骤：宽松启发式（写/创建/生成 类动词 + 无 验证/读回/运行 类步骤）
+  const hasProduce = cleanSteps.some(s => /(写|创建|生成|建|制作|产|生成文件)/.test(s))
+  const hasVerify = cleanSteps.some(s => /(验证|测试|检查|读回|确认|运行|跑|curl|测试运行)/.test(s))
+  if (hasProduce && !hasVerify && cleanSteps.length >= 2) {
+    hints.push('任务涉及产出（写/创建/生成），建议补一步验证（读回/运行/检查）——别做完就宣称成功')
+  }
+
+  const base = `任务已开启：${description}\n步骤（${cleanSteps.length} 个）：\n${cleanSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}\n\n计划已记录。现在开始第 1 步「${cleanSteps[0]}」的 执行→观察→判断 微循环；每步一出结果就调 update_task_step 落状态，note 写一句关键结论。`
+  return hints.length ? `${base}\n\n${hints.map(h => '⚠ ' + h).join('\n')}` : base
 }
 
 // 收尾软门（2026-06-10）：complete_task 照常执行（不拦截——第一原则），但 runtime 查一眼

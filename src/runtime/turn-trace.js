@@ -14,10 +14,20 @@
 
 import fs from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 import { paths } from '../paths.js'
 
 const MAX_TURNS = 80                       // 内存里保留的最近 turn 数
 const FILE_MAX_BYTES = 12 * 1024 * 1024   // JSONL 落盘文件上限，超过就用当前环形缓冲重写
+
+// OTel（OpenTelemetry）对齐：traceId 32 位 hex、spanId 16 位 hex。
+// 让 turn-trace 未来可直接接 AgentOps/LangSmith 类平台（AGNTCY/OTel agent trace 标准）。
+function genTraceId() {
+  return crypto.randomBytes(16).toString('hex')
+}
+function genSpanId() {
+  return crypto.randomBytes(8).toString('hex')
+}
 
 const TRACE_FILE = path.join(paths.dataDir, 'turn-traces.jsonl')
 
@@ -115,6 +125,10 @@ export function beginTurn(meta) {
   try {
     const t = {
       id: `t${Date.now().toString(36)}_${++seq}`,
+      // OTel 对齐字段（供外部 trace 平台消费）
+      traceId: genTraceId(),
+      spanId: genSpanId(),
+      parentSpanId: null,
       seq,
       startedAt: new Date().toISOString(),
       finishedAt: null,
@@ -124,6 +138,7 @@ export function beginTurn(meta) {
       delivered: false,
       aborted: false,
       error: null,
+      status: null,   // OTel span status: { code: OK/ERROR/UNSET, description }
     }
     pushTrace(t)
 
@@ -153,6 +168,11 @@ export function beginTurn(meta) {
           t.delivered = !!delivered
           t.aborted = !!aborted
           t.error = error ? String(error).slice(0, 500) : null
+          // OTel span status：aborted → ERROR，delivered → OK，其余 UNSET
+          t.status = {
+            code: t.aborted ? 'ERROR' : (t.delivered ? 'OK' : 'UNSET'),
+            description: t.error || (t.aborted ? 'aborted' : null),
+          }
           t.finishedAt = new Date().toISOString()
           persist(t)
         } catch { /* 收尾失败静默 */ }
@@ -173,6 +193,9 @@ function summarize(t) {
   const roleRibbon = (t.messages || []).map(m => (m.role || '?')[0].toUpperCase()).join('')
   return {
     id: t.id,
+    traceId: t.traceId,
+    spanId: t.spanId,
+    status: t.status,
     seq: t.seq,
     startedAt: t.startedAt,
     finishedAt: t.finishedAt,

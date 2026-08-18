@@ -149,6 +149,13 @@ function readSkill(filePath, sourceRoot) {
     tags: Array.isArray(meta.tags) ? meta.tags.map(String) : [],
     aliases: Array.isArray(meta.aliases) ? meta.aliases.map(String) : [],
     triggers: Array.isArray(meta.triggers) ? meta.triggers.map(String) : [],
+    // P2 工作流模板：frontmatter workflow 声明的建议工具序列（如 "web_search → fetch_url → write_file"）
+    // 命中技能时随注入附带，降低模型随机性（按模板预激活工具顺序）
+    workflow: Array.isArray(meta.workflow)
+      ? meta.workflow.map(String).filter(Boolean)
+      : (typeof meta.workflow === 'string' && meta.workflow.trim()
+          ? meta.workflow.split(/[→,，>]/).map(s => s.trim()).filter(Boolean)
+          : []),
     source,
     dir,
     relativeDir: normalizeSlash(path.relative(sourceRoot, dir) || path.basename(dir)),
@@ -295,8 +302,11 @@ To add one from inside Bailongma, create a folder under sandbox_root with a SKIL
       const resources = skill.resources.length
         ? `\nBundled resources in this skill folder: ${skill.resources.join(', ')}`
         : ''
+      const workflow = skill.workflow.length
+        ? `\n<workflow>建议按此工具序列执行：${skill.workflow.join(' → ')}</workflow>`
+        : ''
       return `<skill id="${skill.id}" name="${skill.name}" source="${skill.source}" path="${normalizeSlash(skill.dir)}" score="${skill.score}">
-${body}${resources}
+${body}${resources}${workflow}
 </skill>`
     })
     parts.push(`<agent-skills>

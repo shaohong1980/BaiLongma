@@ -699,6 +699,12 @@ function execSetTask({ description, steps = [] }, context) {
     hints.push('任务涉及产出（写/创建/生成），建议补一步验证（读回/运行/检查）——别做完就宣称成功')
   }
 
+  // P2 任务级授权引导：步骤含执行类动词时，明确"任务内执行命令"的边界（仍受沙箱限制）
+  const hasExec = cleanSteps.some(s => /(运行|执行|启动|跑|安装|启动服务|命令|脚本|测试运行|起服务)/.test(s))
+  if (hasExec) {
+    hints.push('任务含命令执行步骤——本任务内可运行命令，但仍在执行沙箱范围内；涉及系统级变更前应向用户确认')
+  }
+
   const base = `任务已开启：${description}\n步骤（${cleanSteps.length} 个）：\n${cleanSteps.map((s, i) => `  ${i + 1}. ${s}`).join('\n')}\n\n计划已记录。现在开始第 1 步「${cleanSteps[0]}」的 执行→观察→判断 微循环；每步一出结果就调 update_task_step 落状态，note 写一句关键结论。`
   return hints.length ? `${base}\n\n${hints.map(h => '⚠ ' + h).join('\n')}` : base
 }

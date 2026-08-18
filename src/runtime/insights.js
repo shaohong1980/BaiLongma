@@ -29,7 +29,7 @@ function estimateCost(provider, inputTokens, outputTokens) {
 }
 
 // 记录一次 LLM 调用的用量。best-effort：写库失败绝不抛（不影响调用链）。
-export function recordUsageEvent({ provider = null, model = null, inputTokens = 0, outputTokens = 0, source = 'llm' } = {}) {
+export function recordUsageEvent({ provider = null, model = null, inputTokens = 0, outputTokens = 0, source = 'llm', durationMs = 0 } = {}) {
   try {
     const inT = Math.max(0, Number(inputTokens) || 0)
     const outT = Math.max(0, Number(outputTokens) || 0)
@@ -37,9 +37,9 @@ export function recordUsageEvent({ provider = null, model = null, inputTokens = 
     if (total <= 0) return null
     const db = getDB()
     const info = db.prepare(`
-      INSERT INTO usage_events (provider, model, input_tokens, output_tokens, total_tokens, cost_estimate, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(provider || null, model || null, inT, outT, total, estimateCost(provider, inT, outT), source || 'llm')
+      INSERT INTO usage_events (provider, model, input_tokens, output_tokens, total_tokens, cost_estimate, source, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(provider || null, model || null, inT, outT, total, estimateCost(provider, inT, outT), source || 'llm', Math.max(0, Number(durationMs) || 0))
     return Number(info.lastInsertRowid)
   } catch (err) {
     console.warn('[insights] recordUsageEvent failed:', err?.message)
@@ -81,7 +81,29 @@ export function getUsageSummary({ days = 1 } = {}) {
     return acc
   }, { calls: 0, input: 0, output: 0, total: 0, cost: 0 })
 
-  return { days: n, byDay: rows, byProvider, totals }
+  // 延迟分位（P1）：取 duration_ms 的 p50 / p95
+  const latency = computeLatencyPercentiles(db, n)
+
+  return { days: n, byDay: rows, byProvider, totals, latency }
+}
+
+// 计算 duration_ms 的 p50 / p95（毫秒）
+function computeLatencyPercentiles(db, n) {
+  try {
+    const rows = db.prepare(`
+      SELECT duration_ms AS d FROM usage_events
+      WHERE duration_ms > 0 AND date(created_at) >= date('now', ?)
+    `).all(`-${n - 1} days`)
+    if (!rows.length) return { p50: null, p95: null, count: 0 }
+    const arr = rows.map(r => r.d).sort((a, b) => a - b)
+    const p = (q) => {
+      const idx = Math.min(arr.length - 1, Math.floor(arr.length * q))
+      return arr[idx]
+    }
+    return { p50: p(0.5), p95: p(0.95), count: arr.length }
+  } catch {
+    return { p50: null, p95: null, count: 0 }
+  }
 }
 
 // 工具使用 Top-N（来自 action_logs，只统计成功且有名称的）。

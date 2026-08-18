@@ -1,5 +1,6 @@
 import { normalizeChannel, isSystemSignalRow } from './channel.js'
 import { formatLocalClock, formatLocalDateMinute } from '../time.js'
+import { estimateMessagesTokens, degradeConversation } from '../context/token-budget.js'
 
 function xmlAttr(value) {
   return String(value ?? '')
@@ -277,7 +278,11 @@ export function buildLLMMessages({ systemPrompt, contextBlock = '', conversation
     content: isTick ? buildTickSystemPrompt(systemPrompt, input) : systemPrompt,
   }]
 
-  const rows = Array.isArray(conversationWindow) ? conversationWindow : []
+  const rawRows = Array.isArray(conversationWindow) ? conversationWindow : []
+  // P1-1 自动降级：系统提示 + 运行时上下文固定后，若对话窗口会让总 token 超预算，
+  // 从最旧的消息裁剪（保留最近 minKeep 条连续性底线）。只裁对话历史，不动 system/context/input。
+  const fixedTokens = estimateMessagesTokens(messages)
+  const rows = degradeConversation(rawRows, fixedTokens)
   const outboundSnapshot = isTick ? buildRecentOutboundSnapshot(rows) : ''
   const continuityCheck = isTick
     ? buildTickContinuityCheck({ conversationWindow: rows, recentActions, actionLog, lastToolResult })

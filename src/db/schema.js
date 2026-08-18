@@ -586,6 +586,13 @@ export function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_usage_events_created_at ON usage_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_usage_events_source     ON usage_events(source);
   `)
+  // 延迟记录（P1：延迟分位报告用）——老库迁移补列，幂等
+  try {
+    const cols = db.prepare(`PRAGMA table_info(usage_events)`).all()
+    if (!cols.some(c => c.name === 'duration_ms')) {
+      db.exec(`ALTER TABLE usage_events ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`)
+    }
+  } catch {}
 
   // 重建 FTS 索引（覆盖已有数据，确保历史记忆也被索引）
   db.exec(`INSERT INTO memories_fts(memories_fts) VALUES('rebuild')`)

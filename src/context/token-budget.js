@@ -45,3 +45,27 @@ export function warnIfOverBudget(total, { budget = WARN_TOTAL_TOKENS, label = ''
     console.warn(`[context] ${label}上下文估算 ${total} tokens 超过告警阈值 ${budget}——检查注入策略`)
   }
 }
+
+// ── 自动降级（P1：超预算时裁剪低价值段，而非只观测）──
+// 对话窗口是最大、最可变的部分：从最旧的消息开始裁，保留最近 minKeep 条作为连续性底线。
+// 只裁对话历史，不动 system/contextBlock/当前 input。
+export function estimateMessagesTokens(messages) {
+  if (!Array.isArray(messages)) return 0
+  return messages.reduce((sum, m) => sum + estimateTokens(m?.content || ''), 0)
+}
+
+export function degradeConversation(rows, fixedTokens = 0, { budget = WARN_TOTAL_TOKENS, minKeep = 6 } = {}) {
+  if (!Array.isArray(rows) || rows.length <= minKeep) return rows
+  let total = fixedTokens + rows.reduce((sum, r) => sum + estimateTokens(r?.content || ''), 0)
+  if (total <= budget) return rows
+  let cut = 0
+  while (rows.length - cut > minKeep && total > budget) {
+    total -= estimateTokens(rows[cut]?.content || '')
+    cut++
+  }
+  const degraded = rows.slice(cut)
+  if (cut > 0) {
+    console.warn(`[context] 自动降级：对话窗口从 ${rows.length} 条裁到 ${degraded.length} 条（估算 ${total} tokens）`)
+  }
+  return degraded
+}

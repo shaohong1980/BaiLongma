@@ -120,6 +120,7 @@ export function buildChatCompletionRequestParams({ messages, toolSchemas = [], t
 
 // 单次流式调用，返回 { content, toolCalls, aborted }
 async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens, thinking = true, signal, onStream, model = config.model }) {
+  const startedAtMs = Date.now()
   const requestParams = buildChatCompletionRequestParams({
     model,
     messages,
@@ -336,6 +337,7 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
         inputTokens: usageInputTokens || usageTokens,
         outputTokens: usageOutputTokens,
         source: 'llm',
+        durationMs: Date.now() - startedAtMs,
       })
     } catch { /* 用量记录失败不影响调用链 */ }
     const promptTotal = cacheHitTokens + cacheMissTokens

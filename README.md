@@ -2,6 +2,8 @@
 
 # 爻台 Yaotai Agent Studio
 
+> **English: [README.en.md](./README.en.md)**
+
 > **爻台（Yaotai Agent）是基于 Bailongma（白龙马）深度二次开发的本地持续运行桌面 AI Agent。**
 
 爻台在 Bailongma 开源底座之上做了**深度二次开发**：不仅完整继承了 Bailongma 的本地自主、动态记忆、工具执行与多协议能力，还进一步引入：

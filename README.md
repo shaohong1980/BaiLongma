@@ -31,6 +31,15 @@
 - 社交连接器：支持 Discord 与微信桥接，外部消息进入同一个主循环，回复按渠道路由返回。
 - 本地资源感知：启动时收集系统信息、桌面信息、已安装软件、本地 Agent、SSH 与 Git 资源、地理天气和热点内容。
 - 桌面集成：Electron 窗口、托盘、自动更新状态、日志落盘、单实例运行和焦点横幅。
+- **多Agent办公室（多智能体协同工作台）**：可视化办公大厅——CEO 决策者坐镇会议桌首席，独立外部 A2A Agent（Hermes / Claude Code）同桌，职能员工（文件管理/报表统计/电脑操作/应用调度/检索专员/系统体检员）在工位真实执行。能力包括：
+  - **真实工具执行**：内部员工走 `callLLM` 工具循环（读写/执行/检索），外部 Agent 走 A2A `message/send`，告别"嘴炮"交付；
+  - **CEO 结构化拆解**：输出 JSON `workers` 精确分派，正则关键词兜底；
+  - **证据化交付验证**：验货员用真实工具核实产物存在，杜绝"文字声称已交付"；
+  - **向量记忆 + 语义召回**：办公室决策/会议/事实沉淀进知识库与记忆图谱，相关历史按语义注入上下文；
+  - **可编程流程编排**：JSON 定义多步流程（串行/并行/汇总/评审返工循环），预设 consult / implement / reviewfix；
+  - **每 Agent 工作台账**：谁干了啥、耗时、结果；实时进度 SSE + 外部 Agent 状态灯；
+  - **系统体检员**：对标 Marvis，一句话给电脑做全方位体检（磁盘/性能/电池/大文件），输出结构化报告；
+  - **汇报座位按左右分侧**：左边工位角色到 CEO 左边汇报，右边到右边。
 
 ## 项目结构
 
@@ -44,6 +53,8 @@ src/db.js              SQLite 数据表、索引和持久化读写
 src/memory/            记忆识别、注入、线程、焦点、召回和整理
 src/context/           运行时上下文、规则、关键词和片段选择
 src/capabilities/      工具 schema、执行器、沙箱和工具市场
+src/multi-agent/       多Agent办公室：agent 定义/引擎(A2A·CLI·工具循环)/房间/任务流水线/记忆/台账/流程编排
+src/knowledge/         知识库：向量+全文混合检索（支撑办公室向量记忆）
 src/social/            社交平台连接器和消息路由
 src/voice/             云端 ASR、TTS 服务和语音相关逻辑
 src/ui/brain-ui/       Brain UI 前端、ACUI 组件和可视化面板
@@ -186,6 +197,15 @@ http://127.0.0.1:3721
 | `POST` | `/admin/restart` | 重启应用进程 |
 | `POST` | `/admin/reset-memories` | 清空记忆和对话 |
 | `POST` | `/admin/reset-files` | 清空沙箱文件 |
+| `GET` | `/agents` | 列出多Agent办公室成员 |
+| `GET` | `/agents/health` | 外部 A2A Agent 在线状态探测 |
+| `GET` | `/agents/ledger` | 每 Agent 工作台账 |
+| `POST` | `/agents/:id/config` | 更新 Agent 配置（形象/引擎/工具等） |
+| `GET` | `/room` | 会议室历史与轮次 |
+| `POST` | `/room/office` | 办公室工作流（CEO 拆解→分派→执行→汇总→验货） |
+| `POST` | `/room/message` | 会议室发言（@点名路由） |
+| `POST` | `/room/reset` | 清空会议室 |
+| `POST` | `/room/edict` | 三省六部任务流水线 |
 
 部分接口还用于 Brain UI 内部面板，例如热点、文档、人物卡片、媒体历史、AI 视频面板、ACUI 和云端语音识别。
 
@@ -200,6 +220,7 @@ http://127.0.0.1:3721
 - 媒体历史、音乐库和 AI 视频记录。
 - 焦点线程、承诺状态和旧焦点栈迁移结果。
 - 微信桥接凭证与各类本地配置。
+- **多Agent办公室**：会议室对话（`data/room-conversation.json`）、决策/会议/事实记忆（`data/office-memory.json` + 知识库向量索引）、每 Agent 工作台账（`data/agent-ledger.json`）、任务流水线（`data/edict-tasks.json`）；会议结论同时写入 `memories` 表，出现在 3D 球形记忆图谱中。
 
 `sandbox/` 用作 Agent 的工作区，适合放置生成文件、临时项目、下载内容和媒体产物。`data/` 是运行数据目录，打包时会被排除。
 
@@ -230,11 +251,43 @@ Brain UI 是项目的主要操作界面，前端位于 `src/ui/brain-ui/`。它�
 
 - 多渠道聊天和实时思考流。
 - 记忆图、焦点线程和当前任务状态。
+- **多Agent办公室**（可视化办公大厅）：CEO 与外部 A2A Agent 同桌、职能员工在工位动画执行、实时进度 SSE、状态灯、工作台账与最近完成、@点名直接派活。
 - 热点信息、文档知识、人物卡片和系统提示预览。
 - 语音面板、TTS 效果、微信二维码弹窗和设置页。
 - ACUI 卡片，如天气、自检、唤醒、图片、视频和安全确认。
 
 前端通过 HTTP、SSE 和 WebSocket 与后端通信。Electron 预加载脚本会额外提供桌面端能力，例如窗口缩放、更新状态和外链打开。
+
+## 多Agent办公室
+
+多Agent办公室是爻台内置的可视化多智能体协同工作台，在 Brain UI 中打开。
+
+### 布局与角色
+
+```
+             会议桌
+   👔 CEO 决策者 / 🧭 HermesAgent / 💻 ClaudeCode（独立外部 A2A）
+   ┌───────────────┬───────────────┐
+   │ 左侧工位        │ 右侧工位        │
+   │ 文件管理 / 报表统计 / 电脑操作 │ 应用调度 / 检索专员 / 系统体检员 │
+   └───────────────┴───────────────┘
+  汇报：左侧角色到 CEO 左侧，右侧角色到 CEO 右侧
+```
+
+- **会议桌**：CEO 决策者（内部）+ 独立外部 A2A Agent（Hermes `127.0.0.1:9900`、Claude Code `127.0.0.1:9920`），以独立身份参与讨论与评审。
+- **工位员工**：内部 Agent，走真实工具循环执行（文件管理=读写/归档，报表统计=python 统计，电脑操作=shell 执行，应用调度=对接，检索专员=知识/搜索，系统体检员=系统诊断）。
+
+### 使用方式
+
+- **直接派活**：输入指令 → CEO 结构化拆解（JSON workers）→ 员工真实执行 → 验货员证据化核实 → CEO 汇总。
+- **@点名**：`@电脑操作 打开记事本` → 只让被点名员工响应。
+- **系统体检**：`给电脑做一次全方位体检` → 派给系统体检员，用真实命令扫磁盘/性能/电池/大文件。
+- **流程编排**：通过 `junjichu` 工具的 `workflow` action 运行预设流程（`consult` 会议桌评审 / `implement` 立项实施 / `reviewfix` 评审返工闭环），或传自定义 JSON 流程。
+- **动态接入外部 Agent**：`junjichu` 工具的 `discover` action 传入 A2A URL，自动从 Agent Card 发现并拉上会议桌。
+
+### 外部 A2A Agent 接入
+
+外部 Agent 通过 A2A v1.0（JSON-RPC `message/send` / `tasks/get` / `tasks/cancel`）接入，Agent Card 位于 `/.well-known/agent-card.json`。办公室通过 `engine: 'a2a'` 调用，支持多轮 `contextId` 记忆、可选 Bearer token 鉴权；失败自动回退内部引擎。示例：Claude Code A2A 适配器见 `D:\ClaudeCode\a2a-test\claude_code_a2a_server.py`。
 
 ## 测试与维护脚本
 

@@ -22,8 +22,16 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
   // 执行单个节点 + 应用「命名输出绑定」（Coze 数据流）：
   //   node.outputs = [{ name:'answer', source:'output' }] → context[node.id].answer = 本节点主输出
   //   下游节点可用 {{node_id.output_name}} 引用。
-  async function runNode(node, context, executionLog) {
-    const r = await executeNode(node, context, executionLog)
+  //   scope = 当前节点所属的节点列表（顶层 workflow.nodes 或子流 block.nodes），供 merge 找上游。
+  async function runNode(node, context, executionLog, scope) {
+    const r = await executeNode(node, context, executionLog, scope || [])
+    // 始终把主输出写入 context[node.id].output（无论是否声明 outputs），让 merge/transform/{{节点id.output}} 可靠引用。
+    // end 节点例外：其 output 是整个 context，写入会形成循环引用。
+    if (r.output !== undefined && !r.isEnd) {
+      if (!context[node.id] || typeof context[node.id] !== 'object') context[node.id] = {}
+      context[node.id].output = r.output
+    }
+    // 命名输出绑定：node.outputs = [{name, source}] → context[node.id].name
     if (Array.isArray(node.outputs) && node.outputs.length && r.output !== undefined) {
       if (!context[node.id] || typeof context[node.id] !== 'object') context[node.id] = {}
       for (const o of node.outputs) {
@@ -47,7 +55,7 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
       if (signal?.aborted) break
       const n = findNode(miniWorkflow, currentNodeId)
       if (!n) break
-      const r = await runNode(n, context, executionLog)
+      const r = await runNode(n, context, executionLog, miniWorkflow.nodes)
       executionLog.push(r)
       results.push(r)
       if (r.paused || r.isEnd) break
@@ -62,8 +70,8 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
     return block.start || block.nodes.find(n => n.type === 'start')?.id || block.nodes[0].id
   }
 
-  // 执行单个节点，返回 { output, nextNodeId, metadata }
-  async function executeNode(node, context, executionLog) {
+  // 执行单个节点，返回 { output, nextNodeId, metadata }；scope = 当前节点所属节点列表
+  async function executeNode(node, context, executionLog, scope = []) {
     const startedAt = Date.now()
     const nodeResult = { node_id: node.id, node_type: node.type, name: node.name, started_at: nowIso() }
 
@@ -167,7 +175,7 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
                 if (signal?.aborted) break
                 context._loop_index = i
                 context._loop_item = items[i]
-                const subNode = findNode(workflow, subNodeId)
+                const subNode = findNode({ nodes: scope || [] }, subNodeId)
                 if (subNode) {
                   const subResult = await runNode(subNode, context, executionLog)
                   results.push(subResult.output)
@@ -205,7 +213,7 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
               const branchContext = { ...context }
               for (const nid of branchNodes) {
                 if (signal?.aborted) break
-                const n = findNode(workflow, nid)
+                const n = findNode({ nodes: scope || [] }, nid)
                 if (n) {
                   const r = await runNode(n, branchContext, executionLog)
                   if (r.isEnd) break
@@ -216,6 +224,84 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
           }
           context[node.id] = { results }
           return finishNode(nodeResult, startedAt, { output: results, nextNodeId: node.next })
+        }
+
+        case 'merge': {
+          // 汇聚（openhuman merge）：收集所有指向本节点的上游节点输出，作为 items 传给下游
+          const upstream = (scope || []).filter(n => {
+            const targets = n.next && typeof n.next === 'object' && !Array.isArray(n.next) ? Object.values(n.next) : (Array.isArray(n.next) ? n.next : [n.next])
+            return targets.includes(node.id)
+          })
+          const items = []
+          for (const n of upstream) {
+            const v = context[n.id]?.output !== undefined ? context[n.id].output : context[n.id]
+            if (Array.isArray(v)) items.push(...v)  // 上游已是数组（如并行分支结果）→ 展平
+            else if (v !== null && v !== undefined) items.push(v)
+          }
+          const output = items  // fan-in barrier：把收集的 items 传下去（下游可迭代）
+          context[node.id] = { items, upstream: upstream.map(n => n.id), output }
+          return finishNode(nodeResult, startedAt, { output, nextNodeId: node.next, metadata: { merged: items.length } })
+        }
+
+        case 'transform': {
+          // 转换（openhuman transform）：config.set = { key: "=expr" }，对上游输出求值并合并到结果
+          const set = node.config?.set || {}
+          const upstream = (scope || []).filter(n => {
+            const targets = n.next && typeof n.next === 'object' && !Array.isArray(n.next) ? Object.values(n.next) : (Array.isArray(n.next) ? n.next : [n.next])
+            return targets.includes(node.id)
+          })
+          const srcNode = upstream[upstream.length - 1]
+          const item = srcNode ? (context[srcNode.id]?.output !== undefined ? context[srcNode.id].output : context[srcNode.id]) : context.input
+          const base = (item && typeof item === 'object' && !Array.isArray(item)) ? { ...item } : { value: item }
+          const out = { ...base }
+          for (const [key, expr] of Object.entries(set)) {
+            out[key] = evalItemExpr(expr, item, context)
+          }
+          context[node.id] = { result: out, item, set }
+          return finishNode(nodeResult, startedAt, { output: out, nextNodeId: node.next })
+        }
+
+        case 'sub_workflow': {
+          // 子流程复用（openhuman sub_workflow）：config.workflow 内联图 或 config.workflow_id 引用已保存
+          const childGraph = node.config?.workflow
+          const childId = node.config?.workflow_id
+          if (!childGraph && !childId) throw new Error('sub_workflow 节点必须提供 config.workflow 或 config.workflow_id')
+          if (childGraph && childId) throw new Error('sub_workflow 节点只能提供 workflow 或 workflow_id 之一')
+          let child = childGraph
+          if (childId && !child) {
+            const { getWorkflow } = await import('../workflow/index.js')
+            child = getWorkflow(childId)?.definition
+          }
+          if (!child || !Array.isArray(child.nodes)) throw new Error(`子工作流不可用: ${childId || 'inline'}`)
+          if ((context._sub_depth || 0) >= 8) throw new Error('子工作流嵌套过深（上限 8 层）')
+
+          // 解析子工作流输入（config.inputs 支持 =expr / {{var}}）
+          const inputs = node.config?.inputs || {}
+          const childInput = {}
+          for (const [k, v] of Object.entries(inputs)) {
+            if (typeof v === 'string' && v.startsWith('=')) {
+              childInput[k] = evalItemExpr(v.slice(1), context[node.id]?.output ?? context.input, context)
+            } else {
+              const rv = renderTemplate(String(v), context)
+              try { childInput[k] = JSON.parse(rv) } catch { childInput[k] = rv }
+            }
+          }
+          if (Object.keys(childInput).length === 0) childInput.input = context.input
+
+          const childEngine = createWorkflowEngine({ executeTool, executeLLM, signal })
+          const childResult = await childEngine.run(
+            { ...child, id: child.id || 'sub', name: child.name || '子流程' },
+            childInput,
+          )
+          const childStatus = childResult.ok ? 'ok' : 'error'
+          executionLog.push({
+            node_id: node.id, node_type: 'sub_workflow', name: node.name,
+            status: childStatus, output: childResult.output,
+            duration_ms: Date.now() - startedAt,
+            metadata: { subflow: childId || 'inline', child_steps: childResult.log?.length || 0, child_status: childResult.status },
+          })
+          context[node.id] = { result: childResult.output, raw: childResult, _sub_depth: (context._sub_depth || 0) + 1 }
+          return finishNode(nodeResult, startedAt, { output: childResult.output, nextNodeId: node.next, metadata: { subflow: childId || 'inline', child_steps: childResult.log?.length || 0, child_status: childResult.status } })
         }
 
         case 'human_input': {
@@ -300,7 +386,7 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
         return { ok: false, error: `节点不存在: ${currentNodeId}`, execution_id: executionId, log: executionLog, context }
       }
 
-      const result = await runNode(node, context, executionLog)
+      const result = await runNode(node, context, executionLog, workflow.nodes)
       executionLog.push(result)
 
       if (result.paused) {
@@ -361,6 +447,24 @@ function getNested(obj, path) {
     if (!isNaN(idx) && Array.isArray(acc)) return acc[idx]
     return acc[key]
   }, obj)
+}
+
+// 安全求值（transform/sub_workflow 的 =expr：可用 item.xxx / context.xxx / {{var}}）
+function evalItemExpr(expr, item, context) {
+  try {
+    let raw = String(expr || '').trim()
+    if (raw.startsWith('=')) raw = raw.slice(1)  // 剥离 =expr 前缀
+    const cleaned = raw.replace(/\{\{([^}]+)\}\}/g, (_, path) => {
+      const val = getNested(context, path.trim())
+      if (typeof val === 'string') return JSON.stringify(val)
+      return String(val ?? 'null')
+    })
+    if (!/^[\s\w'"()<>=!&|+\-*/%.\[\],.]+$/.test(cleaned)) return undefined
+    // eslint-disable-next-line no-new-func
+    return new Function('context', 'item', `"use strict"; return (${cleaned})`)(context, item)
+  } catch {
+    return undefined
+  }
 }
 
 // 安全求值（返回原始值，供 switch 分支匹配；支持 {{var}} 模板变量 与 context.xxx 直接引用）

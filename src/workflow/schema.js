@@ -16,7 +16,7 @@
 // 每个节点有：id, type, name, config, next（下一个节点ID或条件映射）
 // 数据通过 context 变量在节点间传递，用 {{variable}} 语法引用。
 
-const NODE_TYPES = ['start', 'end', 'llm', 'tool', 'condition', 'switch', 'loop', 'parallel', 'human_input', 'approval', 'code']
+const NODE_TYPES = ['start', 'end', 'llm', 'tool', 'condition', 'switch', 'loop', 'parallel', 'merge', 'transform', 'sub_workflow', 'human_input', 'approval', 'code']
 
 // 验证工作流定义
 export function validateWorkflow(workflow, { allowNoStart = false } = {}) {
@@ -55,6 +55,19 @@ export function validateWorkflow(workflow, { allowNoStart = false } = {}) {
     }
     if (node.type === 'switch' && !node.config?.expr) {
       errors.push(`分支节点 ${node.id} 缺少 config.expr`)
+    }
+    if (node.type === 'transform' && !node.config?.set) {
+      errors.push(`转换节点 ${node.id} 缺少 config.set`)
+    }
+    if (node.type === 'sub_workflow') {
+      const hasInline = !!node.config?.workflow
+      const hasRef = !!node.config?.workflow_id
+      if (hasInline && hasRef) errors.push(`子流程节点 ${node.id} 只能提供 config.workflow 或 config.workflow_id 之一`)
+      if (!hasInline && !hasRef) errors.push(`子流程节点 ${node.id} 必须提供 config.workflow 或 config.workflow_id`)
+      if (hasInline) {
+        const sub = validateWorkflow({ id: `${node.id}__inline`, name: `${node.id}__inline`, nodes: node.config.workflow.nodes }, { allowNoStart: true })
+        for (const e of sub.errors) errors.push(`[${node.id}.workflow] ${e}`)
+      }
     }
     if (node.type === 'code' && !node.config?.code) {
       errors.push(`代码节点 ${node.id} 缺少 config.code`)

@@ -4480,6 +4480,9 @@ const WF_NODE_TYPES = {
   switch: { label: '分支', icon: '🔀', color: '#f59e0b' },
   loop: { label: '循环', icon: '🔁', color: '#f472b6' },
   parallel: { label: '并行', icon: '⫸', color: '#22b07d' },
+  merge: { label: '汇聚', icon: '⇥', color: '#38bdf8' },
+  transform: { label: '转换', icon: '⚙', color: '#2dd4bf' },
+  sub_workflow: { label: '子流程', icon: '⧉', color: '#c084fc' },
   approval: { label: '审批', icon: '☑', color: '#fb7185' },
   code: { label: '代码', icon: '{}', color: '#94a3b8' },
 }
@@ -4521,6 +4524,9 @@ function wfDefaultConfig(type) {
     case 'condition': return { condition: '(context.input || "").length > 3' }
     case 'switch': return { expr: 'context.input.type', branches: [{ value: 'a', label: '分支A' }, { value: 'b', label: '分支B' }] }
     case 'loop': return { items: 'input', body: '' }
+    case 'merge': return {}
+    case 'transform': return { set: { output: '=item' } }
+    case 'sub_workflow': return { workflow_id: '', inputs: {} }
     case 'parallel': return { branches: '[]' }
     case 'approval': return { title: '需要审批', description: '', risk_level: 'medium' }
     case 'code': return { code: 'return { output: context.input }' }
@@ -4815,6 +4821,13 @@ function wfSubNextSummary(nodes, node) {
   return t ? `→ ${t.name}` : '未连线'
 }
 
+// 已保存工作流下拉选项（sub_workflow 引用）
+function wfSavedOptions() {
+  const saved = wfLoadData?.saved || []
+  if (!saved.length) return '<option value="">— 暂无已保存工作流 —</option>'
+  return saved.map(w => `<option value="${escHtml(w.id)}">${escHtml(w.name)}</option>`).join('')
+}
+
 // 渲染一个 block 卡片（概览模式 or 块详情模式）
 function wfRenderBlockCard(node, block, index, isDetail) {
   const real = block || {}
@@ -4893,6 +4906,15 @@ function wfRenderInspector() {
     parallel: `
       <div class="wf-ins-row"><label class="wf-ins-label">并行分支 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.branches_json" rows="4" placeholder='[["nodeA","nodeB"],["nodeC"]]（或直接用下方分支/子流）'>${escHtml(cfg.branches ? JSON.stringify(cfg.branches, null, 1) : '')}</textarea></div>
       <div class="wf-ins-hint">建议直接用下方「分支/子流」添加并行分支</div>`,
+    merge: `<div class="wf-ins-hint">汇聚节点：把上游所有分支的输出收集成 items 传给下游（fan-in barrier），无需配置。</div>`,
+    transform: `
+      <div class="wf-ins-row"><label class="wf-ins-label">转换映射 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.set_json" rows="4" placeholder='{"full_name":"=item.first + \" \" + item.last","score":"=Number(item.score) * 2"}'>${escHtml(cfg.set ? JSON.stringify(cfg.set, null, 1) : '')}</textarea></div>
+      <div class="wf-ins-hint">config.set 的每个 key 会在上游输出上求值并合并。表达式用 =expr，可访问 item / context / {{var}}。上游输出为空对象时仅含 value 字段。</div>`,
+    sub_workflow: `
+      <div class="wf-ins-row"><label class="wf-ins-label">子流程</label><select class="settings-select" data-field="config.workflow_id"><option value="">— 选一个已保存工作流 —</option>${wfSavedOptions()}</select></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">或内联子图 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.workflow_json" rows="4" placeholder='{"nodes":[{"id":"start","type":"start","config":{},"next":"end"},{"id":"end","type":"end","config":{},"next":null}]}'></textarea></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">子流程输入 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.inputs_json" rows="2" placeholder='{"repo":"=item.repo"}'>${escHtml(cfg.inputs ? JSON.stringify(cfg.inputs, null, 1) : '')}</textarea></div>
+      <div class="wf-ins-hint">workflow_id 与内联子图二选一（留空其一）。子流程输入的值可用 =expr / {{var}}。</div>`,
     approval: `
       <div class="wf-ins-row"><label class="wf-ins-label">审批标题</label><input class="settings-input" data-field="config.title" value="${escHtml(cfg.title || '需要审批')}"></div>
       <div class="wf-ins-row"><label class="wf-ins-label">审批说明</label><textarea class="settings-input wf-ins-area" data-field="config.description" rows="2">${escHtml(cfg.description || '')}</textarea></div>
@@ -4998,6 +5020,10 @@ function wfApplyInspector() {
       let val = el.value
       if (field === 'config.args_json') { try { val = JSON.parse(val || '{}') } catch { return } node.config.args = val; return }
       if (field === 'config.branches_json') { try { val = JSON.parse(val || '[]') } catch { return } node.config.branches = val; return }
+      if (field === 'config.set_json') { try { val = JSON.parse(val || '{}') } catch { return } node.config.set = val; return }
+      if (field === 'config.workflow_json') { try { val = JSON.parse(val || 'null') } catch { return } if (val && val.nodes) node.config.workflow = val; else delete node.config.workflow; return }
+      if (field === 'config.inputs_json') { try { val = JSON.parse(val || '{}') } catch { return } node.config.inputs = val; return }
+      if (field === 'config.workflow_id') { if (val) node.config.workflow_id = val; else delete node.config.workflow_id; return }
       if (field.startsWith('config.')) {
         const key = field.split('.')[1]
         node.config = node.config || {}

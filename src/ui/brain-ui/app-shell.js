@@ -1443,6 +1443,9 @@ const createMainPages = () => `
         <button type="button" data-type="switch" title="多分支路由（switch）">🔀 分支</button>
         <button type="button" data-type="loop" title="对数组逐项执行">🔁 循环</button>
         <button type="button" data-type="parallel" title="并行分支">⫸ 并行</button>
+        <button type="button" data-type="merge" title="汇聚上游分支（fan-in）">⇥ 汇聚</button>
+        <button type="button" data-type="transform" title="转换每个流经的 item">⚙ 转换</button>
+        <button type="button" data-type="sub_workflow" title="复用已保存/内联子流程">⧉ 子流程</button>
         <button type="button" data-type="approval" title="人工审批（HITL）">☑ 审批</button>
         <button type="button" data-type="code" title="JS 代码节点">{} 代码</button>
       </div>

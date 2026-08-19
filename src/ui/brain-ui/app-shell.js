@@ -1448,9 +1448,18 @@ const createMainPages = () => `
 
       <!-- 中：画布 -->
       <div class="wf-canvas" id="wf-canvas">
-        <svg class="wf-edges" id="wf-edges" aria-hidden="true"></svg>
-        <div class="wf-nodes" id="wf-nodes"></div>
-        <div class="wf-canvas-empty" id="wf-canvas-empty">从左侧添加节点，或用上方「从模板加载」开始</div>
+        <div class="wf-canvas-toolbar">
+          <button id="wf-zoom-out" type="button" title="缩小">−</button>
+          <span class="wf-zoom-val" id="wf-zoom-val">100%</span>
+          <button id="wf-zoom-in" type="button" title="放大">＋</button>
+          <button id="wf-zoom-fit" type="button" title="适配画布">⤢ 适配</button>
+          <button id="wf-layout" type="button" title="自动布局">⇅ 自动布局</button>
+        </div>
+        <div class="wf-canvas-viewport" id="wf-canvas-viewport">
+          <svg class="wf-edges" id="wf-edges" aria-hidden="true"></svg>
+          <div class="wf-nodes" id="wf-nodes"></div>
+        </div>
+        <div class="wf-canvas-empty" id="wf-canvas-empty">从左侧添加节点，或用上方「从模板加载」开始<br><span style="font-size:11px;opacity:.7">拖拽节点自由摆放 · 滚轮缩放 · 拖空白平移</span></div>
       </div>
 
       <!-- 右：节点配置面板 -->
@@ -1464,6 +1473,7 @@ const createMainPages = () => `
           <div class="wf-ins-row"><label class="wf-ins-label">节点名称</label><input class="settings-input" id="wf-ins-name" type="text" autocomplete="off" spellcheck="false"></div>
           <div id="wf-ins-config"><!-- 按节点类型生成的配置表单 --></div>
           <div id="wf-ins-next"><!-- 连线目标选择 --></div>
+          <div id="wf-ins-runout" hidden><!-- 运行输出检视 --></div>
         </div>
       </div>
     </div>

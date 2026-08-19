@@ -6,6 +6,7 @@
 import { listDocs, getDoc, deleteDoc, getStats, search } from '../../knowledge/index.js'
 import { listApprovals, resolveApproval, getPendingCount } from '../../hitl/approval.js'
 import { listWorkflows, getWorkflow, saveWorkflow, WORKFLOW_TEMPLATES } from '../../workflow/index.js'
+import { validateWorkflow } from '../../workflow/schema.js'
 import { execWorkflowRun } from '../../capabilities/tools/workflow.js'
 import { getDashboardData, getCostBreakdown } from '../../observability/index.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
@@ -99,6 +100,20 @@ export async function handleWorkspaceRoutes(req, res, url) {
       const templates = Object.entries(WORKFLOW_TEMPLATES).map(([id, t]) => ({ id, name: t.name, description: t.description, type: 'template', nodes: t.nodes?.length || 0 }))
       jsonResponse(res, 200, { ok: true, templates, saved: saved.workflows, total_saved: saved.total })
     } catch (err) { jsonResponse(res, 500, { ok: false, error: err.message }) }
+    return true
+  }
+
+  // ── 工作流：模板定义详情（可视化编辑器加载完整模板） ──
+  if (req.method === 'GET' && p.startsWith('/workflows/templates/')) {
+    const tplId = parsePathId(p, '/workflows/templates')
+    if (!tplId) { jsonResponse(res, 400, { ok: false, error: '缺少模板 id' }); return true }
+    const tpl = WORKFLOW_TEMPLATES[tplId]
+    if (!tpl) { jsonResponse(res, 404, { ok: false, error: `模板不存在: ${tplId}` }); return true }
+    const definition = JSON.parse(JSON.stringify(tpl))
+    const validation = validateWorkflow(definition)
+    // 模板定义补 id（部分模板 id 与 key 相同，但确保兼容）
+    if (!definition.id) definition.id = tplId
+    jsonResponse(res, 200, { ok: true, template: definition, valid: validation.valid, errors: validation.errors })
     return true
   }
 

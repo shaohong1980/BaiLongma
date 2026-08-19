@@ -4488,8 +4488,11 @@ const WF_NODE_W = 172, WF_NODE_H = 62, WF_COL_GAP = 40, WF_ROW_GAP = 18
 
 let wfEditor = { id: 'draft', name: '未命名工作流', description: '', nodes: [] }
 let wfSelectedNodeId = null
-let wfRunState = new Map() // node_id -> ok|error|paused
-let wfLoadData = null      // { templates, saved } 缓存，避免反复请求
+let wfRunState = new Map()   // node_id -> ok|error|paused
+let wfRunOutputs = new Map() // node_id -> { output, duration_ms, status }（运行后节点输出检视）
+let wfLoadData = null        // { templates, saved } 缓存，避免反复请求
+let wfViewport = { x: 24, y: 16, scale: 1 }   // 画布平移/缩放（Coze 自由布局）
+let wfDragState = null       // { type:'node'|'pan', nodeId, startX, startY, origX, origY, moved }
 
 function wfFind(id) { return wfEditor.nodes.find(n => n.id === id) }
 function wfIsBranchNode(n) { return n && (n.type === 'condition' || n.type === 'approval') }
@@ -4522,12 +4525,12 @@ function wfNextSummary(node) {
   return t ? `→ ${t.name}` : '未连线'
 }
 
-// 布局：按 BFS 深度分列（从 start 出发），孤立节点排到最后
-function wfComputeLayout() {
+// Coze 自由布局：节点坐标存于 node.x / node.y；没有坐标的节点用 BFS 分层自动摆放（并回写）
+function wfAutoLayout() {
   const depth = new Map(), order = new Map()
   const start = wfEditor.nodes.find(n => n.type === 'start')
   const queue = start ? [start.id] : []
-  if (start) { depth.set(start.id, 0); }
+  if (start) depth.set(start.id, 0)
   const visited = new Set(queue)
   while (queue.length) {
     const cur = queue.shift()
@@ -4544,65 +4547,128 @@ function wfComputeLayout() {
     rows.set(d, (rows.get(d) || 0) + 1)
     order.set(n.id, rows.get(d) - 1)
   }
-  return { depth, order }
+  for (const n of wfEditor.nodes) {
+    if (n.x == null || n.y == null) {
+      n.x = WF_COL_GAP + (depth.get(n.id) === 999 ? 0 : depth.get(n.id)) * (WF_NODE_W + WF_COL_GAP)
+      n.y = WF_ROW_GAP + (order.get(n.id) ?? 0) * (WF_NODE_H + WF_ROW_GAP)
+    }
+  }
+}
+
+function wfNodeBBox(n) {
+  // 条件节点渲染为菱形，尺寸略大
+  const isDiamond = n.type === 'condition'
+  return { w: isDiamond ? WF_NODE_W * 0.94 : WF_NODE_W, h: isDiamond ? WF_NODE_H * 1.28 : WF_NODE_H }
 }
 
 function wfRenderCanvas() {
-  const canvas = document.getElementById('wf-canvas')
+  const viewportEl = document.getElementById('wf-canvas-viewport')
   const nodesEl = document.getElementById('wf-nodes')
   const edgesEl = document.getElementById('wf-edges')
-  if (!canvas || !nodesEl || !edgesEl) return
+  const canvas = document.getElementById('wf-canvas')
+  if (!nodesEl || !edgesEl || !canvas) return
   const emptyEl = document.getElementById('wf-canvas-empty')
   if (emptyEl) emptyEl.style.display = wfEditor.nodes.length ? 'none' : 'flex'
+  if (!wfEditor.nodes.length) { nodesEl.innerHTML = ''; edgesEl.innerHTML = ''; return }
 
-  const { depth, order } = wfComputeLayout()
-  const positions = {}
-  const depthMax = {}
-  for (const [k, v] of depth) depthMax[v] = (depthMax[v] || 0) + 1
-  for (const n of wfEditor.nodes) {
-    const d = depth.get(n.id) ?? 999
-    positions[n.id] = {
-      x: WF_COL_GAP + (d === 999 ? (depthMax[999] || 1) - 1 : d) * (WF_NODE_W + WF_COL_GAP),
-      y: WF_ROW_GAP + (order.get(n.id) ?? 0) * (WF_NODE_H + WF_ROW_GAP),
-    }
-  }
-  const cols = Math.max(1, ...Array.from(depth.values(), d => d + 1))
-  const rows = Math.max(1, ...Array.from(order.values(), o => o + 1))
-  canvas.style.width = (WF_COL_GAP + cols * (WF_NODE_W + WF_COL_GAP)) + 'px'
-  canvas.style.height = Math.max(360, WF_ROW_GAP * 2 + rows * (WF_NODE_H + WF_ROW_GAP)) + 'px'
+  wfAutoLayout()
 
+  // 视口变换（平移 + 缩放）应用到内容层
+  if (viewportEl) viewportEl.style.transform = `translate(${wfViewport.x}px, ${wfViewport.y}px) scale(${wfViewport.scale})`
+  viewportEl.style.transformOrigin = '0 0'
+
+  // 计算内容包围盒 → 设定画布/视口尺寸（滚动区域）
+  let maxX = 0, maxY = 0
+  for (const n of wfEditor.nodes) { const b = wfNodeBBox(n); maxX = Math.max(maxX, n.x + b.w); maxY = Math.max(maxY, n.y + b.h) }
+  const contentW = Math.max(600, maxX + 240), contentH = Math.max(420, maxY + 180)
+  canvas.style.minWidth = contentW + 'px'
+  canvas.style.minHeight = contentH + 'px'
+  if (viewportEl) { viewportEl.style.width = contentW + 'px'; viewportEl.style.height = contentH + 'px' }
+
+  const zoomVal = document.getElementById('wf-zoom-val')
+  if (zoomVal) zoomVal.textContent = Math.round(wfViewport.scale * 100) + '%'
+
+  // 渲染节点（Coze 风格：彩色渐变头部 + 特殊形状）
   nodesEl.innerHTML = wfEditor.nodes.map(n => {
-    const pos = positions[n.id]
     const meta = WF_NODE_TYPES[n.type] || { label: n.type, icon: '?', color: '#8892a6' }
+    const b = wfNodeBBox(n)
     const sel = n.id === wfSelectedNodeId ? ' wf-node-selected' : ''
     const rs = wfRunState.get(n.id)
     const statusCls = rs ? ` wf-node-${rs}` : ''
-    const statusTag = rs ? `<div class="wf-node-status wf-node-status-${rs}">${rs === 'ok' ? '✓ 完成' : rs === 'error' ? '✗ 错误' : '⏸ 暂停'}</div>` : ''
-    return `<div class="wf-node${sel}${statusCls}" data-node="${escHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px;width:${WF_NODE_W}px;">
+    const statusTag = rs ? `<div class="wf-node-status wf-node-status-${rs}">${rs === 'ok' ? '✓' : rs === 'error' ? '✗' : '⏸'}</div>` : ''
+    const isDiamond = n.type === 'condition'
+    const shapeCls = isDiamond ? ' wf-node-diamond' : (n.type === 'start' ? ' wf-node-pill wf-node-start' : (n.type === 'end' ? ' wf-node-pill wf-node-end' : ''))
+    // 运行输出摘要（点击节点在右侧检视）
+    const runOut = wfRunOutputs.get(n.id)
+    const outPreview = runOut ? `<div class="wf-node-runout">${escHtml(typeof runOut.output === 'string' ? runOut.output.slice(0, 40) : JSON.stringify(runOut.output || '').slice(0, 40))}</div>` : ''
+    return `<div class="wf-node${sel}${statusCls}${shapeCls}" data-node="${escHtml(n.id)}" style="left:${n.x}px;top:${n.y}px;width:${b.w}px;min-height:${b.h}px;">
       <div class="wf-node-head" style="background:${meta.color}">
         <span class="wf-node-icon">${meta.icon}</span><span class="wf-node-name">${escHtml(n.name || meta.label)}</span>
         <span class="wf-node-type">${meta.label}</span>
       </div>
       <div class="wf-node-body"><span class="wf-node-next">${escHtml(wfNextSummary(n))}</span></div>
+      ${outPreview}
       ${statusTag}
     </div>`
   }).join('')
 
-  // SVG 连线
+  wfRenderEdges()
+
+  // 节点事件：点击选择 / 拖拽移动（Coze 自由布局）
+  nodesEl.querySelectorAll('.wf-node').forEach(el => {
+    el.addEventListener('click', (ev) => {
+      if (wfDragState?.moved) { ev.stopPropagation(); return }
+      wfSelectNode(el.dataset.node)
+    })
+    el.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault(); ev.stopPropagation()
+      const node = wfFind(el.dataset.node)
+      if (!node) return
+      // 只标记选中 + 设拖动态，不重绘（重绘会摘掉当前元素导致 setPointerCapture 失败）
+      wfSelectedNodeId = node.id
+      wfDragState = { type: 'node', nodeId: node.id, startX: ev.clientX, startY: ev.clientY, origX: node.x, origY: node.y, moved: false }
+      el.setPointerCapture(ev.pointerId)
+    })
+    el.addEventListener('pointermove', (ev) => {
+      if (!wfDragState || wfDragState.type !== 'node' || wfDragState.nodeId !== el.dataset.node) return
+      const dx = (ev.clientX - wfDragState.startX) / wfViewport.scale
+      const dy = (ev.clientY - wfDragState.startY) / wfViewport.scale
+      if (Math.abs(dx) + Math.abs(dy) > 2) wfDragState.moved = true
+      const node = wfFind(el.dataset.node)
+      if (node) {
+        node.x = Math.round(wfDragState.origX + dx); node.y = Math.round(wfDragState.origY + dy)
+        // 原位更新节点位置 + 重绘连线，避免全量重渲染丢失 pointer capture
+        el.style.left = node.x + 'px'; el.style.top = node.y + 'px'
+        wfRenderEdges()
+      }
+    })
+    el.addEventListener('pointerup', () => {
+      if (wfDragState?.type === 'node') {
+        const moved = wfDragState.moved
+        wfDragState = null
+        if (moved) { wfRenderCanvas() } else { wfRenderCanvas(); wfRenderInspector() }  // 统一重绘选中态
+      }
+    })
+  })
+}
+
+// 只重绘 SVG 连线（节点拖动时高频调用）
+function wfRenderEdges() {
+  const edgesEl = document.getElementById('wf-edges')
+  if (!edgesEl) return
   const edges = []
   for (const n of wfEditor.nodes) {
-    const p = positions[n.id]
-    if (!p) continue
+    const b = wfNodeBBox(n)
     if (wfIsBranchNode(n)) {
       const o = n.next && typeof n.next === 'object' && !Array.isArray(n.next) ? n.next : {}
       for (const [branch, t] of Object.entries(o)) {
-        const tp = positions[t]
-        if (tp) edges.push({ x1: p.x + WF_NODE_W / 2, y1: p.y + WF_NODE_H, x2: tp.x + WF_NODE_W / 2, y2: tp.y, label: branch, color: branch === 'rejected' ? '#e06262' : (branch === 'approved' ? '#48c37a' : '#e8a23a') })
+        const tn = wfFind(t)
+        if (tn) { const tb = wfNodeBBox(tn); edges.push({ x1: n.x + b.w / 2, y1: n.y + b.h, x2: tn.x + tb.w / 2, y2: tn.y, label: branch, color: branch === 'rejected' ? '#e06262' : (branch === 'approved' ? '#48c37a' : '#e8a23a') }) }
       }
     } else {
       const t = Array.isArray(n.next) ? n.next[0] : n.next
-      const tp = positions[t]
-      if (tp) edges.push({ x1: p.x + WF_NODE_W / 2, y1: p.y + WF_NODE_H, x2: tp.x + WF_NODE_W / 2, y2: tp.y, label: '', color: '#5b6b8c' })
+      const tn = wfFind(t)
+      if (tn) { const tb = wfNodeBBox(tn); edges.push({ x1: n.x + b.w / 2, y1: n.y + b.h, x2: tn.x + tb.w / 2, y2: tn.y, label: '', color: '#5b6b8c' }) }
     }
   }
   const defs = `<defs><marker id="wf-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 z" fill="#5b6b8c"/></marker></defs>`
@@ -4611,8 +4677,42 @@ function wfRenderCanvas() {
     return `<path d="M ${e.x1} ${e.y1} C ${e.x1} ${mid}, ${e.x2} ${mid}, ${e.x2} ${e.y2}" fill="none" stroke="${e.color}" stroke-width="2" marker-end="url(#wf-arrow)"/>
       ${e.label ? `<text x="${(e.x1 + e.x2) / 2}" y="${Math.max(0, mid - 4)}" text-anchor="middle" fill="${e.color}" font-size="10" font-weight="600">${escHtml(e.label)}</text>` : ''}`
   }).join('')
+}
 
-  nodesEl.querySelectorAll('.wf-node').forEach(el => el.addEventListener('click', () => wfSelectNode(el.dataset.node)))
+// 画布平移（拖空白）与缩放（滚轮）
+function wfBindCanvasPan() {
+  const canvas = document.getElementById('wf-canvas')
+  if (!canvas) return
+  canvas.addEventListener('pointerdown', (ev) => {
+    // 节点 / 工具栏按钮不触发画布平移（否则 setPointerCapture 会劫持按钮的 click）
+    if (ev.target.closest('.wf-node') || ev.target.closest('.wf-canvas-toolbar')) return
+    wfDragState = { type: 'pan', startX: ev.clientX, startY: ev.clientY, origX: wfViewport.x, origY: wfViewport.y, moved: false }
+    canvas.setPointerCapture(ev.pointerId)
+  })
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!wfDragState || wfDragState.type !== 'pan') return
+    wfDragState.moved = true
+    wfViewport.x = wfDragState.origX + (ev.clientX - wfDragState.startX)
+    wfViewport.y = wfDragState.origY + (ev.clientY - wfDragState.startY)
+    wfRenderCanvas()
+  })
+  canvas.addEventListener('pointerup', () => { wfDragState = null })
+  canvas.addEventListener('wheel', (ev) => {
+    ev.preventDefault()
+    const step = ev.deltaY < 0 ? 1.1 : 1 / 1.1
+    wfViewport.scale = Math.min(2, Math.max(0.4, wfViewport.scale * step))
+    wfRenderCanvas()
+  }, { passive: false })
+  // 工具栏
+  document.getElementById('wf-zoom-in')?.addEventListener('click', () => { wfViewport.scale = Math.min(2, wfViewport.scale * 1.2); wfRenderCanvas() })
+  document.getElementById('wf-zoom-out')?.addEventListener('click', () => { wfViewport.scale = Math.max(0.4, wfViewport.scale / 1.2); wfRenderCanvas() })
+  document.getElementById('wf-zoom-fit')?.addEventListener('click', () => { wfViewport.scale = 1; wfViewport.x = 24; wfViewport.y = 16; wfRenderCanvas() })
+  document.getElementById('wf-layout')?.addEventListener('click', () => {
+    for (const n of wfEditor.nodes) { n.x = null; n.y = null }
+    wfAutoLayout()
+    wfViewport = { x: 24, y: 16, scale: 1 }
+    wfRenderCanvas()
+  })
 }
 
 function wfSelectNode(nodeId) {
@@ -4678,6 +4778,17 @@ function wfRenderInspector() {
       <select class="settings-select" data-field="next"><option value="">— 结束 / 无 —</option>${nodeOpts}</select></div>`
     nextEl.querySelector('[data-field="next"]').value = cur || ''
   }
+
+  // 运行输出检视（Coze 测试运行后点节点看结果）
+  const runOutEl = document.getElementById('wf-ins-runout')
+  const runOut = wfRunOutputs.get(node.id)
+  if (runOutEl) {
+    if (!runOut) { runOutEl.hidden = true; return }
+    runOutEl.hidden = false
+    runOutEl.innerHTML = `
+      <div class="wf-ins-runout-title">运行输出 <span class="wf-ins-runout-status ${escHtml(runOut.status || '')}">${escHtml(runOut.status || '')}</span>${runOut.duration_ms != null ? ` · ${runOut.duration_ms}ms` : ''}</div>
+      <pre class="wf-ins-runout-body">${escHtml(typeof runOut.output === 'string' ? runOut.output : JSON.stringify(runOut.output, null, 2))}</pre>`
+  }
 }
 
 // 从表单读回选中节点的配置（输入时实时应用，防抖重渲染）
@@ -4742,19 +4853,36 @@ function wfLoadTemplate(tpl) {
   wfEditor = { id: wf.id || 'draft', name: wf.name || '未命名', description: wf.description || '', nodes: wf.nodes || [] }
   wfSelectedNodeId = null
   wfRunState = new Map()
+  wfRunOutputs = new Map()
+  wfViewport = { x: 24, y: 16, scale: 1 }
   wfRenderCanvas()
   wfRenderInspector()
 }
 
+// 从后端拉完整模板定义（列表端点只返回元数据，nodes 是数字）
+async function wfLoadTemplateById(tplId) {
+  try {
+    const data = await fetch(`${API}/workflows/templates/${encodeURIComponent(tplId)}`).then(r => r.json())
+    if (data.ok && data.template && Array.isArray(data.template.nodes)) wfLoadTemplate(data.template)
+    return data
+  } catch (err) { return { ok: false, error: err.message } }
+}
+
+let wfCanvasPanBound = false
 async function renderWorkflowPage() {
   wfLoadOptions()
+  if (!wfCanvasPanBound) { wfBindCanvasPan(); wfCanvasPanBound = true }
   if (wfEditor.nodes.length === 0) {
     // 首次进入：默认加载「检索后回答」模板，让画布有内容可看
-    try {
-      const data = await fetch(`${API}/workflows`).then(r => r.json())
-      const tpl = (data.templates || []).find(t => t.id === 'research_then_answer') || (data.templates || [])[0]
-      if (tpl) wfLoadTemplate(tpl)
-    } catch {}
+    const data = await wfLoadTemplateById('research_then_answer').catch(() => null)
+    if (!data?.ok) {
+      // 兜底：从列表取第一个模板 id 再拉完整定义
+      try {
+        const list = await fetch(`${API}/workflows`).then(r => r.json())
+        const first = (list.templates || [])[0]
+        if (first?.id) await wfLoadTemplateById(first.id)
+      } catch {}
+    }
   }
   wfRenderCanvas()
   wfRenderInspector()
@@ -4766,8 +4894,7 @@ document.getElementById('wf-load-select')?.addEventListener('change', async (e) 
   if (!val || !wfLoadData) return
   e.target.value = ''
   if (val.startsWith('tpl:')) {
-    const tpl = (wfLoadData.templates || []).find(t => t.id === val.slice(4))
-    if (tpl) wfLoadTemplate(tpl)
+    await wfLoadTemplateById(val.slice(4))
   } else if (val.startsWith('saved:')) {
     const id = val.slice(6)
     const w = (wfLoadData.saved || []).find(x => x.id === id)
@@ -4787,6 +4914,8 @@ document.getElementById('wf-new')?.addEventListener('click', () => {
   ] }
   wfSelectedNodeId = null
   wfRunState = new Map()
+  wfRunOutputs = new Map()
+  wfViewport = { x: 24, y: 16, scale: 1 }
   wfRenderCanvas()
   wfRenderInspector()
 })
@@ -4817,9 +4946,14 @@ document.getElementById('wf-palette')?.addEventListener('click', (e) => {
   if (!btn) return
   const type = btn.dataset.type
   const id = wfGenId(type)
-  const node = { id, type, name: (WF_NODE_TYPES[type]?.label || type), config: wfDefaultConfig(type), next: null }
+  // 新节点放到画布中央附近（Coze：点面板即落到可视区）
+  const vp = document.getElementById('wf-canvas-viewport')
+  const viewCenterX = (vp ? vp.clientWidth / 2 : 300) - WF_NODE_W / 2
+  const viewCenterY = (vp ? vp.clientHeight / 2 : 200) - WF_NODE_H / 2
+  const node = { id, type, name: (WF_NODE_TYPES[type]?.label || type), config: wfDefaultConfig(type), next: null, x: Math.round((viewCenterX - wfViewport.x) / wfViewport.scale), y: Math.round((viewCenterY - wfViewport.y) / wfViewport.scale) }
   wfEditor.nodes.push(node)
   wfRunState = new Map()
+  wfRunOutputs = new Map()
   wfRenderCanvas()
   wfSelectNode(id)
 })
@@ -4837,6 +4971,7 @@ document.getElementById('wf-ins-del')?.addEventListener('click', () => {
   }
   wfSelectedNodeId = null
   wfRunState = new Map()
+  wfRunOutputs = new Map()
   wfRenderCanvas()
   wfRenderInspector()
 })
@@ -4860,6 +4995,7 @@ document.getElementById('wf-run-exec')?.addEventListener('click', async () => {
   statusEl.textContent = '运行中…'
   logEl.innerHTML = ''
   wfRunState = new Map()
+  wfRunOutputs = new Map()
   wfRenderCanvas()
   try {
     const r = await fetch(`${API}/workflows/run`, {
@@ -4868,13 +5004,15 @@ document.getElementById('wf-run-exec')?.addEventListener('click', async () => {
     }).then(res => res.json())
     if (!r.ok && r.error) { statusEl.textContent = '失败：' + r.error; return }
     const log = r.log || []
-    // 顺序高亮每个节点（模拟逐步执行）
+    // 顺序高亮每个节点（模拟逐步执行），并记录节点输出供点击检视
     for (let i = 0; i < log.length; i++) {
       const entry = log[i]
       if (entry.node_id) {
-        wfRunState.set(entry.node_id, entry.status === 'error' ? 'error' : (entry.status === 'paused' ? 'paused' : 'ok'))
+        const st = entry.status === 'error' ? 'error' : (entry.status === 'paused' ? 'paused' : 'ok')
+        wfRunState.set(entry.node_id, st)
+        wfRunOutputs.set(entry.node_id, { output: entry.output, duration_ms: entry.duration_ms, status: st })
         wfRenderCanvas()
-        await new Promise(res => setTimeout(res, 180))
+        await new Promise(res => setTimeout(res, 160))
       }
     }
     statusEl.textContent = `${r.ok ? '完成' : '失败'} · 状态 ${r.status || ''} · ${log.length} 步` + (r.paused_at ? ` · 暂停于 ${r.paused_at.node_id}` : '')

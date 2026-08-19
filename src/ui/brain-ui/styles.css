@@ -6634,6 +6634,41 @@ body.page-chat .console { left: 212px; }
 .wf-node-paused .wf-node-head { box-shadow: inset 0 0 0 2px #e8a23a; }
 .wf-node-status-error { background: #e06262; }
 .wf-node-status-paused { background: #e8a23a; }
+/* Coze 风格：起始/结束 胶囊节点 */
+.wf-node-pill { border-radius: 22px; min-height: 44px !important; }
+.wf-node-pill .wf-node-head { background: transparent !important; justify-content: center; padding: 10px 14px; }
+.wf-node-pill .wf-node-body { display: none; }
+.wf-node-start { border-color: rgba(72,195,122,0.5); background: linear-gradient(135deg, rgba(72,195,122,0.22), rgba(72,195,122,0.06)); }
+.wf-node-end { border-color: rgba(224,98,98,0.5); background: linear-gradient(135deg, rgba(224,98,98,0.22), rgba(224,98,98,0.06)); }
+.wf-node-pill .wf-node-name { text-align: center; color: #fff; }
+/* Coze 风格：条件节点 菱形 */
+.wf-node-diamond { border: none; background: transparent !important; box-shadow: none !important; }
+.wf-node-diamond .wf-node-head { position: absolute; inset: 0; clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%); background: linear-gradient(135deg, #e8a23a, #d97706) !important; display: flex; align-items: center; justify-content: center; padding: 0; }
+.wf-node-diamond .wf-node-body { display: none; }
+.wf-node-diamond .wf-node-name { font-size: 12px; color: #fff; }
+.wf-node-diamond .wf-node-icon { font-size: 16px; }
+.wf-node-diamond .wf-node-type { display: none; }
+.wf-node-diamond .wf-node-status { top: 34px; }
+/* 节点运行输出预览（画布卡片上） */
+.wf-node-runout { padding: 4px 10px 7px; font-size: 10px; color: var(--ink2, #b8c2d6); border-top: 1px solid rgba(255,255,255,0.06); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 画布工具栏 + 视口 */
+.wf-canvas-toolbar {
+  position: sticky; top: 8px; left: 8px; z-index: 5; display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(20,26,43,0.85); border: 1px solid var(--line-strong, #2a3550); border-radius: 10px; padding: 4px 6px; margin: 8px 0 0 8px;
+  backdrop-filter: blur(6px); box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+.wf-canvas-toolbar button { background: rgba(110,168,254,0.1); color: var(--ink, #e7edf8); border: 1px solid rgba(110,168,254,0.2); border-radius: 6px; padding: 2px 8px; font-size: 12px; cursor: pointer; }
+.wf-canvas-toolbar button:hover { background: rgba(110,168,254,0.22); }
+.wf-zoom-val { font-size: 11px; color: var(--dim, #7b87a0); min-width: 42px; text-align: center; }
+.wf-canvas-viewport { position: absolute; inset: 0; }
+.wf-canvas-viewport .wf-edges, .wf-canvas-viewport .wf-nodes { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* 运行输出检视（右侧配置面板） */
+.wf-ins-runout-title { font-size: 11px; color: var(--dim, #7b87a0); margin-bottom: 4px; }
+.wf-ins-runout-status { margin-left: 6px; font-weight: 700; font-size: 10px; }
+.wf-ins-runout-status.ok { color: #48c37a; }
+.wf-ins-runout-status.error { color: #e06262; }
+.wf-ins-runout-status.paused { color: #e8a23a; }
+.wf-ins-runout-body { font-family: ui-monospace, Consolas, monospace; font-size: 10px; color: var(--ink2, #b8c2d6); background: rgba(0,0,0,0.25); border-radius: 8px; padding: 8px; max-height: 200px; overflow: auto; white-space: pre-wrap; }
 /* 右：节点配置面板 */
 .wf-inspector {
   width: 260px; flex: none; border-left: 1px solid var(--line, rgba(255,255,255,0.08));

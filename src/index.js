@@ -31,6 +31,7 @@ import { pushMessage } from './inbound-message.js'
 import { popMessage, hasMessages, hasUserMessages, getQueueSnapshot, setInterruptCallback, requeueMessage } from './queue.js'
 import { startTUI } from './tui.js'
 import { startAPI } from './api.js'
+import { startA2AServer } from './a2a-server.js'
 import { emitEvent, setStickyEvent, clearStickyEvent } from './events.js'
 import { formatTick, nowTimestamp, describeExistence } from './time.js'
 import { getQuotaStatus, setRateLimited, isRateLimited, getTickInterval } from './quota.js'
@@ -1749,6 +1750,12 @@ async function main() {
       registerMinimaxIfAvailable()
       startConsciousnessLoop({ runImmediateTick: true }).catch(err => console.error('[system] Main loop failed to start:', err))
     },
+  })
+  // A2A 入站服务：让外部 Agent（Hermes 等）通过标准 A2A 协议发现并调用 Jarvis。
+  // 端口：BAILONGMA_A2A_PORT（默认 9910）。失败不阻断主服务。
+  const a2aPort = Number(process.env.BAILONGMA_A2A_PORT) || 9910
+  startA2AServer({ port: a2aPort }).catch(err => {
+    console.warn(`[A2A] 入站服务启动失败（端口 ${a2aPort}）：${err.message}`)
   })
   // 仅在配置了正式预警 API 与目标地区时启用；避免把普通路径数据当作安全预警。
   startTyphoonAlertMonitor()

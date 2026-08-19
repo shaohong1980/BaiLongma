@@ -15,7 +15,9 @@
 //   - 同步委托场景用 runTask()：tasks/send → 轮询 tasks/get 至终态 → 提取文本。
 
 // ── 常量 ──────────────────────────────────────────────────────────────
-const AGENT_CARD_PATHS = ['/.well-known/agent.json', '/agent.json']
+// A2A v1.0 规范：Agent Card 规范路径为 /.well-known/agent-card.json；
+// 旧草案（v0.2/v0.3）用 /.well-known/agent.json 或 /agent.json。全部探测以保证兼容。
+const AGENT_CARD_PATHS = ['/.well-known/agent-card.json', '/.well-known/agent.json', '/agent.json']
 const JSONRPC_ENDPOINT = '/'
 const DEFAULT_CARD_TIMEOUT_MS = 8000
 const DEFAULT_TASK_TIMEOUT_MS = 120_000
@@ -31,8 +33,27 @@ function makeRequestId() {
   return `a2a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+// A2A v1.0 状态枚举形如 TASK_STATE_COMPLETED；旧草案用小写 completed。
+// 统一归一化为小写去前缀（TASK_STATE_COMPLETED -> completed，下划线转连字符）。
+export function normalizeA2AState(state) {
+  return String(state || '')
+    .toLowerCase()
+    .replace(/^task_state_/, '')
+    .replace(/_/g, '-')
+}
+
 function isTerminal(state) {
-  return TERMINAL_STATES.has(String(state || '').toLowerCase())
+  return TERMINAL_STATES.has(normalizeA2AState(state))
+}
+
+// A2A v1.0 SendMessageResponse 是 { task } / { message } 的 oneof 包装；
+// 旧草案直接返回裸 Task。解包成裸 Task 便于统一处理。
+export function unwrapTaskResult(result) {
+  if (result && typeof result === 'object') {
+    if (result.task && typeof result.task === 'object') return result.task
+    if (result.message && typeof result.message === 'object') return result.message
+  }
+  return result
 }
 
 // ── 底层 JSON-RPC 请求 ────────────────────────────────────────────────
@@ -118,6 +139,19 @@ async function fetchJson(url, timeoutMs, signal) {
 }
 
 // ── Part / Task 文本提取 ──────────────────────────────────────────────
+// 兼容两种 Part 形态：
+//   · A2A v1.0：成员存在判别（{ text, mediaType } / { url|raw, mediaType } / { data, mediaType }，无 kind）
+//   · 旧草案：kind 判别（{ kind:'text', text } / { kind:'file', file } / { kind:'data', data }）
+function isTextPart(part) {
+  return typeof part.text === 'string' && part.text.trim()
+}
+function isFilePart(part) {
+  return part.kind === 'file' || typeof part.url === 'string' || typeof part.raw === 'string'
+}
+function isDataPart(part) {
+  return part.kind === 'data' || part.data !== undefined
+}
+
 // 把 Task 里 status.message 与 artifacts 的全部 parts 压成可读文本。
 export function extractTaskText(task = {}) {
   const parts = []
@@ -127,12 +161,12 @@ export function extractTaskText(task = {}) {
   const artifactParts = artifacts.flatMap(a => (Array.isArray(a.parts) ? a.parts : []))
   for (const part of [...statusParts, ...artifactParts]) {
     if (!part) continue
-    if (part.kind === 'text' && typeof part.text === 'string' && part.text.trim()) {
+    if (isTextPart(part)) {
       parts.push(part.text.trim())
-    } else if (part.kind === 'file') {
-      parts.push(`[文件: ${part.file?.name || 'unnamed'}]`)
-    } else if (part.kind === 'data') {
-      try { parts.push(`[数据: ${JSON.stringify(part.data || {})}]`) } catch { parts.push('[数据]') }
+    } else if (isFilePart(part)) {
+      parts.push(`[文件: ${part.file?.name || part.filename || 'unnamed'}]`)
+    } else if (isDataPart(part)) {
+      try { parts.push(`[数据: ${JSON.stringify(part.data ?? {})}]`) } catch { parts.push('[数据]') }
     }
   }
   return parts.join('\n').trim()
@@ -143,29 +177,35 @@ export function extractMessageText(message = {}) {
   if (!Array.isArray(message.parts)) return ''
   const out = []
   for (const part of message.parts) {
-    if (part?.kind === 'text' && typeof part.text === 'string') out.push(part.text)
+    if (isTextPart(part) || (part?.kind === 'text' && typeof part.text === 'string')) out.push(part.text)
   }
   return out.join('\n').trim()
 }
 
 // ── tasks 方法封装 ────────────────────────────────────────────────────
+// A2A v1.0 用 message/send 取代旧草案的 tasks/send；SendMessageResponse
+// 是 { task } / { message } 包装，这里统一解包成裸 Task 再返回。
 export async function sendTask(baseUrl, { taskId = null, text = '', metadata = null, timeoutMs = 30_000, signal = null } = {}) {
   const params = {
-    id: taskId || makeRequestId(),
-    message: { role: 'user', parts: [{ kind: 'text', text: String(text || '') }] },
+    message: {
+      role: 'user',
+      parts: [{ text: String(text || ''), mediaType: 'text/plain' }],
+    },
   }
+  if (taskId) params.taskId = taskId
   if (metadata && typeof metadata === 'object' && Object.keys(metadata).length) params.metadata = metadata
-  const r = await rpcRequest(baseUrl, 'tasks/send', params, { timeoutMs, signal })
-  return r.ok ? { ok: true, task: r.result || {} } : r
+  const r = await rpcRequest(baseUrl, 'message/send', params, { timeoutMs, signal })
+  if (!r.ok) return r
+  return { ok: true, task: unwrapTaskResult(r.result) || {} }
 }
 
 export async function getTask(baseUrl, taskId, { timeoutMs = 30_000, signal = null } = {}) {
-  const r = await rpcRequest(baseUrl, 'tasks/get', { id: taskId }, { timeoutMs, signal })
+  const r = await rpcRequest(baseUrl, 'tasks/get', { taskId }, { timeoutMs, signal })
   return r.ok ? { ok: true, task: r.result || {} } : r
 }
 
 export async function cancelTask(baseUrl, taskId, { timeoutMs = 30_000, signal = null } = {}) {
-  const r = await rpcRequest(baseUrl, 'tasks/cancel', { id: taskId }, { timeoutMs, signal })
+  const r = await rpcRequest(baseUrl, 'tasks/cancel', { taskId }, { timeoutMs, signal })
   return r.ok ? { ok: true, task: r.result || {} } : r
 }
 
@@ -186,13 +226,13 @@ export async function runTask(baseUrl, {
 
   const task = sent.task
   const id = task?.id
-  if (!id) return { ok: false, error: 'A2A: tasks/send 响应缺少任务 id', task }
+  if (!id) return { ok: false, error: 'A2A: message/send 响应缺少任务 id', task }
 
   let current = task
   let consecutiveErrors = 0
 
   while (!isTerminal(current.status?.state) && Date.now() - startedAt < timeoutMs) {
-    const state = String(current.status?.state || '').toLowerCase()
+    const state = normalizeA2AState(current.status?.state)
     if (state === 'input-required') {
       // 外部 Agent 需要更多输入；同步委托场景无法交互式追问
       return { ok: false, taskId: id, state: 'input-required', error: '外部 Agent 要求补充输入，当前委托模式不支持交互式追问', task: current }
@@ -210,7 +250,7 @@ export async function runTask(baseUrl, {
     onProgress?.(current)
   }
 
-  const state = String(current.status?.state || '').toLowerCase()
+  const state = normalizeA2AState(current.status?.state)
   const reply = extractTaskText(current)
   const ok = isTerminal(state) && state !== 'failed' && state !== 'canceled'
   return {
@@ -234,5 +274,7 @@ export const __internals = {
   JSONRPC_ENDPOINT,
   TERMINAL_STATES,
   isTerminal,
+  normalizeA2AState,
+  unwrapTaskResult,
   extractMessageText,
 }

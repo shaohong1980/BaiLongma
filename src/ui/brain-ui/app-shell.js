@@ -1327,13 +1327,15 @@ const createMainPages = () => `
         <div class="office-stage" id="office-stage">
           <div class="office-floor" id="office-floor">
             <div class="office-table"><span>信息交互区 · 会议桌</span></div>
-            <div class="office-tip">输入指令 → CEO 拆解分派 → 员工执行并到会议桌汇报</div>
+            <div class="office-tip">会议桌：CEO / HermesAgent / ClaudeCode（外部 A2A）· 工位员工执行 · @点名可直呼</div>
           </div>
         </div>
 
         <div class="office-side">
           <div class="office-sec-title">AGENT 档案</div>
           <div class="office-card" id="office-agent-card"></div>
+          <div class="office-sec-title">📋 工作台账</div>
+          <div class="office-ledger" id="office-ledger"></div>
           <div class="office-sec-title">💬 对话 &amp; 日志</div>
           <div class="office-messages" id="office-messages"></div>
         </div>

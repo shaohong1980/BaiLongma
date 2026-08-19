@@ -7,6 +7,7 @@ export const CHANNEL_NORMALIZE = {
   FEISHU: 'FEISHU',
   TUI: 'TUI',
   API: 'TUI',
+  A2A: 'TUI',  // A2A 入站视为本地通道：agent 回信走本地 SSE，由 A2A 服务端捕获
   voice: 'TUI',
   VOICE: 'TUI',
   '语音识别': 'TUI',

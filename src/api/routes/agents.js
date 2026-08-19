@@ -1,10 +1,41 @@
 // 多 Agent 会议室 API
 import { getAllAgentConfigs, getAgentConfig, updateAgentConfig } from '../../multi-agent/config.js'
 import { bossSpeak, officeCommand, assignTask, getRoomHistory, resetRoom, getMeetingRound } from '../../multi-agent/room.js'
+import { getLedger } from '../../multi-agent/ledger.js'
 import { listTasks, getTask, runEdictTask, resetTasks, controlTask, reviewTask } from '../../multi-agent/task-flow.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
 
 export async function handleAgentRoutes(req, res, url) {
+  // GET /agents/health —— 外部 A2A agent 在线状态探测（会议桌状态灯）
+  if (req.method === 'GET' && url.pathname === '/agents/health') {
+    try {
+      const agents = getAllAgentConfigs().filter(a => a.engine === 'a2a')
+      const health = {}
+      await Promise.all(agents.map(async (a) => {
+        const base = String(a.a2a_url || '').trim().replace(/\/+$/, '')
+        try {
+          const ctrl = new AbortController()
+          const timer = setTimeout(() => ctrl.abort(), 5000)
+          const res = await fetch(base + '/.well-known/agent-card.json', { signal: ctrl.signal })
+          clearTimeout(timer)
+          const card = res.ok ? await res.json().catch(() => null) : null
+          health[a.id] = { online: res.ok, name: (card && card.name) || a.name }
+        } catch (e) {
+          health[a.id] = { online: false, name: a.name, error: e?.name === 'AbortError' ? 'timeout' : 'unreachable' }
+        }
+      }))
+      jsonResponse(res, 200, { ok: true, health })
+    } catch (err) { jsonResponse(res, 500, { ok: false, error: err.message }) }
+    return true
+  }
+
+  // GET /agents/ledger —— 每 Agent 工作台账（B）
+  if (req.method === 'GET' && url.pathname === '/agents/ledger') {
+    const agentId = url.searchParams.get('agent') || null
+    jsonResponse(res, 200, { ok: true, ledger: getLedger(agentId, 50) })
+    return true
+  }
+
   // GET /agents —— 列出所有 Agent（含形象/语音/引擎配置）
   if (req.method === 'GET' && url.pathname === '/agents') {
     const agents = getAllAgentConfigs().map(a => {

@@ -4,6 +4,8 @@ import { emitEvent } from '../events.js'
 import { runEdictTask, listTasks, controlTask, reviewTask } from './task-flow.js'
 import { bossSpeak, assignTask } from './room.js'
 import { getAgentConfig } from './config.js'
+import { runFlow, WORKFLOWS } from './workflow.js'
+import { discoverAgent } from './config.js'
 
 function toolJson(obj) { return JSON.stringify(obj, null, 2) }
 
@@ -70,6 +72,38 @@ export async function execJunjichu(args = {}) {
     const r = controlTask(id, ctl)
     if (!r.ok) return toolJson({ ok: false, tool: 'junjichu', action, error: r.error })
     return toolJson({ ok: true, tool: 'junjichu', action, task_id: id, status: r.task.status })
+  }
+
+  // 可编程编排（P2-7）：运行 JSON 定义的流程，或预设流程
+  if (action === 'workflow' || action === 'flow') {
+    if (!content) return toolJson({ ok: false, tool: 'junjichu', action, error: 'workflow 需要内容（content）' })
+    const name = String(args.flow || args.name || '').trim()
+    let flow = WORKFLOWS[name]
+    if (!flow && Array.isArray(args.flow_def)) flow = { name: name || 'custom', steps: args.flow_def }
+    if (!flow) return toolJson({ ok: false, tool: 'junjichu', action, error: `未知流程 '${name}'，可用：${Object.keys(WORKFLOWS).join(', ')}；也可传 flow_def JSON` })
+    emitEvent('junjichu_mode', { active: true, source: 'agent_tool' })
+    const r = await runFlow(flow, content)
+    return toolJson({
+      ok: true, tool: 'junjichu', action, flow: r.flow_name,
+      steps: r.results.map(x => ({
+        stage: x.stage,
+        agent: x.name || (x.parallel || []).map(p => p.name).join('、') || x.summary || '',
+        ms: x.ms,
+        reply: String(x.merged || x.reply || '').slice(0, 800),
+      })),
+      hint: `流程「${r.flow_name}」执行完成，详见步骤结果。`,
+    })
+  }
+
+  // 动态注册外部 Agent（P2-10）：通过 A2A AgentCard 发现并拉上会议桌
+  if (action === 'discover' || action === 'register') {
+    const url = String(args.url || args.agent || '').trim()
+    if (!url) return toolJson({ ok: false, tool: 'junjichu', action, error: 'discover 需要 url（如 http://127.0.0.1:9920）' })
+    emitEvent('junjichu_mode', { active: true, source: 'agent_tool' })
+    const r = await discoverAgent(url)
+    if (!r.ok) return toolJson({ ok: false, tool: 'junjichu', action, error: r.error })
+    emitEvent('agent_register', { agent: r.agent })
+    return toolJson({ ok: true, tool: 'junjichu', action, agent: r.agent, hint: `外部 Agent「${r.agent.name}」已注册并坐镇会议桌。` })
   }
 
   // 手动审议/封驳

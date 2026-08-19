@@ -49,18 +49,20 @@ function startMockServer({ cardPath = '/.well-known/agent.json', card = SAMPLE_C
       }
       const { method, params } = rpc
       try {
-        if (method === 'tasks/send') {
-          const entry = behavior ? behavior.onCreate(params) : { task: { id: params.id, status: { state: 'completed', message: { role: 'agent', parts: [{ kind: 'text', text: '默认回复' }] } } }, polls: 0 }
-          tasks.set(params.id, entry)
-          res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: entry.task }))
+        if (method === 'message/send' || method === 'tasks/send') {
+          const taskId = params.taskId || params.id || 'task-mock'
+          const entry = behavior ? behavior.onCreate(params) : { task: { id: taskId, status: { state: 'completed', message: { role: 'agent', parts: [{ kind: 'text', text: '默认回复' }] } } }, polls: 0 }
+          tasks.set(taskId, entry)
+          // v1.0 SendMessageResponse 用 { task } 包装；裸 Task 客户端也能解包（兼容旧草案）
+          res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: { task: entry.task } }))
         } else if (method === 'tasks/get') {
-          const entry = tasks.get(params.id)
+          const entry = tasks.get(params.taskId || params.id)
           if (!entry) throw Object.assign(new Error('task not found'), { code: -32602 })
           entry.polls = (entry.polls || 0) + 1
-          if (behavior?.onPoll) entry.task = behavior.onPoll(params.id, entry.polls, entry.task)
+          if (behavior?.onPoll) entry.task = behavior.onPoll(params.taskId || params.id, entry.polls, entry.task)
           res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: entry.task }))
         } else if (method === 'tasks/cancel') {
-          const entry = tasks.get(params.id)
+          const entry = tasks.get(params.taskId || params.id)
           if (!entry) throw Object.assign(new Error('task not found'), { code: -32602 })
           entry.task = { ...entry.task, status: { state: 'canceled' } }
           res.end(JSON.stringify({ jsonrpc: '2.0', id: rpc.id, result: entry.task }))
@@ -107,7 +109,7 @@ try {
   const s2 = await startMockServer({
     behavior: {
       onCreate(params) {
-        return { task: { id: params.id, status: { state: 'working', message: { role: 'agent', parts: [] } } }, polls: 0 }
+        return { task: { id: params.taskId || params.id, status: { state: 'working', message: { role: 'agent', parts: [] } } }, polls: 0 }
       },
       onPoll(id, polls, task) {
         if (polls >= 2) {
@@ -139,7 +141,7 @@ try {
   const s4 = await startMockServer({
     behavior: {
       onCreate(params) {
-        return { task: { id: params.id, status: { state: 'failed', message: { role: 'agent', parts: [{ kind: 'text', text: '执行出错' }] } } }, polls: 0 }
+        return { task: { id: params.taskId || params.id, status: { state: 'failed', message: { role: 'agent', parts: [{ kind: 'text', text: '执行出错' }] } } }, polls: 0 }
       },
     },
   })
@@ -151,7 +153,7 @@ try {
   const s5 = await startMockServer({
     behavior: {
       onCreate(params) {
-        return { task: { id: params.id, status: { state: 'input-required', message: { role: 'agent', parts: [{ kind: 'text', text: '请补充细节' }] } } }, polls: 0 }
+        return { task: { id: params.taskId || params.id, status: { state: 'input-required', message: { role: 'agent', parts: [{ kind: 'text', text: '请补充细节' }] } } }, polls: 0 }
       },
     },
   })
@@ -163,7 +165,7 @@ try {
   const s6 = await startMockServer({
     behavior: {
       onCreate(params) {
-        return { task: { id: params.id, status: { state: 'submitted', message: { role: 'agent', parts: [] } } }, polls: 0 }
+        return { task: { id: params.taskId || params.id, status: { state: 'submitted', message: { role: 'agent', parts: [] } } }, polls: 0 }
       },
       onPoll(id, polls, task) {
         if (polls >= 1) return { id, status: { state: 'completed', message: { role: 'agent', parts: [{ kind: 'text', text: '轮询后完成' }] } } }
@@ -192,7 +194,7 @@ try {
   const s8 = await startMockServer({
     behavior: {
       onCreate(params) {
-        return { task: { id: params.id, status: { state: 'working', message: { role: 'agent', parts: [] } } }, polls: 0 }
+        return { task: { id: params.taskId || params.id, status: { state: 'working', message: { role: 'agent', parts: [] } } }, polls: 0 }
       },
       onPoll() { return undefined },  // 保持 working
     },

@@ -38,7 +38,11 @@ export function resetTasks() {
   tasks = []; nextId = 1; persist()
 }
 function log(t, stage, agent, content) {
-  t.log.push({ stage, agent, content: String(content || '').slice(0, 4000), ts: new Date().toISOString() })
+  // P2-8：结构化 trace —— 记录每阶段耗时（距上一阶段），可观测/回放
+  const now = Date.now()
+  const ms = t._lastMs ? now - t._lastMs : 0
+  t._lastMs = now
+  t.log.push({ stage, agent, content: String(content || '').slice(0, 4000), ms, ts: new Date().toISOString() })
   t.updated_at = new Date().toISOString()
   save()
   // 实时推给前端军机处，像群聊一样显示每位臣工的干活过程
@@ -72,16 +76,16 @@ function parseDomain(text) {
   if (/合同|合规|法律|法务|条款|契约/.test(text)) return 'legal'
   if (/人事|招聘|考核|组织|绩效|岗位|人力/.test(text)) return 'hr'
   if (/开发|技术|代码|系统|软件|程序|脚本|架构|机器人|企微|部署/.test(text)) return 'dev'
-  if (/教务|行政|招生|课程|台账|制度|文档|文案|PPT|宣传|会议纪要/.test(text)) return 'admin'
+  if (/教务|行政|招生|课程|台账|制度|文档|文案|PPT|宣传|会议纪要|管理|协调|排期|项目/.test(text)) return 'admin'
   return 'mixed'
 }
-// 部堂 → 执行 Agent
-const DOMAIN_EXECUTOR = { dev: 'coder', admin: 'admin', finance: 'hubu', security: 'bingbu', legal: 'xingbu', hr: 'libu', mixed: 'coder' }
+// 部堂 → 执行 Agent（dev→外部 Claude Code，admin→外部 Hermes）
+const DOMAIN_EXECUTOR = { dev: 'claudecode', admin: 'hermesagent', finance: 'hubu', security: 'bingbu', legal: 'xingbu', hr: 'libu', mixed: 'claudecode' }
 function parseExecutor(text) {
-  return DOMAIN_EXECUTOR[parseDomain(text)] || 'coder'
+  return DOMAIN_EXECUTOR[parseDomain(text)] || 'claudecode'
 }
 function domainLabel(domain) {
-  return { dev: '工部·技术', admin: '礼部·教务', finance: '户部·财务', security: '兵部·安全', legal: '刑部·法务', hr: '吏部·人事', mixed: '综合' }[domain] || domain
+  return { dev: '研发·技术(ClaudeCode)', admin: '运营·管理(Hermes)', finance: '户部·财务', security: '兵部·安全', legal: '刑部·法务', hr: '吏部·人事', mixed: '综合' }[domain] || domain
 }
 function parseVerdict(text) {
   if (/通过|批准|同意|合格|approve|ok|可以/.test(text)) return { pass: true }
@@ -136,10 +140,23 @@ export async function runEdictTask(content) {
     log(task, '派发', '尚书省', `派发给 ${executorName} 执行`)
     setStatus(task, 'executing')
 
-    // 5. 六部执行
-    const deliverable = await call(task.executor, `你是执行部门。按方案产出完整可交付成果（方案/代码/文档等，要具体可落地）。\n旨意：${task.content}\n方案：${task.plan.slice(0, 3500)}`, ctx)
-    task.execution = deliverable
-    log(task, '执行', executorName, deliverable)
+    // 5. 六部执行（P1-3：失败自动重试，重试仍无有效交付则切换降级执行人）
+    // 降级映射：外部 agent 挂掉 → 内部通用执行人；内部执行人挂掉 → claudecode/CEO
+    const FALLBACK_EXECUTOR = { claudecode: 'hubu', hermesagent: 'hubu', hubu: 'claudecode', host: 'claudecode', libu: 'claudecode', xingbu: 'claudecode', bingbu: 'claudecode', gm: 'claudecode' }
+    const isVoid = (txt) => !String(txt || '').trim() || /响应失败|执行失败|（执行失败|（该环节未返回内容）/.test(String(txt))
+    let deliverable = ''
+    let effectiveExecutor = task.executor
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const execId = attempt === 0 ? task.executor : (FALLBACK_EXECUTOR[task.executor] || 'claudecode')
+      const execCfg = getAgentConfig(execId)
+      const execLabel = execCfg ? `${execCfg.name}（${execCfg.role}）` : execId
+      deliverable = await call(execId, `你是执行部门。按方案产出完整可交付成果（方案/代码/文档等，要具体可落地）。\n旨意：${task.content}\n方案：${task.plan.slice(0, 3500)}`, ctx)
+      task.execution = deliverable
+      log(task, '执行', execLabel, deliverable)
+      if (!isVoid(deliverable)) { effectiveExecutor = execId; break }
+      if (attempt === 0) log(task, '执行', execLabel, '⚠️ 首次执行未产出有效交付，切换执行人自动重试…')
+    }
+    task.executor = effectiveExecutor
 
     // 6. 回奏
     const report = await call('gm', `你是集团总经理。汇总本次任务的完成情况，向董事长回奏：做了什么、产出、下一步建议。\n旨意：${task.content}`, ctx)

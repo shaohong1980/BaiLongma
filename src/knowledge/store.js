@@ -173,6 +173,34 @@ export async function searchKnowledge(query, { limit = DEFAULT_SEARCH_LIMIT, doc
       : db.prepare(likeSql).all(`%${compactQuery}%`, MAX_FTS_CANDIDATES)
   }
 
+  // FTS 无候选但向量可用：向量独立召回兜底（中文语义查询的关键路径，修复"语义搜不到"）
+  if (ftsResults.length === 0 && isEmbeddingConfigured()) {
+    let vecQuery = null
+    try { vecQuery = await computeEmbedding(q, { isQuery: true }) } catch { vecQuery = null }
+    if (vecQuery) {
+      const dim = vecQuery.length / 4
+      const vecRows = docId
+        ? db.prepare(`SELECT rowid, id, doc_id, chunk_index, text, metadata_json, embedding, embedding_dim
+                      FROM knowledge_chunks WHERE doc_id = ? AND embedding IS NOT NULL AND embedding_dim = ?`).all(docId, dim)
+        : db.prepare(`SELECT rowid, id, doc_id, chunk_index, text, metadata_json, embedding, embedding_dim
+                      FROM knowledge_chunks WHERE embedding IS NOT NULL AND embedding_dim = ?`).all(dim)
+      const vecScored = vecRows
+        .map(row => ({ row, sim: cosineSimilarity(vecQuery, row.embedding) }))
+        .filter(x => x.sim > 0)
+        .sort((a, b) => b.sim - a.sim)
+        .slice(0, limit)
+      if (vecScored.length > 0) {
+        const results = vecScored.map(({ row, sim }) => ({
+          id: row.id, doc_id: row.doc_id, chunk_index: row.chunk_index, text: row.text,
+          metadata: safeParseJson(row.metadata_json),
+          scores: { fts: 0, fts_normalized: 0, vector: Number(sim.toFixed(4)), combined: Number((VECTOR_WEIGHT * sim).toFixed(4)) },
+        }))
+        return { ok: true, query: q, total: results.length, returned: results.length, vector_enabled: true, results }
+      }
+    }
+    return { ok: true, results: [], total: 0, query: q }
+  }
+
   if (ftsResults.length === 0) {
     return { ok: true, results: [], total: 0, query: q }
   }

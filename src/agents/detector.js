@@ -195,7 +195,8 @@ function probeCodex() {
 
 function probeHermes() {
   // 只检测 Hermes / Ollama 专属端口，不用 8080/8081（太泛，会误报）
-  const ports = [1337, 11434]
+  // 9900 = Hermes A2A 协议默认端口（plugins/platforms/a2a）
+  const ports = [9900, 1337, 11434]
   for (const port of ports) {
     if (isPortListening(port)) {
       return {

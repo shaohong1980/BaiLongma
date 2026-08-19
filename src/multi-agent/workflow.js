@@ -1,0 +1,157 @@
+// workflow.js —— P2-7 可编程编排：JSON 定义的多步流程运行器
+// 步骤形态：
+//   { stage, agent: 'id', prompt }                单 Agent 执行
+//   { stage, parallel: ['id','id'], prompt }      并行多 Agent 执行后合并
+//   { stage, summary: 'id', prompt }              汇总/裁决
+//   { stage, loop: { max, agent, prompt, reviewAgent, reviewPrompt } }
+//                                                  评审-返工循环（②）：执行→评审→不通过重做，最多 max 次
+// 单步错误恢复（②）：可加 retries（同 agent 重试次数）+ fallback（失败后换执行人）
+// prompt 支持占位：{content}=原始内容，{prev}=上一步结果（merged/reply）
+import { runAgentEngine } from './engines.js'
+import { getRoomHistory } from './room.js'
+import { getAgentConfig } from './config.js'
+import { remember } from './memory.js'
+
+function fill(tpl, content, prev) {
+  return String(tpl || '')
+    .replace(/\{content\}/g, String(content || ''))
+    .replace(/\{prev\}/g, String(prev || ''))
+}
+
+const isVoidReply = (txt) => !String(txt || '').trim() || /响应失败|执行失败|（执行失败|（失败/.test(String(txt))
+
+// 单 agent 执行（带 retries + fallback 错误恢复）
+async function runSingle(id, prompt, ctx, step) {
+  // 默认至少重试一次：空回复/失败标记很常见（对齐 task-flow 的 call()），
+  // 只在失败时才消耗重试，成功不额外调用
+  const retries = Math.max(1, Number(step.retries) || 1)
+  const agents = [id]
+  if (step.fallback && getAgentConfig(step.fallback)) agents.push(step.fallback)
+  let lastReply = ''
+  let lastError = ''
+  for (const aid of agents) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const reply = await runAgentEngine(aid, ctx, prompt, true)
+        lastReply = String(reply || '')
+        if (!isVoidReply(lastReply)) {
+          return { ok: true, agent: aid, name: getAgentConfig(aid)?.name || aid, reply: lastReply, merged: lastReply }
+        }
+        lastError = '空回复或失败标记'
+      } catch (err) {
+        lastError = err.message
+        lastReply = ''
+      }
+    }
+  }
+  return { ok: false, agent: agents[0], name: getAgentConfig(agents[0])?.name || agents[0], reply: lastReply || lastError, merged: lastReply || lastError, error: lastError }
+}
+
+// 评审-返工循环：执行 agent → reviewAgent 评判 → 不通过则带评审意见重做，最多 max 次
+async function runLoopStep(step, content, ctx) {
+  const lp = step.loop || {}
+  const max = Math.max(1, Number(lp.max) || 3)
+  const execId = lp.agent
+  const reviewId = lp.reviewAgent || 'gm'
+  const execPrompt = fill(lp.prompt, content, '')
+  const reviewPrompt = lp.reviewPrompt || '请评审以下交付是否合格，用"通过"或"驳回"开头并说明理由（要具体、可执行）：\n\n交付内容：\n{prev}'
+  let last = ''
+  let lastVerdict = ''
+  for (let attempt = 1; attempt <= max; attempt++) {
+    // 返工时带上评审意见，让执行人针对性修改
+    const prompt = attempt === 1 ? execPrompt : `${execPrompt}\n\n【评审驳回意见，请针对修改】\n${lastVerdict}`
+    const reply = await runAgentEngine(execId, ctx, prompt, true)
+    last = String(reply || '')
+    lastVerdict = await runAgentEngine(reviewId, ctx, fill(reviewPrompt, content, last), true)
+    if (/^(通过|合格|approve|ok|可以)/i.test(String(lastVerdict).trim())) {
+      return { ok: true, agent: execId, name: getAgentConfig(execId)?.name || execId, reply: last, merged: last, attempts: attempt, verdict: String(lastVerdict).slice(0, 300) }
+    }
+    // 最后一轮仍被驳回 → 交付最后版本并附评审意见，不无限循环
+  }
+  return { ok: true, agent: execId, name: getAgentConfig(execId)?.name || execId, reply: last, merged: last, attempts: max, forced: true, verdict: String(lastVerdict).slice(0, 300) }
+}
+
+// 运行一个流程：flow = { name, steps: [...] }
+export async function runFlow(flow, content) {
+  const steps = Array.isArray(flow) ? flow : (flow?.steps || [])
+  const ctx = getRoomHistory(40)
+  const results = []
+  let prev = ''
+  for (const step of steps) {
+    const stage = step.stage || step.name || '步骤'
+    const prompt = fill(step.prompt, content, prev)
+    const rec = { stage, ts: new Date().toISOString(), ms: 0 }
+    const t0 = Date.now()
+    try {
+      if (step.loop && step.loop.agent) {
+        // ② 评审-返工循环
+        const lr = await runLoopStep(step, content, ctx)
+        Object.assign(rec, lr)
+        prev = lr.merged || prev
+      } else if (Array.isArray(step.parallel) && step.parallel.length) {
+        const agents = step.parallel.filter(id => getAgentConfig(id))
+        const replies = await Promise.allSettled(agents.map(id =>
+          runAgentEngine(id, ctx, prompt, true).catch(e => `（失败：${e.message}）`)))
+        rec.parallel = agents.map((id, i) => ({
+          agent: id, name: getAgentConfig(id)?.name || id,
+          reply: replies[i].status === 'fulfilled' ? String(replies[i].value || '') : String(replies[i].reason || ''),
+        }))
+        rec.merged = rec.parallel.map(r => `【${r.name}】${r.reply}`).join('\n\n')
+        prev = rec.merged
+      } else if (step.summary) {
+        const id = step.summary
+        const sr = await runSingle(id, prompt, ctx, step)
+        Object.assign(rec, sr)
+        prev = sr.merged || prev
+      } else if (step.agent) {
+        const id = step.agent
+        const sr = await runSingle(id, prompt, ctx, step)
+        Object.assign(rec, sr)
+        prev = sr.merged || prev
+      } else {
+        rec.error = 'step 需提供 agent / parallel / summary / loop 之一'
+      }
+      if (rec.ok === undefined) rec.ok = true
+    } catch (err) {
+      rec.ok = false
+      rec.error = err.message
+    }
+    rec.ms = Date.now() - t0
+    results.push(rec)
+  }
+  // 结论沉淀到长期记忆
+  const last = results[results.length - 1]
+  if (last && last.merged && !/失败/.test(last.merged)) {
+    await remember({ type: 'result', agent: flow?.name || '流程', content: `${String(content || '').slice(0, 80)} → ${String(last.merged).slice(0, 300)}` })
+  }
+  return { ok: true, flow_name: flow?.name || 'custom', results }
+}
+
+// 预设流程
+export const WORKFLOWS = {
+  consult: {
+    name: '会议桌评审',
+    steps: [
+      { stage: '提案拆解', agent: 'gm', prompt: '请作为 CEO 拆解这个议题并给出评审要点：{content}' },
+      { stage: '外部评审', parallel: ['claudecode', 'hermesagent'], prompt: '请从你的专业角度独立评审该议题，给出意见与风险点：{content}' },
+      { stage: '汇总裁决', summary: 'gm', prompt: '综合以下外部评审意见，给出最终裁决、责任人分工与下一步计划。\n\n外部评审意见：\n{prev}' },
+    ],
+  },
+  implement: {
+    name: '立项实施',
+    steps: [
+      { stage: '拆解', agent: 'gm', prompt: '拆解任务并确定执行人（尽量从 claudecode/hubu/host/libu 中选）：{content}' },
+      { stage: '执行', parallel: ['claudecode', 'libu'], prompt: '按职责产出可交付成果：{content}', retries: 1, fallback: 'host' },
+      { stage: '验收汇报', summary: 'gm', prompt: '验收以下交付成果，汇总向用户汇报：\n\n交付成果：\n{prev}' },
+    ],
+  },
+  reviewfix: {
+    name: '评审返工闭环',
+    steps: [
+      { stage: '执行', loop: { max: 3, agent: 'claudecode', reviewAgent: 'gm',
+          prompt: '请产出完整可交付成果（代码/文档/方案）：{content}',
+          reviewPrompt: '请评审以下交付是否合格，用"通过"或"驳回"开头并给出具体修改意见（这是关键，要让执行人能针对性返工）：\n\n交付内容：\n{prev}' } },
+      { stage: '汇总结案', summary: 'gm', prompt: '汇总结案：交付是否通过、最终产出、遗留问题。\n\n最终交付：\n{prev}' },
+    ],
+  },
+}

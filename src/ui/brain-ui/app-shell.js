@@ -1440,6 +1440,7 @@ const createMainPages = () => `
         <button type="button" data-type="llm" title="调用 LLM">🧠 LLM</button>
         <button type="button" data-type="tool" title="调用内置工具">🔧 工具</button>
         <button type="button" data-type="condition" title="条件分支（真/假）">❓ 条件</button>
+        <button type="button" data-type="switch" title="多分支路由（switch）">🔀 分支</button>
         <button type="button" data-type="loop" title="对数组逐项执行">🔁 循环</button>
         <button type="button" data-type="parallel" title="并行分支">⫸ 并行</button>
         <button type="button" data-type="approval" title="人工审批（HITL）">☑ 审批</button>

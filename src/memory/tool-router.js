@@ -236,11 +236,12 @@ const HITL_TRIGGERS = [
   '需要你批准', '确认一下',
 ]
 
-// 工作流：运行 / 列出 / 保存 / 删除（豆包新增）
-const WORKFLOW_TOOLS = ['workflow_run', 'workflow_list', 'workflow_save', 'workflow_delete']
+// 工作流：设计提案 / 运行 / 列出 / 保存 / 删除（豆包新增 + openhuman propose_workflow）
+const WORKFLOW_TOOLS = ['propose_workflow', 'workflow_run', 'workflow_list', 'workflow_save', 'workflow_delete']
 const WORKFLOW_TRIGGERS = [
   '工作流', '流程', 'workflow', '流水线', '编排', '多步骤', '模板流程',
-  'work flow', 'pipeline', '自动化流程',
+  'work flow', 'pipeline', '自动化流程', '自动化', '帮我设计一个流程', '建个工作流',
+  '把这个流程自动化', 'propose a workflow', 'design a workflow', '做一个工作流',
 ]
 
 // 技能（Agent Skills）：浏览 / 查看 / 从经验学一个 / 用后改进 / 删除

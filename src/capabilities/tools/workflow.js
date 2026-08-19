@@ -1,5 +1,7 @@
 // tools/workflow.js —— 工作流工具执行器（P1）
 import { createWorkflowEngine, WORKFLOW_TEMPLATES, getWorkflow, saveWorkflow, listWorkflows, deleteWorkflow, saveExecution } from '../../workflow/index.js'
+import { proposeWorkflow } from '../../workflow/proposer.js'
+import { emitEvent } from '../../events.js'
 
 function toolJson(payload) {
   return JSON.stringify(payload, null, 2)
@@ -157,5 +159,30 @@ export function execWorkflowDelete(args = {}) {
     return toolJson({ ...result, tool: 'workflow_delete' })
   } catch (err) {
     return toolJson({ ok: false, tool: 'workflow_delete', error: err.message })
+  }
+}
+
+// propose_workflow：Agent 从自然语言自主设计工作流 → 校验 → 提案待用户审阅（openhuman 移植）
+export async function execProposeWorkflow(args = {}, context = {}) {
+  const name = String(args.name || '').trim()
+  const task = String(args.task || '').trim()
+  const description = String(args.description || '').trim()
+  if (!name) return toolJson({ ok: false, tool: 'propose_workflow', error: '缺少 name（工作流名称）' })
+  if (!task) return toolJson({ ok: false, tool: 'propose_workflow', error: '缺少 task（用一句话描述要自动化的事情）' })
+
+  try {
+    const r = await proposeWorkflow({ name, task, description })
+    if (!r.ok) return toolJson({ ok: false, tool: 'propose_workflow', error: r.error })
+    // 通知前端：有待审的工作流提案（工作流编辑器显示「接受提案」卡片）
+    try { emitEvent('workflow_proposal', { proposal: r.proposal }) } catch {}
+    return toolJson({
+      ok: true,
+      tool: 'propose_workflow',
+      proposal: r.proposal,
+      steps: r.proposal.summary.steps,
+      hint: '已生成工作流提案，等待用户在工作流编辑器审阅。用户接受后才会保存/运行。',
+    })
+  } catch (err) {
+    return toolJson({ ok: false, tool: 'propose_workflow', error: `工作流设计失败: ${err.message}` })
   }
 }

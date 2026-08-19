@@ -99,6 +99,7 @@ const TOOL_RISK = {
   workflow_list: 'low',
   workflow_save: 'medium',
   workflow_delete: 'high',
+  propose_workflow: 'medium',  // Agent 设计工作流提案（只出提案，需用户接受才生效）
 }
 
 // Audit risk and autonomous authority are related but not identical. Several

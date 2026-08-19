@@ -121,6 +121,23 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
           return finishNode(nodeResult, startedAt, { output: result, nextNodeId, metadata: { branch } })
         }
 
+        case 'switch': {
+          // 多分支路由（openhuman switch）：config.expr 求值 → 匹配 config.branches[i].value → 走 next.<value> 或 next[分支索引]
+          const expr = renderTemplate(node.config?.expr || node.config?.condition || 'context.input', context)
+          const value = safeEvalValue(expr, context)
+          const branches = node.config?.branches || []
+          let matched = null
+          for (const b of branches) {
+            if (String(b?.value) === String(value)) { matched = b; break }
+          }
+          // 分支目标：优先 next[value]，其次 next[索引]，再次 next.default
+          const o = node.next && typeof node.next === 'object' ? node.next : {}
+          let nextNodeId = matched ? (o[matched.value] || o[String(branches.indexOf(matched))]) : null
+          if (!nextNodeId) nextNodeId = o.default || (typeof node.next === 'string' ? node.next : null)
+          context[node.id] = { value, matched: matched?.value ?? null, branches }
+          return finishNode(nodeResult, startedAt, { output: value, nextNodeId, metadata: { value, matched: matched?.value ?? null } })
+        }
+
         case 'loop': {
           const itemsPath = node.config?.items || 'input'
           const items = getNested(context, itemsPath) || []
@@ -344,6 +361,22 @@ function getNested(obj, path) {
     if (!isNaN(idx) && Array.isArray(acc)) return acc[idx]
     return acc[key]
   }, obj)
+}
+
+// 安全求值（返回原始值，供 switch 分支匹配；支持 {{var}} 模板变量 与 context.xxx 直接引用）
+function safeEvalValue(expr, context) {
+  try {
+    const cleaned = String(expr || '').replace(/\{\{([^}]+)\}\}/g, (_, path) => {
+      const val = getNested(context, path.trim())
+      if (typeof val === 'string') return JSON.stringify(val)
+      return String(val ?? 'null')
+    })
+    if (!/^[\s\w'"()<>=!&|+\-*/%.\[\],.]+$/.test(cleaned)) return undefined
+    // eslint-disable-next-line no-new-func
+    return new Function('context', `"use strict"; return (${cleaned})`)(context)
+  } catch {
+    return undefined
+  }
 }
 
 // 安全条件求值（只允许简单比较和逻辑运算；支持 {{var}} 模板变量 与 context.xxx 直接引用）

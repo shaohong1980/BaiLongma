@@ -16,7 +16,7 @@
 // 每个节点有：id, type, name, config, next（下一个节点ID或条件映射）
 // 数据通过 context 变量在节点间传递，用 {{variable}} 语法引用。
 
-const NODE_TYPES = ['start', 'end', 'llm', 'tool', 'condition', 'loop', 'parallel', 'human_input', 'approval', 'code']
+const NODE_TYPES = ['start', 'end', 'llm', 'tool', 'condition', 'switch', 'loop', 'parallel', 'human_input', 'approval', 'code']
 
 // 验证工作流定义
 export function validateWorkflow(workflow, { allowNoStart = false } = {}) {
@@ -52,6 +52,9 @@ export function validateWorkflow(workflow, { allowNoStart = false } = {}) {
     }
     if (node.type === 'condition' && !node.config?.condition) {
       errors.push(`条件节点 ${node.id} 缺少 config.condition`)
+    }
+    if (node.type === 'switch' && !node.config?.expr) {
+      errors.push(`分支节点 ${node.id} 缺少 config.expr`)
     }
     if (node.type === 'code' && !node.config?.code) {
       errors.push(`代码节点 ${node.id} 缺少 config.code`)

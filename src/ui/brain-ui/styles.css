@@ -6700,6 +6700,26 @@ body.page-chat .console { left: 212px; }
 .wf-sub-node-body { padding: 2px 7px 4px; }
 .wf-sub-node-next { font-size: 9px; color: var(--dim, #7b87a0); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* ── Agent 工作流提案卡片（propose_workflow）── */
+.wfp-card {
+  position: fixed; right: 18px; bottom: 18px; z-index: 500; width: min(380px, 92vw);
+  background: var(--panel, #141a2b); border: 1px solid rgba(110,168,254,0.4); border-radius: 14px;
+  padding: 14px 16px; box-shadow: 0 18px 50px rgba(0,0,0,0.55); transform: translateY(16px); opacity: 0;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.wfp-card.show { transform: translateY(0); opacity: 1; }
+.wfp-head { display: flex; align-items: center; justify-content: space-between; }
+.wfp-title { font-size: 13px; font-weight: 700; color: var(--cool, #6ea8fe); }
+.wfp-close { background: none; border: none; color: var(--dim, #7b87a0); font-size: 16px; cursor: pointer; }
+.wfp-name { font-size: 15px; font-weight: 600; color: var(--ink, #e7edf8); margin: 8px 0 4px; }
+.wfp-trigger { font-size: 12px; color: var(--ink2, #b8c2d6); line-height: 1.5; }
+.wfp-steps { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+.wfp-step { font-size: 10px; background: rgba(110,168,254,0.12); color: var(--cool, #6ea8fe); border-radius: 6px; padding: 2px 8px; }
+.wfp-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.wfp-accept { background: linear-gradient(135deg, #6ea8fe, #4f8cf7); color: #fff; border: none; border-radius: 8px; padding: 7px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.wfp-accept:hover { filter: brightness(1.1); }
+.wfp-hint { font-size: 10px; color: var(--dim, #7b87a0); }
+
 .wf-ins-runout-title { font-size: 11px; color: var(--dim, #7b87a0); margin-bottom: 4px; }
 .wf-ins-runout-status { margin-left: 6px; font-weight: 700; font-size: 10px; }
 .wf-ins-runout-status.ok { color: #48c37a; }

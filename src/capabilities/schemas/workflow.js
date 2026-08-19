@@ -1,5 +1,31 @@
 // schemas/workflow.js —— 工作流工具 schema（P1）
 export const workflowSchemas = {
+  propose_workflow: {
+    type: 'function',
+    function: {
+      name: 'propose_workflow',
+      description: '根据一句自然语言需求，自主设计一个多步骤工作流并生成提案（Human-in-the-loop）。设计会经过校验，成功后推送到「工作流编辑器」供用户审阅，用户接受后才保存/运行。适合"帮我把 XXX 自动化"、"设计一个 XX 流程"这类请求。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: '工作流名称（简短，如"日报自动生成"）',
+          },
+          task: {
+            type: 'string',
+            description: '用一句话描述要自动化的事情（这是设计工作流的输入）',
+          },
+          description: {
+            type: 'string',
+            description: '补充说明（可选）：输入输出、特殊要求、约束等',
+          },
+        },
+        required: ['name', 'task'],
+      },
+    },
+  },
+
   workflow_run: {
     type: 'function',
     function: {

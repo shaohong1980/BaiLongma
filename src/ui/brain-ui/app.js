@@ -1257,6 +1257,10 @@ function handle({ type, data = {} }) {
     case "approval_expired":
       refreshApprovalBadge();
       break;
+    case "workflow_proposal":
+      // Agent 用 propose_workflow 设计的工作流提案 → 弹出接受卡片
+      showWorkflowProposalCard(data.proposal);
+      break;
     default:
       break;
   }
@@ -4473,6 +4477,7 @@ const WF_NODE_TYPES = {
   llm: { label: 'LLM', icon: '🧠', color: '#6ea8fe' },
   tool: { label: '工具', icon: '🔧', color: '#a78bfa' },
   condition: { label: '条件', icon: '❓', color: '#e8a23a' },
+  switch: { label: '分支', icon: '🔀', color: '#f59e0b' },
   loop: { label: '循环', icon: '🔁', color: '#f472b6' },
   parallel: { label: '并行', icon: '⫸', color: '#22b07d' },
   approval: { label: '审批', icon: '☑', color: '#fb7185' },
@@ -4507,13 +4512,14 @@ function wfCurrentTarget() {
   const sub = (block.nodes || []).find(n => n.id === wfBlockEdit.nodeId)
   return { node: sub || null, block, parent, inSub: true, subNode: true }
 }
-function wfIsBranchNode(n) { return n && (n.type === 'condition' || n.type === 'approval') }
+function wfIsBranchNode(n) { return n && (n.type === 'condition' || n.type === 'switch' || n.type === 'approval') }
 function wfGenId(type) { return `${type}_${Date.now().toString(36)}${Math.floor(Math.random() * 999)}` }
 function wfDefaultConfig(type) {
   switch (type) {
     case 'llm': return { prompt: '{{input}}', system_prompt: '你是一个有帮助的助手。' }
     case 'tool': return { tool: 'knowledge_search', args: { query: '{{input}}' } }
     case 'condition': return { condition: '(context.input || "").length > 3' }
+    case 'switch': return { expr: 'context.input.type', branches: [{ value: 'a', label: '分支A' }, { value: 'b', label: '分支B' }] }
     case 'loop': return { items: 'input', body: '' }
     case 'parallel': return { branches: '[]' }
     case 'approval': return { title: '需要审批', description: '', risk_level: 'medium' }
@@ -4877,6 +4883,10 @@ function wfRenderInspector() {
     condition: `
       <div class="wf-ins-row"><label class="wf-ins-label">条件表达式</label><textarea class="settings-input wf-ins-area" data-field="config.condition" rows="3" placeholder="context.input.length > 3 或 {{var}}">${escHtml(cfg.condition || '')}</textarea></div>
       <div class="wf-ins-hint">真/假分支请在下方「分支/子流」中编辑</div>`,
+    switch: `
+      <div class="wf-ins-row"><label class="wf-ins-label">取值表达式</label><textarea class="settings-input wf-ins-area" data-field="config.expr" rows="2" placeholder="如 context.input.type 或 {{var}}">${escHtml(cfg.expr || 'context.input.type')}</textarea></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">分支定义 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.branches_json" rows="3" placeholder='[{"value":"a","label":"分支A"}]'>${escHtml(cfg.branches ? JSON.stringify(cfg.branches, null, 1) : '')}</textarea></div>
+      <div class="wf-ins-hint">连线：每个分支值 + default 各连一个目标节点</div>`,
     loop: `
       <div class="wf-ins-row"><label class="wf-ins-label">遍历路径</label><input class="settings-input" data-field="config.items" value="${escHtml(cfg.items || 'input')}"></div>
       <div class="wf-ins-hint">循环体请在下方「分支/子流」中编辑</div>`,
@@ -4900,7 +4910,14 @@ function wfRenderInspector() {
   const nodeOpts = siblingIds
   if (wfIsBranchNode(node)) {
     const o = node.next && typeof node.next === 'object' && !Array.isArray(node.next) ? node.next : {}
-    const branchName = node.type === 'condition' ? { true: '真 (true)', false: '假 (false)' } : { approved: '通过 (approved)', rejected: '拒绝 (rejected)' }
+    let branchName = {}
+    if (node.type === 'condition') branchName = { true: '真 (true)', false: '假 (false)' }
+    else if (node.type === 'switch') {
+      const bs = Array.isArray(cfg.branches) ? cfg.branches : []
+      bs.forEach((b, i) => { branchName[String(b.value)] = (b.label || b.value) + ` (${String(b.value)})` })
+      branchName.default = '默认 (default)'
+    }
+    else branchName = { approved: '通过 (approved)', rejected: '拒绝 (rejected)' }
     nextEl.innerHTML = Object.entries(branchName).map(([b, label]) => `
       <div class="wf-ins-row"><label class="wf-ins-label">${label}</label>
         <select class="settings-select" data-field="next.${b}"><option value="">— 无 —</option>${nodeOpts}</select></div>`).join('')
@@ -5110,6 +5127,45 @@ function wfLoadTemplate(tpl) {
   wfViewport = { x: 24, y: 16, scale: 1 }
   wfRenderCanvas()
   wfRenderInspector()
+}
+
+// 接受 Agent 的 workflow_proposal：加载到工作流编辑器画布（openhuman 移植）
+function wfLoadProposal(proposal) {
+  if (!proposal?.graph || !Array.isArray(proposal.graph.nodes)) return false
+  wfLoadTemplate(proposal.graph)
+  switchAppPage('workflow')
+  return true
+}
+
+// 弹出「Agent 提议了一个工作流」卡片（可接受 / 忽略）
+function showWorkflowProposalCard(proposal) {
+  if (!proposal || !proposal.name) return
+  const esc = String(proposal.name).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  const steps = Array.isArray(proposal.summary?.steps) ? proposal.summary.steps : []
+  const stepsHTML = steps.slice(0, 6).map(s => `<span class="wfp-step">${escHtml(s.kind || '')} · ${escHtml(s.name || '')}</span>`).join('')
+  const el = document.createElement('div')
+  el.className = 'wfp-card'
+  el.innerHTML = `
+    <div class="wfp-head">
+      <span class="wfp-title">🤖 Agent 提议了一个工作流</span>
+      <button class="wfp-close" type="button" title="忽略">×</button>
+    </div>
+    <div class="wfp-name">${esc}</div>
+    <div class="wfp-trigger">触发：${escHtml(proposal.summary?.trigger || '')}</div>
+    ${stepsHTML ? `<div class="wfp-steps">${stepsHTML}</div>` : ''}
+    <div class="wfp-actions">
+      <button class="wfp-accept" type="button">在编辑器打开</button>
+      <span class="wfp-hint">接受后在工作流编辑器审阅 / 保存 / 运行</span>
+    </div>`
+  document.body.appendChild(el)
+  requestAnimationFrame(() => el.classList.add('show'))
+  el.querySelector('.wfp-close').addEventListener('click', () => { el.classList.remove('show'); setTimeout(() => el.remove(), 300) })
+  el.querySelector('.wfp-accept').addEventListener('click', () => {
+    const ok = wfLoadProposal(proposal)
+    el.classList.remove('show'); setTimeout(() => el.remove(), 300)
+    if (ok) { try { document.getElementById('wf-zoom-fit')?.click() } catch {} }
+  })
+  setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300) }, 30000)
 }
 
 // 从后端拉完整模板定义（列表端点只返回元数据，nodes 是数字）

@@ -28,7 +28,7 @@ import { execKnowledgeIngest, execKnowledgeSearch, execKnowledgeList, execKnowle
 import { execRunPython, execPythonPackages } from './tools/python-sandbox.js'
 import { execCostStats, execTraceList, execTraceDetail, execObservabilityDashboard } from './tools/observability.js'
 import { execRequestApproval as execHitlRequest, execListApprovals as execHitlList } from './tools/hitl.js'
-import { execWorkflowRun, execWorkflowList, execWorkflowSave, execWorkflowDelete } from './tools/workflow.js'
+import { execWorkflowRun, execWorkflowList, execWorkflowSave, execWorkflowDelete, execProposeWorkflow } from './tools/workflow.js'
 import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
 import { execBrowserRead, execBrowserAct, execDeepResearch, execFetchUrl, execWebSearch } from './tools/web.js'
@@ -273,6 +273,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execWorkflowSave(args)
       case 'workflow_delete':
         return execWorkflowDelete(args)
+      case 'propose_workflow':
+        return await execProposeWorkflow(args, context)
       case 'write_file':
         return await execWriteFile(args, context)
       case 'delete_file':

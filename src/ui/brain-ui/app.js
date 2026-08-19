@@ -1250,6 +1250,13 @@ function handle({ type, data = {} }) {
       chat.deleteLastUserMsg();
       if (data.service === 'tts' && data.ttsText) playTTSReply(data.ttsText);
       break;
+    case "approval_requested":
+      refreshApprovalBadge();
+      break;
+    case "approval_resolved":
+    case "approval_expired":
+      refreshApprovalBadge();
+      break;
     default:
       break;
   }
@@ -4204,9 +4211,10 @@ initTyphoon();
 // ── Map panel（高德地图，对话里 map_mode 打开）──
 initMapPanel();
 
-// ═══════════════ 侧边导航：页面切换（作战指挥 / AI 对话 / 待办工作 / 数据备份） ═══════════════
+// ═══════════════ 侧边导航：页面切换（作战指挥 / AI 对话 / 待办工作 / 数据备份 / 能力） ═══════════════
+const APP_PAGES = ["dashboard", "chat", "workbench", "backup", "multiagent", "knowledge", "workflow", "observability"];
 function switchAppPage(page) {
-  document.body.classList.remove("page-dashboard", "page-chat", "page-workbench", "page-backup", "page-multiagent");
+  document.body.classList.remove(...APP_PAGES.map(p => `page-${p}`));
   document.body.classList.add(`page-${page}`);
   document.querySelectorAll(".sidebar .nav-item").forEach(n => n.classList.toggle("active", n.dataset.page === page));
   // 内嵌图谱只在作战指挥页可见：切走时暂停省 GPU，切回时恢复
@@ -4217,6 +4225,9 @@ function switchAppPage(page) {
     dashSphere?.pause();
   }
   if (page === "workbench") renderWorkbenchPage();
+  if (page === "knowledge") renderKnowledgePage();
+  if (page === "workflow") renderWorkflowPage();
+  if (page === "observability") renderObservabilityPage();
   // 同步多Agent办公室激活标记（供内部看板刷新判断）
   window.__junjichuActive = page === "multiagent";
 }
@@ -4390,6 +4401,608 @@ document.getElementById("backup-file")?.addEventListener("change", async (e) => 
   } catch (err) { alert("导入失败：" + err.message); }
   e.target.value = "";
 });
+
+// ── 知识库页 ──
+async function renderKnowledgePage() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = String(v); };
+  try {
+    const stats = await fetch(`${API}/knowledge/stats`).then(r => r.json());
+    set("kb-docs", stats.docs || 0);
+    set("kb-chunks", stats.chunks || 0);
+    set("kb-coverage", stats.embedding_coverage != null ? stats.embedding_coverage + "%" : "—");
+    set("kb-chars", (stats.total_chars || 0).toLocaleString());
+  } catch {}
+  try {
+    const data = await fetch(`${API}/knowledge/docs?limit=200`).then(r => r.json());
+    const wrap = document.getElementById("kb-doc-list");
+    if (!wrap) return;
+    const docs = data.docs || [];
+    if (!docs.length) { wrap.innerHTML = '<div style="text-align:center;color:var(--dim);padding:28px;font-size:13px;">知识库为空 · 对话里让 AI 把文档存入知识库，或用 knowledge_ingest 导入</div>'; return; }
+    wrap.innerHTML = docs.map(d => `
+      <div class="kb-doc-item">
+        <div class="kb-doc-main">
+          <div class="kb-doc-name">${escHtml(d.name)}</div>
+          <div class="kb-doc-meta">${escHtml(d.format || 'text')} · ${d.chunks || 0} 块 · ${(d.size || 0).toLocaleString()} B · ${escHtml((d.created_at || '').slice(0, 10))}</div>
+        </div>
+        <div class="kb-doc-actions">
+          <button class="kb-doc-view" data-kb-view="${escHtml(d.id)}" type="button">详情</button>
+          <button class="kb-doc-del" data-kb-del="${escHtml(d.id)}" type="button">删除</button>
+        </div>
+      </div>`).join("");
+    wrap.querySelectorAll("[data-kb-view]").forEach(b => b.addEventListener("click", async () => {
+      try {
+        const detail = await fetch(`${API}/knowledge/docs/${encodeURIComponent(b.dataset.kbView)}`).then(r => r.json());
+        const doc = detail.doc || {};
+        alert(`文档：${doc.name}\n格式：${doc.format}\n分块：${doc.chunks?.length || 0} 个\n字符：${doc.chars}\n\n${(doc.chunks || []).slice(0, 3).map(c => c.text.slice(0, 120)).join("\n---\n")}`);
+      } catch {}
+    }));
+    wrap.querySelectorAll("[data-kb-del]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm(`确定删除文档「${b.dataset.kbDel}」？不可恢复。`)) return;
+      try { await fetch(`${API}/knowledge/docs/${encodeURIComponent(b.dataset.kbDel)}`, { method: "DELETE" }); } catch {}
+      renderKnowledgePage();
+    }));
+  } catch {}
+}
+document.getElementById("kb-refresh")?.addEventListener("click", renderKnowledgePage);
+document.getElementById("kb-search-btn")?.addEventListener("click", async () => {
+  const input = document.getElementById("kb-search-input");
+  const q = input?.value.trim();
+  const wrap = document.getElementById("kb-results");
+  if (!wrap) return;
+  if (!q) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = '<div style="color:var(--dim);font-size:12px;padding:12px;">检索中…</div>';
+  try {
+    const r = await fetch(`${API}/knowledge/search`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: q, limit: 6 })
+    }).then(res => res.json());
+    const results = r.results || [];
+    if (!results.length) { wrap.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:12px;">未找到相关内容。可先导入文档，或换个关键词。</div>'; return; }
+    wrap.innerHTML = results.map(res => `
+      <div class="kb-result">
+        <div class="kb-result-head"><span class="kb-result-score">${(res.scores?.combined ?? 0).toFixed(2)}</span><span style="color:var(--dim);font-size:12px;">${escHtml(res.doc_id || '')}</span></div>
+        <div class="kb-result-text">${escHtml(String(res.text || '').slice(0, 240))}</div>
+      </div>`).join("");
+  } catch { wrap.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:12px;">检索失败</div>'; }
+});
+document.getElementById("kb-search-input")?.addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("kb-search-btn")?.click(); });
+
+// ═══════════════ 工作流可视化编辑器（Coze 风格）═══════════════
+const WF_NODE_TYPES = {
+  start: { label: '开始', icon: '▶', color: '#48c37a' },
+  end: { label: '结束', icon: '■', color: '#e06262' },
+  llm: { label: 'LLM', icon: '🧠', color: '#6ea8fe' },
+  tool: { label: '工具', icon: '🔧', color: '#a78bfa' },
+  condition: { label: '条件', icon: '❓', color: '#e8a23a' },
+  loop: { label: '循环', icon: '🔁', color: '#f472b6' },
+  parallel: { label: '并行', icon: '⫸', color: '#22b07d' },
+  approval: { label: '审批', icon: '☑', color: '#fb7185' },
+  code: { label: '代码', icon: '{}', color: '#94a3b8' },
+}
+const WF_KNOWN_TOOLS = [
+  'knowledge_search', 'knowledge_ingest', 'knowledge_list', 'run_python', 'send_message',
+  'read_file', 'write_file', 'list_dir', 'web_search', 'fetch_url', 'exec_command',
+  'workflow_run', 'cost_stats', 'observability_dashboard', 'hitl_request', 'search_memory',
+  'list_skills', 'recall_memory', 'ui_set',
+]
+const WF_NODE_W = 172, WF_NODE_H = 62, WF_COL_GAP = 40, WF_ROW_GAP = 18
+
+let wfEditor = { id: 'draft', name: '未命名工作流', description: '', nodes: [] }
+let wfSelectedNodeId = null
+let wfRunState = new Map() // node_id -> ok|error|paused
+let wfLoadData = null      // { templates, saved } 缓存，避免反复请求
+
+function wfFind(id) { return wfEditor.nodes.find(n => n.id === id) }
+function wfIsBranchNode(n) { return n && (n.type === 'condition' || n.type === 'approval') }
+function wfGenId(type) { return `${type}_${Date.now().toString(36)}${Math.floor(Math.random() * 999)}` }
+function wfDefaultConfig(type) {
+  switch (type) {
+    case 'llm': return { prompt: '{{input}}', system_prompt: '你是一个有帮助的助手。' }
+    case 'tool': return { tool: 'knowledge_search', args: { query: '{{input}}' } }
+    case 'condition': return { condition: '(context.input || "").length > 3' }
+    case 'loop': return { items: 'input', body: '' }
+    case 'parallel': return { branches: '[]' }
+    case 'approval': return { title: '需要审批', description: '', risk_level: 'medium' }
+    case 'code': return { code: 'return { output: context.input }' }
+    default: return {}
+  }
+}
+function wfNextTargets(node) {
+  if (!node) return []
+  if (node.next && typeof node.next === 'object' && !Array.isArray(node.next)) return Object.values(node.next).filter(Boolean)
+  return Array.isArray(node.next) ? node.next.filter(Boolean) : (node.next ? [node.next] : [])
+}
+function wfNextSummary(node) {
+  if (!node) return '—'
+  if (wfIsBranchNode(node)) {
+    const o = node.next && typeof node.next === 'object' && !Array.isArray(node.next) ? node.next : {}
+    const parts = Object.entries(o).map(([b, t]) => { const tn = wfFind(t); return `${b === 'approved' ? '✓' : (b === 'rejected' ? '✗' : b)}→${tn ? tn.name : '?'}` })
+    return parts.join(' · ') || '未连线'
+  }
+  const t = wfFind(Array.isArray(node.next) ? node.next[0] : node.next)
+  return t ? `→ ${t.name}` : '未连线'
+}
+
+// 布局：按 BFS 深度分列（从 start 出发），孤立节点排到最后
+function wfComputeLayout() {
+  const depth = new Map(), order = new Map()
+  const start = wfEditor.nodes.find(n => n.type === 'start')
+  const queue = start ? [start.id] : []
+  if (start) { depth.set(start.id, 0); }
+  const visited = new Set(queue)
+  while (queue.length) {
+    const cur = queue.shift()
+    const node = wfFind(cur)
+    if (!node) continue
+    for (const t of wfNextTargets(node)) {
+      if (t && wfFind(t) && !visited.has(t)) { visited.add(t); depth.set(t, depth.get(cur) + 1); queue.push(t) }
+    }
+  }
+  const rows = new Map()
+  for (const n of wfEditor.nodes) {
+    if (!depth.has(n.id)) depth.set(n.id, 999)
+    const d = depth.get(n.id)
+    rows.set(d, (rows.get(d) || 0) + 1)
+    order.set(n.id, rows.get(d) - 1)
+  }
+  return { depth, order }
+}
+
+function wfRenderCanvas() {
+  const canvas = document.getElementById('wf-canvas')
+  const nodesEl = document.getElementById('wf-nodes')
+  const edgesEl = document.getElementById('wf-edges')
+  if (!canvas || !nodesEl || !edgesEl) return
+  const emptyEl = document.getElementById('wf-canvas-empty')
+  if (emptyEl) emptyEl.style.display = wfEditor.nodes.length ? 'none' : 'flex'
+
+  const { depth, order } = wfComputeLayout()
+  const positions = {}
+  const depthMax = {}
+  for (const [k, v] of depth) depthMax[v] = (depthMax[v] || 0) + 1
+  for (const n of wfEditor.nodes) {
+    const d = depth.get(n.id) ?? 999
+    positions[n.id] = {
+      x: WF_COL_GAP + (d === 999 ? (depthMax[999] || 1) - 1 : d) * (WF_NODE_W + WF_COL_GAP),
+      y: WF_ROW_GAP + (order.get(n.id) ?? 0) * (WF_NODE_H + WF_ROW_GAP),
+    }
+  }
+  const cols = Math.max(1, ...Array.from(depth.values(), d => d + 1))
+  const rows = Math.max(1, ...Array.from(order.values(), o => o + 1))
+  canvas.style.width = (WF_COL_GAP + cols * (WF_NODE_W + WF_COL_GAP)) + 'px'
+  canvas.style.height = Math.max(360, WF_ROW_GAP * 2 + rows * (WF_NODE_H + WF_ROW_GAP)) + 'px'
+
+  nodesEl.innerHTML = wfEditor.nodes.map(n => {
+    const pos = positions[n.id]
+    const meta = WF_NODE_TYPES[n.type] || { label: n.type, icon: '?', color: '#8892a6' }
+    const sel = n.id === wfSelectedNodeId ? ' wf-node-selected' : ''
+    const rs = wfRunState.get(n.id)
+    const statusCls = rs ? ` wf-node-${rs}` : ''
+    const statusTag = rs ? `<div class="wf-node-status wf-node-status-${rs}">${rs === 'ok' ? '✓ 完成' : rs === 'error' ? '✗ 错误' : '⏸ 暂停'}</div>` : ''
+    return `<div class="wf-node${sel}${statusCls}" data-node="${escHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px;width:${WF_NODE_W}px;">
+      <div class="wf-node-head" style="background:${meta.color}">
+        <span class="wf-node-icon">${meta.icon}</span><span class="wf-node-name">${escHtml(n.name || meta.label)}</span>
+        <span class="wf-node-type">${meta.label}</span>
+      </div>
+      <div class="wf-node-body"><span class="wf-node-next">${escHtml(wfNextSummary(n))}</span></div>
+      ${statusTag}
+    </div>`
+  }).join('')
+
+  // SVG 连线
+  const edges = []
+  for (const n of wfEditor.nodes) {
+    const p = positions[n.id]
+    if (!p) continue
+    if (wfIsBranchNode(n)) {
+      const o = n.next && typeof n.next === 'object' && !Array.isArray(n.next) ? n.next : {}
+      for (const [branch, t] of Object.entries(o)) {
+        const tp = positions[t]
+        if (tp) edges.push({ x1: p.x + WF_NODE_W / 2, y1: p.y + WF_NODE_H, x2: tp.x + WF_NODE_W / 2, y2: tp.y, label: branch, color: branch === 'rejected' ? '#e06262' : (branch === 'approved' ? '#48c37a' : '#e8a23a') })
+      }
+    } else {
+      const t = Array.isArray(n.next) ? n.next[0] : n.next
+      const tp = positions[t]
+      if (tp) edges.push({ x1: p.x + WF_NODE_W / 2, y1: p.y + WF_NODE_H, x2: tp.x + WF_NODE_W / 2, y2: tp.y, label: '', color: '#5b6b8c' })
+    }
+  }
+  const defs = `<defs><marker id="wf-arrow" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0 0 L10 4 L0 8 z" fill="#5b6b8c"/></marker></defs>`
+  edgesEl.innerHTML = defs + edges.map(e => {
+    const mid = (e.y1 + e.y2) / 2
+    return `<path d="M ${e.x1} ${e.y1} C ${e.x1} ${mid}, ${e.x2} ${mid}, ${e.x2} ${e.y2}" fill="none" stroke="${e.color}" stroke-width="2" marker-end="url(#wf-arrow)"/>
+      ${e.label ? `<text x="${(e.x1 + e.x2) / 2}" y="${Math.max(0, mid - 4)}" text-anchor="middle" fill="${e.color}" font-size="10" font-weight="600">${escHtml(e.label)}</text>` : ''}`
+  }).join('')
+
+  nodesEl.querySelectorAll('.wf-node').forEach(el => el.addEventListener('click', () => wfSelectNode(el.dataset.node)))
+}
+
+function wfSelectNode(nodeId) {
+  wfSelectedNodeId = nodeId
+  wfRenderCanvas()
+  wfRenderInspector()
+}
+
+function wfRenderInspector() {
+  const emptyEl = document.getElementById('wf-inspector-empty')
+  const bodyEl = document.getElementById('wf-inspector-body')
+  const node = wfFind(wfSelectedNodeId)
+  if (!node) { wfSelectedNodeId = null; if (emptyEl) emptyEl.hidden = false; if (bodyEl) bodyEl.hidden = true; return }
+  if (emptyEl) emptyEl.hidden = true
+  if (bodyEl) bodyEl.hidden = false
+
+  const meta = WF_NODE_TYPES[node.type] || { label: node.type, icon: '?', color: '#8892a6' }
+  document.getElementById('wf-ins-type').textContent = `${meta.icon} ${meta.label} · ${node.id}`
+  document.getElementById('wf-ins-name').value = node.name || ''
+
+  // 类型相关配置表单
+  const cfgEl = document.getElementById('wf-ins-config')
+  const cfg = node.config || {}
+  const otherIds = wfEditor.nodes.filter(n => n.id !== node.id).map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name || n.id)}</option>`).join('')
+  const typeForm = {
+    llm: `
+      <div class="wf-ins-row"><label class="wf-ins-label">提示词 (prompt)</label><textarea class="settings-input wf-ins-area" data-field="config.prompt" rows="3" placeholder="支持 {{var}} 模板变量">${escHtml(cfg.prompt || '')}</textarea></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">系统提示 (system_prompt)</label><textarea class="settings-input wf-ins-area" data-field="config.system_prompt" rows="2" placeholder="可选">${escHtml(cfg.system_prompt || '')}</textarea></div>`,
+    tool: `
+      <div class="wf-ins-row"><label class="wf-ins-label">工具</label><select class="settings-select" data-field="config.tool">${WF_KNOWN_TOOLS.map(t => `<option value="${t}" ${cfg.tool === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">参数 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.args_json" rows="3" placeholder='{"query":"{{input}}"}'>${escHtml(cfg.args ? JSON.stringify(cfg.args, null, 1) : '')}</textarea></div>`,
+    condition: `
+      <div class="wf-ins-row"><label class="wf-ins-label">条件表达式</label><textarea class="settings-input wf-ins-area" data-field="config.condition" rows="3" placeholder="context.input.length > 3 或 {{var}}">${escHtml(cfg.condition || '')}</textarea></div>`,
+    loop: `
+      <div class="wf-ins-row"><label class="wf-ins-label">遍历路径</label><input class="settings-input" data-field="config.items" value="${escHtml(cfg.items || 'input')}"></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">循环体节点</label><select class="settings-select" data-field="config.body"><option value="">— 选一个节点作为循环体 —</option>${otherIds}</select></div>`,
+    parallel: `
+      <div class="wf-ins-row"><label class="wf-ins-label">并行分支 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.branches_json" rows="4" placeholder='[["nodeA","nodeB"],["nodeC"]]'>${escHtml(cfg.branches ? JSON.stringify(cfg.branches, null, 1) : '')}</textarea></div>`,
+    approval: `
+      <div class="wf-ins-row"><label class="wf-ins-label">审批标题</label><input class="settings-input" data-field="config.title" value="${escHtml(cfg.title || '需要审批')}"></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">审批说明</label><textarea class="settings-input wf-ins-area" data-field="config.description" rows="2">${escHtml(cfg.description || '')}</textarea></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">风险等级</label><select class="settings-select" data-field="config.risk_level">${['low','medium','high'].map(r => `<option value="${r}" ${cfg.risk_level === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>`,
+    code: `
+      <div class="wf-ins-row"><label class="wf-ins-label">JS 代码</label><textarea class="settings-input wf-ins-area" data-field="config.code" rows="4">${escHtml(cfg.code || '')}</textarea></div>`,
+    start: `<div class="wf-ins-hint">起始节点：工作流从这里开始。无需配置。</div>`,
+    end: `<div class="wf-ins-hint">结束节点：工作流到此结束。可有多个。</div>`,
+  }[node.type] || '<div class="wf-ins-hint">该节点类型无需额外配置。</div>'
+  cfgEl.innerHTML = typeForm
+
+  // 连线目标选择
+  const nextEl = document.getElementById('wf-ins-next')
+  const nodeOpts = wfEditor.nodes.filter(n => n.id !== node.id).map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name || n.id)}</option>`).join('')
+  if (wfIsBranchNode(node)) {
+    const o = node.next && typeof node.next === 'object' && !Array.isArray(node.next) ? node.next : {}
+    const branchName = node.type === 'condition' ? { true: '真 (true)', false: '假 (false)' } : { approved: '通过 (approved)', rejected: '拒绝 (rejected)' }
+    nextEl.innerHTML = Object.entries(branchName).map(([b, label]) => `
+      <div class="wf-ins-row"><label class="wf-ins-label">${label}</label>
+        <select class="settings-select" data-field="next.${b}"><option value="">— 无 —</option>${nodeOpts}</select></div>`).join('')
+    nextEl.querySelectorAll('[data-field^="next."]').forEach(sel => { const b = sel.dataset.field.split('.')[1]; sel.value = o[b] || '' })
+  } else {
+    const cur = Array.isArray(node.next) ? node.next[0] : node.next
+    nextEl.innerHTML = `<div class="wf-ins-row"><label class="wf-ins-label">下一个节点</label>
+      <select class="settings-select" data-field="next"><option value="">— 结束 / 无 —</option>${nodeOpts}</select></div>`
+    nextEl.querySelector('[data-field="next"]').value = cur || ''
+  }
+}
+
+// 从表单读回选中节点的配置（输入时实时应用，防抖重渲染）
+let wfInspectorTimer = null
+function wfApplyInspector() {
+  const node = wfFind(wfSelectedNodeId)
+  if (!node) return
+  node.name = document.getElementById('wf-ins-name').value.trim() || node.name
+  const cfgEl = document.getElementById('wf-ins-config')
+  if (cfgEl) {
+    cfgEl.querySelectorAll('[data-field]').forEach(el => {
+      const field = el.dataset.field
+      let val = el.value
+      if (field === 'config.args_json') { try { val = JSON.parse(val || '{}') } catch { return } node.config.args = val; return }
+      if (field === 'config.branches_json') { try { val = JSON.parse(val || '[]') } catch { return } node.config.branches = val; return }
+      if (field.startsWith('config.')) {
+        const key = field.split('.')[1]
+        node.config = node.config || {}
+        if (key === 'items' || key === 'body' || key === 'tool' || key === 'title' || key === 'risk_level') node.config[key] = val
+        else node.config[key] = val
+        return
+      }
+    })
+  }
+  const nextEl = document.getElementById('wf-ins-next')
+  if (nextEl) {
+    nextEl.querySelectorAll('[data-field^="next"]').forEach(sel => {
+      const field = sel.dataset.field
+      if (field === 'next') node.next = sel.value || null
+      else if (field.startsWith('next.')) {
+        const branch = field.split('.')[1]
+        node.next = node.next && typeof node.next === 'object' ? node.next : {}
+        if (sel.value) node.next[branch] = sel.value
+        else delete node.next[branch]
+      }
+    })
+    if (wfIsBranchNode(node) && Object.keys(node.next || {}).length === 0) node.next = null
+  }
+  clearTimeout(wfInspectorTimer)
+  wfInspectorTimer = setTimeout(() => wfRenderCanvas(), 250)
+}
+
+async function wfLoadOptions() {
+  const sel = document.getElementById('wf-load-select')
+  if (!sel) return
+  try {
+    const data = await fetch(`${API}/workflows`).then(r => r.json())
+    wfLoadData = data
+    const opts = ['<option value="">从模板 / 已保存加载…</option>']
+    opts.push('<optgroup label="内置模板">')
+    ;(data.templates || []).forEach(t => opts.push(`<option value="tpl:${escHtml(t.id)}">${escHtml(t.name)}</option>`))
+    opts.push('</optgroup>')
+    opts.push('<optgroup label="已保存">')
+    ;(data.saved || []).forEach(w => opts.push(`<option value="saved:${escHtml(w.id)}">${escHtml(w.name)}</option>`))
+    opts.push('</optgroup>')
+    sel.innerHTML = opts.join('')
+  } catch { sel.innerHTML = '<option value="">加载失败</option>' }
+}
+
+function wfLoadTemplate(tpl) {
+  const wf = JSON.parse(JSON.stringify(tpl))
+  wfEditor = { id: wf.id || 'draft', name: wf.name || '未命名', description: wf.description || '', nodes: wf.nodes || [] }
+  wfSelectedNodeId = null
+  wfRunState = new Map()
+  wfRenderCanvas()
+  wfRenderInspector()
+}
+
+async function renderWorkflowPage() {
+  wfLoadOptions()
+  if (wfEditor.nodes.length === 0) {
+    // 首次进入：默认加载「检索后回答」模板，让画布有内容可看
+    try {
+      const data = await fetch(`${API}/workflows`).then(r => r.json())
+      const tpl = (data.templates || []).find(t => t.id === 'research_then_answer') || (data.templates || [])[0]
+      if (tpl) wfLoadTemplate(tpl)
+    } catch {}
+  }
+  wfRenderCanvas()
+  wfRenderInspector()
+}
+
+// ── 事件绑定 ──
+document.getElementById('wf-load-select')?.addEventListener('change', async (e) => {
+  const val = e.target.value
+  if (!val || !wfLoadData) return
+  e.target.value = ''
+  if (val.startsWith('tpl:')) {
+    const tpl = (wfLoadData.templates || []).find(t => t.id === val.slice(4))
+    if (tpl) wfLoadTemplate(tpl)
+  } else if (val.startsWith('saved:')) {
+    const id = val.slice(6)
+    const w = (wfLoadData.saved || []).find(x => x.id === id)
+    try {
+      const detail = await fetch(`${API}/workflows/${encodeURIComponent(id)}`).then(r => r.json())
+      const def = detail.workflow ? (detail.workflow.definition || detail.workflow) : null
+      if (detail.ok && def && Array.isArray(def.nodes)) wfLoadTemplate(def)
+      else if (w) wfLoadTemplate({ id: w.id, name: w.name, description: w.description, nodes: [] })
+    } catch { if (w) wfLoadTemplate({ id: w.id, name: w.name, description: w.description, nodes: [] }) }
+  }
+})
+
+document.getElementById('wf-new')?.addEventListener('click', () => {
+  wfEditor = { id: 'draft', name: '未命名工作流', description: '', nodes: [
+    { id: 'start', type: 'start', name: '开始', config: {}, next: null },
+    { id: 'end', type: 'end', name: '结束', config: {}, next: null },
+  ] }
+  wfSelectedNodeId = null
+  wfRunState = new Map()
+  wfRenderCanvas()
+  wfRenderInspector()
+})
+
+document.getElementById('wf-save')?.addEventListener('click', async () => {
+  const name = window.prompt('工作流名称', wfEditor.name || '未命名工作流')
+  if (!name || !name.trim()) return
+  const wf = { ...wfEditor, name: name.trim() }
+  if (!wf.id || wf.id === 'draft') wf.id = 'wf_' + Date.now().toString(36)
+  try {
+    const res = await fetch(`${API}/workflows/save`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: wf.name, workflow: wf }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (data.ok) {
+      wfEditor.id = wf.id
+      wfLoadOptions()
+      alert('已保存：' + wf.name)
+    } else {
+      alert('保存失败：' + (data.error || '未知错误') + '\n\n可复制下方 JSON 备用：\n' + JSON.stringify(wf, null, 2))
+    }
+  } catch (err) { alert('保存失败：' + err.message + '\n\n可复制下方 JSON 备用：\n' + JSON.stringify(wf, null, 2)) }
+})
+
+document.getElementById('wf-palette')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-type]')
+  if (!btn) return
+  const type = btn.dataset.type
+  const id = wfGenId(type)
+  const node = { id, type, name: (WF_NODE_TYPES[type]?.label || type), config: wfDefaultConfig(type), next: null }
+  wfEditor.nodes.push(node)
+  wfRunState = new Map()
+  wfRenderCanvas()
+  wfSelectNode(id)
+})
+
+document.getElementById('wf-ins-del')?.addEventListener('click', () => {
+  const node = wfFind(wfSelectedNodeId)
+  if (!node) return
+  if (!window.confirm(`删除节点「${node.name || node.id}」？`)) return
+  wfEditor.nodes = wfEditor.nodes.filter(n => n.id !== node.id)
+  // 清理其它节点指向它的连线
+  for (const n of wfEditor.nodes) {
+    if (n.next && typeof n.next === 'object' && !Array.isArray(n.next)) {
+      for (const [b, t] of Object.entries(n.next)) if (t === node.id) delete n.next[b]
+    } else if (n.next === node.id) n.next = null
+  }
+  wfSelectedNodeId = null
+  wfRunState = new Map()
+  wfRenderCanvas()
+  wfRenderInspector()
+})
+
+document.getElementById('wf-ins-name')?.addEventListener('input', wfApplyInspector)
+document.getElementById('wf-ins-config')?.addEventListener('input', wfApplyInspector)
+document.getElementById('wf-ins-config')?.addEventListener('change', wfApplyInspector)
+document.getElementById('wf-ins-next')?.addEventListener('change', wfApplyInspector)
+
+document.getElementById('wf-run')?.addEventListener('click', () => { document.getElementById('wf-run-exec')?.click() })
+document.getElementById('wf-run-exec')?.addEventListener('click', async () => {
+  const statusEl = document.getElementById('wf-run-status')
+  const logEl = document.getElementById('wf-exec-log')
+  if (!statusEl || !logEl) return
+  // 从工作流对象中剔除仅前端字段，保证后端可解析
+  const wf = JSON.parse(JSON.stringify(wfEditor))
+  const inputText = document.getElementById('wf-run-input')?.value.trim() || ''
+  let parsed = { input: inputText }
+  if (inputText && inputText.trim().startsWith('{')) { try { parsed = JSON.parse(inputText) } catch {} }
+  if (!wf.nodes.some(n => n.type === 'start')) { statusEl.textContent = '缺少 start 节点'; return }
+  statusEl.textContent = '运行中…'
+  logEl.innerHTML = ''
+  wfRunState = new Map()
+  wfRenderCanvas()
+  try {
+    const r = await fetch(`${API}/workflows/run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workflow: wf, input: parsed })
+    }).then(res => res.json())
+    if (!r.ok && r.error) { statusEl.textContent = '失败：' + r.error; return }
+    const log = r.log || []
+    // 顺序高亮每个节点（模拟逐步执行）
+    for (let i = 0; i < log.length; i++) {
+      const entry = log[i]
+      if (entry.node_id) {
+        wfRunState.set(entry.node_id, entry.status === 'error' ? 'error' : (entry.status === 'paused' ? 'paused' : 'ok'))
+        wfRenderCanvas()
+        await new Promise(res => setTimeout(res, 180))
+      }
+    }
+    statusEl.textContent = `${r.ok ? '完成' : '失败'} · 状态 ${r.status || ''} · ${log.length} 步` + (r.paused_at ? ` · 暂停于 ${r.paused_at.node_id}` : '')
+    logEl.innerHTML = log.map(l => `
+      <div class="wf-log-item ${l.status === 'error' ? 'wf-log-error' : (l.status === 'paused' ? 'wf-log-paused' : '')}">
+        <span class="wf-log-node">${escHtml(l.node_type || '')} · ${escHtml(l.name || l.node_id)}</span>
+        <span class="wf-log-status">${escHtml(l.status || '')}</span>
+        <span class="wf-log-time">${l.duration_ms != null ? l.duration_ms + 'ms' : ''}</span>
+        <span class="wf-log-out">${escHtml(typeof l.output === 'string' ? l.output.slice(0, 140) : JSON.stringify(l.output || '').slice(0, 140))}</span>
+      </div>`).join('')
+    if (r.error) { const err = document.createElement('div'); err.className = 'wf-log-item wf-log-error'; err.textContent = '错误：' + r.error; logEl.appendChild(err) }
+  } catch (err) { statusEl.textContent = '请求失败：' + err.message }
+})
+
+// ── 用量监控页 ──
+async function renderObservabilityPage() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = String(v); };
+  try {
+    const data = await fetch(`${API}/observability/dashboard?days=7`).then(r => r.json());
+    set("obs-cost", data.cost?.total?.total_cost != null ? "$" + data.cost.total.total_cost : "—");
+    set("obs-calls", data.cost?.total?.calls ?? 0);
+    set("obs-tokens", (data.cost?.total?.total_tokens ?? 0).toLocaleString());
+    const lat = data.latency;
+    set("obs-latency", lat?.p50 != null ? `${(lat.p50 / 1000).toFixed(1)}s` : "—");
+    const models = data.cost?.by_model || [];
+    const modelWrap = document.getElementById("obs-model-list");
+    if (modelWrap) {
+      if (!models.length) modelWrap.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:16px;">暂无数据</div>';
+      else modelWrap.innerHTML = models.slice(0, 6).map(m => `
+        <div class="obs-row"><span class="obs-row-label">${escHtml(m.model || m.provider || '—')}</span>
+        <span class="obs-row-val">$ ${Number(m.cost || 0).toFixed(4)}</span>
+        <span style="color:var(--dim);font-size:11px;">${(m.total_tokens || 0).toLocaleString()} tok</span></div>`).join("");
+    }
+    const tools = data.tools || {};
+    const toolWrap = document.getElementById("obs-tool-list");
+    if (toolWrap) {
+      const rows = Array.isArray(tools) ? tools : (tools.tools || []);
+      if (!rows.length) toolWrap.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:16px;">暂无数据</div>';
+      else toolWrap.innerHTML = rows.slice(0, 6).map(t => `
+        <div class="obs-row"><span class="obs-row-label">${escHtml(t.tool || t.name || '—')}</span>
+        <span class="obs-row-val">${t.count || 0} 次</span></div>`).join("");
+    }
+    const dailyWrap = document.getElementById("obs-daily");
+    if (dailyWrap) {
+      const daily = data.cost?.daily_trend || [];
+      if (!daily.length) dailyWrap.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:16px;">暂无数据</div>';
+      else dailyWrap.innerHTML = daily.map(d => `
+        <div class="obs-row"><span class="obs-row-label">${escHtml(d.day || '')}</span>
+        <span class="obs-row-val">$ ${Number(d.cost || 0).toFixed(4)}</span>
+        <span style="color:var(--dim);font-size:11px;">${d.calls || 0} 次 · ${(d.total_tokens || 0).toLocaleString()} tok</span></div>`).join("");
+    }
+    const expWrap = document.getElementById("obs-expensive");
+    if (expWrap) {
+      const exp = data.cost?.top_expensive || [];
+      if (!exp.length) expWrap.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:16px;">暂无数据</div>';
+      else expWrap.innerHTML = exp.slice(0, 5).map(t => `
+        <div class="obs-row"><span class="obs-row-label">${escHtml(t.created_at || '')} · ${escHtml(t.model || '')}</span>
+        <span class="obs-row-val">$ ${Number(t.cost_estimate || 0).toFixed(4)}</span></div>`).join("");
+    }
+  } catch {}
+}
+document.getElementById("obs-refresh")?.addEventListener("click", renderObservabilityPage);
+
+// ── 审批中心（HITL）──
+async function refreshApprovalBadge() {
+  const badge = document.getElementById("approvals-badge");
+  if (!badge) return;
+  try {
+    const r = await fetch(`${API}/approvals?status=pending&limit=1`).then(res => res.json());
+    const count = r.pending_count || 0;
+    badge.style.display = count ? "inline-block" : "none";
+    badge.textContent = count;
+  } catch {}
+}
+document.getElementById("approvals-btn")?.addEventListener("click", () => { openApprovalsModal(); });
+function openApprovalsModal() {
+  const overlay = document.getElementById("approvals-overlay");
+  if (!overlay) return;
+  overlay.hidden = false;
+  loadApprovals();
+}
+function closeApprovalsModal() { const overlay = document.getElementById("approvals-overlay"); if (overlay) overlay.hidden = true; }
+document.getElementById("approvals-close")?.addEventListener("click", closeApprovalsModal);
+document.getElementById("approvals-overlay")?.addEventListener("click", e => { if (e.target === e.currentTarget) closeApprovalsModal(); });
+async function loadApprovals() {
+  const list = document.getElementById("approvals-list");
+  const empty = document.getElementById("approvals-empty");
+  const sub = document.getElementById("approvals-sub");
+  if (!list) return;
+  list.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:20px;">加载中…</div>';
+  try {
+    const r = await fetch(`${API}/approvals?status=pending&limit=50`).then(res => res.json());
+    const items = r.approvals || [];
+    if (sub) sub.textContent = `${items.length} 个待审批 · 超时自动过期`;
+    if (!items.length) { list.innerHTML = ""; if (empty) empty.hidden = false; return; }
+    if (empty) empty.hidden = true;
+    list.innerHTML = items.map(a => `
+      <div class="approval-item">
+        <div class="approval-head">
+          <span class="approval-risk ${escHtml(a.risk_level || 'medium')}">${escHtml(a.risk_level || 'medium')}</span>
+          <span class="approval-title">${escHtml(a.title || '')}</span>
+          <span class="approval-time">${escHtml((a.created_at || '').slice(5, 16))}</span>
+        </div>
+        <div class="approval-desc">${escHtml(a.description || '')}</div>
+        <div class="approval-actions">
+          <button class="approval-approve" data-apv="${escHtml(a.id)}" type="button">通过</button>
+          <button class="approval-reject" data-apv="${escHtml(a.id)}" type="button">拒绝</button>
+        </div>
+      </div>`).join("");
+    list.querySelectorAll(".approval-approve").forEach(b => b.addEventListener("click", () => resolveApproval(b.dataset.apv, "approve")));
+    list.querySelectorAll(".approval-reject").forEach(b => b.addEventListener("click", () => resolveApproval(b.dataset.apv, "reject")));
+  } catch {
+    list.innerHTML = '<div style="color:var(--dim);font-size:13px;padding:20px;">加载失败</div>';
+  }
+}
+async function resolveApproval(id, action) {
+  try {
+    await fetch(`${API}/approvals/${encodeURIComponent(id)}/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: action === "reject" ? "用户主动拒绝" : "" })
+    });
+  } catch {}
+  loadApprovals();
+  refreshApprovalBadge();
+}
+// 后端发出 approval_requested / approval_resolved 事件时刷新角标与弹层
+window.addEventListener("bailongma:approval-refresh", () => { refreshApprovalBadge(); });
+refreshApprovalBadge();
+setInterval(refreshApprovalBadge, 60000);
 
 // ── 图谱记忆球：作战指挥页「全屏图谱」按钮全屏展开 / Esc 还原 ──
 function setSphereEnlarged(enlarged) {

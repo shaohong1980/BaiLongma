@@ -66,6 +66,8 @@ import { formatTerminalStreamContext } from './terminal-stream.js'
 import { getWeatherCardProps, isWeatherQuery } from './weather.js'
 import { startTyphoonAlertMonitor } from './typhoon-alert-monitor.js'
 import { scheduleSceneSurfaceRemoval } from './scene/transient-surfaces.js'
+import { buildMultimodalContent, imageToDataUrl } from './vision/index.js'
+import { startTracerFlush, stopTracerFlush } from './observability/index.js'
 
 
 // 启动扫描（拆自 src/runtime/startup.js）：资源准备 / 环境扫描 / 地理热点 / 本地 Agent / 工具槽 / 技能
@@ -1378,9 +1380,34 @@ async function runTurn(input, label, msg = null) {
     // 流式回复：onStream 把 text/think 两种模式的 token 逐块吐出。curStreamMode 跟踪当前模式
     // 让 stream_chunk 也带上 mode（前端据此区分"思考流"与"正文流"）。
     let curStreamMode = null
+    // 多模态输入：如果消息携带图片（msg.images 为 URL 或本地路径数组），构建 OpenAI content 数组格式
+    let llmMessage = input
+    const msgImages = Array.isArray(msg?.images) ? msg.images : []
+    if (msgImages.length > 0) {
+      const imageItems = []
+      for (const img of msgImages) {
+        const imgStr = String(img || '').trim()
+        if (!imgStr) continue
+        // 本地文件路径 → 转 base64 data URL；URL 直接使用
+        if (imgStr.startsWith('http://') || imgStr.startsWith('https://') || imgStr.startsWith('data:')) {
+          imageItems.push({ url: imgStr })
+        } else {
+          const dataUrlResult = imageToDataUrl(imgStr)
+          if (dataUrlResult.ok) {
+            imageItems.push({ url: dataUrlResult.dataUrl })
+          } else {
+            console.warn(`[视觉] 图片加载失败: ${imgStr} - ${dataUrlResult.error}`)
+          }
+        }
+      }
+      if (imageItems.length > 0) {
+        llmMessage = buildMultimodalContent({ text: input, images: imageItems })
+        console.log(`[视觉] 多模态消息构建完成: ${imageItems.length} 张图片`)
+      }
+    }
     llmResult = await callLLM({
       systemPrompt,
-      message: input,
+      message: llmMessage,
       messages: llmMessages,
       tools: turnTools,
       temperature: voiceTurn ? Math.min(config.temperature, 0.35) : config.temperature,
@@ -1679,6 +1706,8 @@ const startConsciousnessLoop = consciousnessLoop.start
 
 async function main() {
   console.log('Jarvis starting...')
+  startTracerFlush()  // 可观测性：启动 span 缓冲定时落库（trace_list / trace_detail 数据源）
+  process.on('exit', () => { try { stopTracerFlush() } catch {} })
 
   // 启动时打印恢复的线索状态，便于"重启不丢线索/承诺"的直观验证。
   {

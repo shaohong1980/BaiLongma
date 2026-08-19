@@ -205,6 +205,44 @@ const MCP_TRIGGERS = [
   '外部服务', '集成', '插件服务', 'mcp服务器',
 ]
 
+// 知识库（RAG）：导入文档 / 混合检索 / 列出 / 删除 / 统计（豆包新增）
+const KNOWLEDGE_TOOLS = ['knowledge_ingest', 'knowledge_search', 'knowledge_list', 'knowledge_delete', 'knowledge_stats']
+const KNOWLEDGE_TRIGGERS = [
+  '知识库', '导入文档', '导入文件', '存入知识库', '库里有', '知识库检索', '查一下资料',
+  '把这份', '存进知识库', '这份资料', '建立专题', 'rag', 'knowledge', 'knowledge base',
+  '文档入库', '资料库',
+]
+
+// Python 沙箱：数据分析 / 绘图 / 脚本执行（豆包新增）
+const PYTHON_TOOLS = ['run_python', 'python_packages']
+const PYTHON_TRIGGERS = [
+  '跑一下python', '写个python', 'python脚本', 'python代码', '数据分析', '画个图',
+  '数据清洗', '统计计算', '算一下', 'pandas', 'numpy', 'matplotlib', '用python',
+  'run python', 'python script', '数据可视化', '分析数据',
+]
+
+// 可观测性：成本 / 用量 / trace 追踪（豆包新增）
+const OBSERVABILITY_TOOLS = ['cost_stats', 'trace_list', 'trace_detail', 'observability_dashboard']
+const OBSERVABILITY_TRIGGERS = [
+  '花了多少钱', 'token', '用量', '成本', '最费钱', '哪个模型', '调用统计',
+  'tokens', 'cost', 'usage', 'trace', '追踪', '可观测', '监控报告', '健康检查',
+  '这个月', '这个星期', '用了多少',
+]
+
+// HITL 审批：请求审批 / 查看审批（豆包新增）
+const HITL_TOOLS = ['hitl_request', 'hitl_list']
+const HITL_TRIGGERS = [
+  '审批', '待审批', '需要确认', '人工确认', '批准', '拒绝这个', 'approval', 'approve',
+  '需要你批准', '确认一下',
+]
+
+// 工作流：运行 / 列出 / 保存 / 删除（豆包新增）
+const WORKFLOW_TOOLS = ['workflow_run', 'workflow_list', 'workflow_save', 'workflow_delete']
+const WORKFLOW_TRIGGERS = [
+  '工作流', '流程', 'workflow', '流水线', '编排', '多步骤', '模板流程',
+  'work flow', 'pipeline', '自动化流程',
+]
+
 // 技能（Agent Skills）：浏览 / 查看 / 从经验学一个 / 用后改进 / 删除
 const SKILL_TOOLS = ['list_skills', 'view_skill', 'learn_skill', 'improve_skill', 'delete_skill']
 const SKILL_TRIGGERS = [
@@ -301,6 +339,11 @@ export const TOOL_GROUPS = [
   { triggers: GOAL_TRIGGERS,         tools: GOAL_TOOLS },
   { triggers: SKILL_TRIGGERS,        tools: SKILL_TOOLS },
   { triggers: MCP_TRIGGERS,          tools: MCP_TOOLS },
+  { triggers: KNOWLEDGE_TRIGGERS,    tools: KNOWLEDGE_TOOLS },
+  { triggers: PYTHON_TRIGGERS,       tools: PYTHON_TOOLS },
+  { triggers: OBSERVABILITY_TRIGGERS, tools: OBSERVABILITY_TOOLS },
+  { triggers: HITL_TRIGGERS,         tools: HITL_TOOLS },
+  { triggers: WORKFLOW_TRIGGERS,     tools: WORKFLOW_TOOLS },
   { triggers: PREFETCH_TRIGGERS,     tools: PREFETCH_TOOLS },
   { triggers: TICKER_TRIGGERS,       tools: TICKER_TOOLS },
   { triggers: PERSON_CARD_TRIGGERS,  tools: PERSON_CARD_TOOLS },

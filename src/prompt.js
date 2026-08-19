@@ -730,8 +730,8 @@ export function buildContextBlock({
   currentChannel = '',
   channelSwitched = false,
   // 自我感知层（self-awareness）：injector 算好的内在感知信号对象 或 null。
-  // 非空时渲染 <self-perception> 段，紧贴 <runtime> 之后——它是 agent 的内在状态，
-  // 比一切外部内容（人物、任务、记忆）都更优先。
+  // 非空时渲染 <self-perception> 段，放在稳定前缀区（P2-1 后 <runtime> 移到末尾）——
+  // 它是 agent 的内在状态，比外部内容（人物、任务、记忆）都更优先。
   selfPerception = null,
   // 自我快照（self-snapshot）：常驻的"你刚才是怎样的你"。风格指纹 + 工具习惯 + 身份锚。
   // 与 selfPerception 不同：snapshot 在正常情况下也出现，是 agent 的 proprioception。
@@ -770,11 +770,11 @@ export function buildContextBlock({
 
   // <self-snapshot> —— 自我快照（常驻的"我是谁/我刚才是怎样的我"）
   //
-  // 紧贴 <runtime> 之后、感知段之前。设计顺序：
-  //   1. runtime：现在是什么时间/我在哪个 channel
-  //   2. self-snapshot：我刚才是怎样的我（身份锚 + 风格指纹 + 工具习惯）
-  //   3. self-perception：我现在感知到什么异常
-  //   4. boundary-state：因此我的行为模式应该是什么
+  // 放在稳定前缀区（P2-1 后 <runtime> 移到末尾）。设计顺序（前缀区内）：
+  //   1. self-snapshot：我刚才是怎样的我（身份锚 + 风格指纹 + 工具习惯）
+  //   2. self-perception：我现在感知到什么异常
+  //   3. boundary-state：因此我的行为模式应该是什么
+  //   ... 末尾才是每轮必变的 <runtime>
   // 让 agent 先认领自己，再感知异常，最后切换行为——这是有顺序的 cognitive flow。
   if (selfSnapshot?.snapshotText) {
     sections.push(`<self-snapshot>\n${selfSnapshot.snapshotText}\n</self-snapshot>`)

@@ -107,6 +107,9 @@ const createNavbar = () => `
     <button class="nav-icon" id="project-btn" type="button" title="投影界面（scene 声明式界面）">◉</button>
     <button class="nav-icon" id="video-btn" title="视频模式 (V)：粘贴链接播放" type="button">⊞</button>
     <button class="nav-icon" id="music-btn" title="音乐模式 (M)：本地曲库播放" type="button">♪</button>
+    <button class="nav-icon" id="approvals-btn" type="button" title="审批中心（人工确认）">
+      ☑<span class="nav-badge" id="approvals-badge" style="display:none">0</span>
+    </button>
     <button class="nav-icon" id="settings-btn" title="设置" type="button">⚙</button>
     <button class="nav-icon" id="fullscreen-btn" title="全屏" type="button">⛶</button>
   </div>
@@ -1190,6 +1193,20 @@ const createImagePanel = () => `
 </div>
 `;
 
+const createApprovalsModal = () => `
+<div class="approvals-overlay" id="approvals-overlay" hidden>
+  <div class="approvals-modal" role="dialog" aria-modal="true" aria-label="审批中心">
+    <div class="approvals-head">
+      <span class="approvals-title">☑ 审批中心</span>
+      <button class="approvals-close" id="approvals-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div class="approvals-sub" id="approvals-sub">加载中…</div>
+    <div class="approvals-list" id="approvals-list"></div>
+    <div class="approvals-empty" id="approvals-empty" hidden>暂无待审批事项</div>
+  </div>
+</div>
+`;
+
 const createMapPanel = () => `
 <div class="map-panel" id="map-panel" hidden>
   <div class="map-panel-head">
@@ -1225,6 +1242,19 @@ const createSidebar = () => `
   <div class="nav-item" data-page="backup" title="数据备份">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
     <span>数据备份</span>
+  </div>
+  <div class="nav-section-title">能力</div>
+  <div class="nav-item" data-page="knowledge" title="知识库（RAG）：导入文档 / 检索 / 管理">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+    <span>知识库</span>
+  </div>
+  <div class="nav-item" data-page="workflow" title="工作流：模板 / 已保存流程 / 一键运行">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    <span>工作流</span>
+  </div>
+  <div class="nav-item" data-page="observability" title="用量监控：成本 / token / 工具使用">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <span>用量监控</span>
   </div>
 </aside>
 `;
@@ -1356,6 +1386,133 @@ const createMainPages = () => `
       </div>
     </div>
   </div>
+
+  <!-- 知识库（RAG） -->
+  <div class="page" id="page-knowledge">
+    <div class="page-header">
+      <div>
+        <div class="page-title">知识库</div>
+        <div class="page-subtitle">导入文档 → 自动分块建索引 → 对话中直接检索引用</div>
+      </div>
+      <button class="btn btn-primary" id="kb-refresh" type="button">⟳ 刷新</button>
+    </div>
+    <div class="kb-grid">
+      <div class="card metric-card card-glow"><div class="card-title">文档</div><div class="metric-value" id="kb-docs">0</div></div>
+      <div class="card metric-card purple card-glow"><div class="card-title">分块</div><div class="metric-value" id="kb-chunks">0</div></div>
+      <div class="card metric-card orange card-glow"><div class="card-title">向量覆盖率</div><div class="metric-value" id="kb-coverage">—</div></div>
+      <div class="card metric-card card-glow"><div class="card-title">总字符</div><div class="metric-value" id="kb-chars">0</div></div>
+    </div>
+    <div class="card card-glow kb-search-card">
+      <div class="section-header"><div class="section-title">检索</div><div style="font-size:11px;color:var(--dim)">在已导入文档中检索相关内容</div></div>
+      <div class="kb-search-row">
+        <input id="kb-search-input" class="settings-input" type="text" placeholder="输入检索词，如：应急预案、API 文档、成本核算…" autocomplete="off" spellcheck="false">
+        <button class="btn btn-primary" id="kb-search-btn" type="button">检索</button>
+      </div>
+      <div class="kb-results" id="kb-results"></div>
+    </div>
+    <div class="card card-glow">
+      <div class="section-header"><div class="section-title">已导入文档</div><div style="font-size:11px;color:var(--dim)">删除不可恢复</div></div>
+      <div class="kb-doc-list" id="kb-doc-list"></div>
+    </div>
+  </div>
+
+  <!-- 工作流（Coze 风格可视化编辑器） -->
+  <div class="page" id="page-workflow">
+    <div class="page-header">
+      <div>
+        <div class="page-title">工作流编辑器</div>
+        <div class="page-subtitle">可视化编排 · 节点串联 · 一键运行（参考 Coze/扣子）</div>
+      </div>
+      <div class="wf-header-actions">
+        <select class="settings-select" id="wf-load-select" title="从模板或已保存工作流加载"><option value="">从模板 / 已保存加载…</option></select>
+        <button class="btn" id="wf-new" type="button" title="新建空白工作流">＋ 新建</button>
+        <button class="btn" id="wf-save" type="button" title="保存当前工作流">💾 保存</button>
+        <button class="btn btn-primary" id="wf-run" type="button">▶ 运行</button>
+      </div>
+    </div>
+
+    <div class="wf-editor">
+      <!-- 左：节点面板 -->
+      <div class="wf-palette" id="wf-palette">
+        <div class="wf-palette-title">节点</div>
+        <button type="button" data-type="start" title="起始节点（唯一）">▶ 开始</button>
+        <button type="button" data-type="end" title="结束节点（可多个）">■ 结束</button>
+        <button type="button" data-type="llm" title="调用 LLM">🧠 LLM</button>
+        <button type="button" data-type="tool" title="调用内置工具">🔧 工具</button>
+        <button type="button" data-type="condition" title="条件分支（真/假）">❓ 条件</button>
+        <button type="button" data-type="loop" title="对数组逐项执行">🔁 循环</button>
+        <button type="button" data-type="parallel" title="并行分支">⫸ 并行</button>
+        <button type="button" data-type="approval" title="人工审批（HITL）">☑ 审批</button>
+        <button type="button" data-type="code" title="JS 代码节点">{} 代码</button>
+      </div>
+
+      <!-- 中：画布 -->
+      <div class="wf-canvas" id="wf-canvas">
+        <svg class="wf-edges" id="wf-edges" aria-hidden="true"></svg>
+        <div class="wf-nodes" id="wf-nodes"></div>
+        <div class="wf-canvas-empty" id="wf-canvas-empty">从左侧添加节点，或用上方「从模板加载」开始</div>
+      </div>
+
+      <!-- 右：节点配置面板 -->
+      <div class="wf-inspector" id="wf-inspector">
+        <div class="wf-inspector-empty" id="wf-inspector-empty">点击画布中的节点<br>在右侧配置它的参数与连线</div>
+        <div class="wf-inspector-body" id="wf-inspector-body" hidden>
+          <div class="wf-ins-head">
+            <span class="wf-ins-type" id="wf-ins-type"></span>
+            <button class="wf-ins-del" id="wf-ins-del" type="button" title="删除节点">🗑 删除</button>
+          </div>
+          <div class="wf-ins-row"><label class="wf-ins-label">节点名称</label><input class="settings-input" id="wf-ins-name" type="text" autocomplete="off" spellcheck="false"></div>
+          <div id="wf-ins-config"><!-- 按节点类型生成的配置表单 --></div>
+          <div id="wf-ins-next"><!-- 连线目标选择 --></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 运行区 -->
+    <div class="card card-glow wf-run-bar">
+      <div class="wf-run-input-row">
+        <textarea id="wf-run-input" class="settings-input" rows="2" placeholder='输入参数（JSON 或纯文本，纯文本将作为 input 传入），如 {"input":"你好"} / {"code":"print(1)"}'></textarea>
+        <button class="btn btn-primary" id="wf-run-exec" type="button" style="flex:none;">▶ 执行</button>
+      </div>
+      <div class="wf-run-status" id="wf-run-status"></div>
+      <div class="wf-exec-log" id="wf-exec-log"></div>
+    </div>
+  </div>
+
+  <!-- 用量监控 -->
+  <div class="page" id="page-observability">
+    <div class="page-header">
+      <div>
+        <div class="page-title">用量监控</div>
+        <div class="page-subtitle">LLM 调用成本 · token 消耗 · 工具使用 · 延迟</div>
+      </div>
+      <button class="btn btn-primary" id="obs-refresh" type="button">⟳ 刷新</button>
+    </div>
+    <div class="kb-grid">
+      <div class="card metric-card card-glow"><div class="card-title">总成本</div><div class="metric-value" id="obs-cost">—</div></div>
+      <div class="card metric-card purple card-glow"><div class="card-title">调用次数</div><div class="metric-value" id="obs-calls">0</div></div>
+      <div class="card metric-card orange card-glow"><div class="card-title">Token 总量</div><div class="metric-value" id="obs-tokens">0</div></div>
+      <div class="card metric-card card-glow"><div class="card-title">平均延迟</div><div class="metric-value" id="obs-latency">—</div></div>
+    </div>
+    <div class="dash-grid">
+      <div class="card card-glow">
+        <div class="section-header"><div class="section-title">按模型成本 Top</div></div>
+        <div class="obs-model-list" id="obs-model-list"></div>
+      </div>
+      <div class="card card-glow">
+        <div class="section-header"><div class="section-title">常用工具</div></div>
+        <div class="obs-tool-list" id="obs-tool-list"></div>
+      </div>
+    </div>
+    <div class="card card-glow">
+      <div class="section-header"><div class="section-title">每日趋势</div></div>
+      <div class="obs-daily" id="obs-daily"></div>
+    </div>
+    <div class="card card-glow">
+      <div class="section-header"><div class="section-title">最昂贵调用 Top 5</div></div>
+      <div class="obs-expensive" id="obs-expensive"></div>
+    </div>
+  </div>
 </main>
 `;
 
@@ -1370,6 +1527,7 @@ export function createBrainUiMarkup() {
     createTooltip(),
     createSettingsModal(),
     createMultiAgentConfigOverlay(),
+    createApprovalsModal(),
     createVideoPanel(),
     createAIVideoPanel(),
     createMusicPanel(),

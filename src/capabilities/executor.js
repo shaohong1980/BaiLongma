@@ -21,8 +21,14 @@ import { sceneStore } from '../scene/scene-store.js'
 import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
+import { tracer } from '../observability/index.js'
 import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
 import { execReadDocument } from './tools/documents.js'
+import { execKnowledgeIngest, execKnowledgeSearch, execKnowledgeList, execKnowledgeDelete, execKnowledgeStats } from './tools/knowledge.js'
+import { execRunPython, execPythonPackages } from './tools/python-sandbox.js'
+import { execCostStats, execTraceList, execTraceDetail, execObservabilityDashboard } from './tools/observability.js'
+import { execRequestApproval as execHitlRequest, execListApprovals as execHitlList } from './tools/hitl.js'
+import { execWorkflowRun, execWorkflowList, execWorkflowSave, execWorkflowDelete } from './tools/workflow.js'
 import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
 import { execBrowserRead, execBrowserAct, execDeepResearch, execFetchUrl, execWebSearch } from './tools/web.js'
@@ -233,6 +239,40 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execListDir(args, context)
       case 'read_document':
         return await execReadDocument(args, context)
+      case 'knowledge_ingest':
+        return await execKnowledgeIngest(args, context)
+      case 'knowledge_search':
+        return await execKnowledgeSearch(args)
+      case 'knowledge_list':
+        return execKnowledgeList(args)
+      case 'knowledge_delete':
+        return execKnowledgeDelete(args)
+      case 'knowledge_stats':
+        return execKnowledgeStats()
+      case 'run_python':
+        return await execRunPython(args, context)
+      case 'python_packages':
+        return await execPythonPackages()
+      case 'cost_stats':
+        return execCostStats(args)
+      case 'trace_list':
+        return execTraceList(args)
+      case 'trace_detail':
+        return execTraceDetail(args)
+      case 'observability_dashboard':
+        return execObservabilityDashboard(args)
+      case 'hitl_request':
+        return await execHitlRequest(args, context)
+      case 'hitl_list':
+        return execHitlList(args)
+      case 'workflow_run':
+        return await execWorkflowRun(args, context)
+      case 'workflow_list':
+        return execWorkflowList(args)
+      case 'workflow_save':
+        return execWorkflowSave(args)
+      case 'workflow_delete':
+        return execWorkflowDelete(args)
       case 'write_file':
         return await execWriteFile(args, context)
       case 'delete_file':
@@ -448,7 +488,20 @@ export async function executeTool(name, args, context = {}) {
   }
 
   try {
-    const result = await executeToolUnchecked(name, safeArgs, context)
+    // 可观测性：工具执行 span（归到当前 turn 的 trace_id 下）
+    const result = await tracer.trace('tool.exec', {
+      attributes: {
+        tool: name,
+        risk: policy.risk,
+        autonomous: !!context.autonomous,
+        args_keys: Object.keys(safeArgs).slice(0, 8).join(','),
+      },
+    }, async (span) => {
+      const r = await executeToolUnchecked(name, safeArgs, context)
+      span.setAttribute('tool_status', inferToolStatus(r))
+      span.setAttribute('result_len', String(r || '').length)
+      return r
+    })
     writeToolAuditLog({ name, args: safeArgs, context, policy, status: inferToolStatus(result), result, startedAt })
     return result
   } catch (err) {

@@ -1,6 +1,6 @@
 // llm.js —— Agentic 工具循环主调用（callLLM）
 // 拆分说明：流式调用层见 src/llm/stream.js；工具循环纯函数见 src/llm/tool-utils.js。
-import { getToolCompressionConfig } from "./config.js"
+import { config, getToolCompressionConfig, switchModel } from "./config.js"
 import { executeTool } from "./capabilities/executor.js"
 import { getToolSchemas } from "./capabilities/schemas.js"
 import { validateToolArgs } from "./capabilities/tool-validator.js"
@@ -15,6 +15,8 @@ import { actionContractToolSucceeded, containsUnsupportedCompletionClaim } from 
 import { compressToolResultForModel, cleanupOldToolOutputs } from "./runtime/tool-result-compressor.js"
 import { paths } from "./paths.js"
 import { streamOnceWithModelFallback, buildChatCompletionRequestParams } from "./llm/stream.js"
+import { tracer } from "./observability/index.js"
+import { messageHasImageContent, resolveVisionModel } from "./vision/index.js"
 import {
   injectFoundToolSchemas, normalizeArgs, parseXmlToolCalls, summarizeToolCall,
   buildToolLogDetail, makeDeferredOutboundResult, toolAddsTickEvidence, buildTickRoundContext,
@@ -81,6 +83,47 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       }
     : null
 
+  // 多模态支持：message 可以是字符串（纯文本）或数组（OpenAI content 格式，含 image_url）
+  // 检测是否包含图片，用于视觉模型自动路由
+  const hasImage = messageHasImageContent(message)
+  const visionRouting = hasImage
+    ? resolveVisionModel({ currentModel: config.model, provider: config.provider, hasImage: true })
+    : { needSwitch: false, model: config.model }
+  if (visionRouting.needSwitch) {
+    console.log(`[视觉] 检测到图片输入，模型路由: ${config.model} → ${visionRouting.model}`)
+    // 持久化切换：让本会话后续轮次（若历史里带图）也能由视觉模型处理，避免下一轮回退到非视觉模型报错。
+    try {
+      const switched = switchModel(visionRouting.model)
+      visionRouting.model = switched.model
+      console.log(`[视觉] 已持久化切换默认模型到 ${switched.model}`)
+    } catch (err) {
+      // 持久化失败（如未激活 / 模型名非法）不阻断本轮：仍用路由到的视觉模型处理当前图片。
+      console.warn(`[视觉] 默认模型持久化切换失败（本轮仍路由 ${visionRouting.model}）: ${err.message || err}`)
+    }
+  }
+  if (visionRouting.warning) {
+    console.warn(`[视觉] ${visionRouting.warning}`)
+  }
+
+  // 可观测性：本 turn 顶层 span（llm.call / tool.exec 通过 currentTrace 归到同一个 trace_id 下）
+  const turnSpan = tracer.startSpan('agent.turn', {
+    attributes: {
+      provider: config.provider,
+      model: visionRouting.model,
+      channel: toolContext?.currentChannel || '',
+      has_image: hasImage,
+      vision_switched: visionRouting.needSwitch,
+      strict_evaluation: !!strictEvaluation,
+    },
+  })
+  tracer.setCurrentTrace(turnSpan.trace_id)
+  let completedRounds = 0
+  const endTurnSpan = (status, attrs = {}) => {
+    try {
+      turnSpan.end({ status, attributes: { ...attrs, model: visionRouting.model, rounds: completedRounds } })
+    } catch {}
+  }
+
   const messages = Array.isArray(inputMessages) && inputMessages.length > 0
     ? inputMessages.map(item => ({ ...item }))
     : [
@@ -90,6 +133,8 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
 
   if (shouldThrottle()) {
     console.log('[配额] 用量超过 95%，跳过本次调用')
+    endTurnSpan('ok', { throttled: true })
+    tracer.clearCurrentTrace()
     return { content: '（配额接近上限，等待窗口滚动）', toolResult: null, aborted: false, delivered: false }
   }
 
@@ -159,6 +204,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
 
   try {
   for (let round = 0; round < TOOL_LOOP_LIMITS.maxRounds; round++) {
+    completedRounds = round + 1
     throwIfAborted(signal)
 
     if (tickState) {
@@ -193,6 +239,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
             signal,
             onRetry,
             onStream,  // 所有轮次均流式推送，让 UI 实时反映工具链执行过程中的模型输出
+            model: visionRouting.model,  // 图片输入时自动路由到视觉模型
           })
     } catch (err) {
       // 只要**前面的轮次已攒到可投递的回复**（典型：社交渠道第一轮已出答案、第二轮包 send_message 时
@@ -859,9 +906,13 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
   }
 
   trace.end({ messages, delivered, aborted })
+  endTurnSpan('ok', { delivered, aborted, all_content_len: String(allContent || '').length })
+  tracer.clearCurrentTrace()
   return { content: allContent, toolResult: lastToolResult, aborted, delivered }
   } finally {
     // 异常 / abort / 任何提前退出路径的兜底收尾（end 内部幂等，正常路径已 end 过则无副作用）。
     trace.end({ messages, delivered, aborted: signal?.aborted })
+    endTurnSpan('error', { error: signal?.reason || 'aborted' })
+    tracer.clearCurrentTrace()
   }
 }

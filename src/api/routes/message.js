@@ -45,7 +45,13 @@ export async function handleMessageRoutes(req, res, url) {
     const trimmed = String(content || '').trim()
     const enhanced = appendInboundChatMediaMarkdown(trimmed, body)
     const queuedContent = enhanced.content
-    if (!queuedContent.trim()) {
+    // 多模态图片：支持 image_urls（URL/base64）或 image_paths（本地路径）
+    const rawImages = Array.isArray(body.images) ? body.images
+      : Array.isArray(body.image_urls) ? body.image_urls
+      : Array.isArray(body.image_paths) ? body.image_paths
+      : []
+    const images = rawImages.map(String).filter(s => s.trim())
+    if (!queuedContent.trim() && images.length === 0) {
       jsonResponse(res, 400, { error: 'content or image required' })
       return true
     }
@@ -62,6 +68,7 @@ export async function handleMessageRoutes(req, res, url) {
     if (strictEvaluation !== undefined) meta.strictEvaluation = strictEvaluation
     if (Array.isArray(forbiddenTools)) meta.forbiddenTools = forbiddenTools
     if (enhanced.media.length) meta.attachments = enhanced.media
+    if (images.length) meta.images = images
     const queued = pushMessage(from_id, queuedContent, channel, meta)
     const conversationId = queued?.conversationId || 0
     emitEvent('message_in', { from_id, content: queuedContent, channel, timestamp: new Date().toISOString(), conversation_id: conversationId, attachments: enhanced.media })

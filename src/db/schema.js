@@ -596,5 +596,142 @@ export function initializeSchema(db) {
 
   // 重建 FTS 索引（覆盖已有数据，确保历史记忆也被索引）
   db.exec(`INSERT INTO memories_fts(memories_fts) VALUES('rebuild')`)
+
+  // ─── 知识库（P0: RAG）──────────────────────────────────────────────
+  // knowledge_docs    : 文档元数据
+  // knowledge_chunks  : 分块内容 + embedding BLOB
+  // knowledge_chunks_fts : FTS5 trigram 全文索引（中文子串可搜）
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS knowledge_docs (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        source_path TEXT NOT NULL DEFAULT '',
+        format      TEXT NOT NULL DEFAULT 'text',
+        size        INTEGER NOT NULL DEFAULT 0,
+        chars       INTEGER NOT NULL DEFAULT 0,
+        chunks      INTEGER NOT NULL DEFAULT 0,
+        status      TEXT NOT NULL DEFAULT 'ready',
+        error       TEXT DEFAULT '',
+        metadata    TEXT DEFAULT '{}',
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_docs_created ON knowledge_docs(created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS knowledge_chunks (
+        id            TEXT PRIMARY KEY,
+        doc_id        TEXT NOT NULL,
+        chunk_index   INTEGER NOT NULL,
+        text          TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        embedding     BLOB,
+        embedding_dim INTEGER,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (doc_id) REFERENCES knowledge_docs(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_doc ON knowledge_chunks(doc_id);
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_chunks_fts USING fts5(
+        text,
+        content='knowledge_chunks', content_rowid='rowid',
+        tokenize='trigram'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS knowledge_chunks_ai AFTER INSERT ON knowledge_chunks BEGIN
+        INSERT INTO knowledge_chunks_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+      CREATE TRIGGER IF NOT EXISTS knowledge_chunks_ad AFTER DELETE ON knowledge_chunks BEGIN
+        INSERT INTO knowledge_chunks_fts(knowledge_chunks_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+      END;
+      CREATE TRIGGER IF NOT EXISTS knowledge_chunks_au AFTER UPDATE ON knowledge_chunks BEGIN
+        INSERT INTO knowledge_chunks_fts(knowledge_chunks_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+        INSERT INTO knowledge_chunks_fts(rowid, text) VALUES (new.rowid, new.text);
+      END;
+    `)
+  } catch (err) {
+    console.warn('[DB migration] knowledge schema init failed:', err.message)
+  }
+
+  // ─── 可观测性：Span 追踪（P1）──────────────────────────────────────
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS trace_spans (
+        trace_id       TEXT NOT NULL,
+        span_id        TEXT NOT NULL,
+        parent_span_id TEXT,
+        name           TEXT NOT NULL,
+        kind           INTEGER NOT NULL DEFAULT 0,
+        status         INTEGER NOT NULL DEFAULT 0,
+        start_time     TEXT NOT NULL,
+        end_time       TEXT,
+        duration_ms    INTEGER,
+        attributes     TEXT NOT NULL DEFAULT '{}',
+        events         TEXT NOT NULL DEFAULT '[]',
+        PRIMARY KEY (trace_id, span_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_trace_spans_trace ON trace_spans(trace_id);
+      CREATE INDEX IF NOT EXISTS idx_trace_spans_name ON trace_spans(name);
+      CREATE INDEX IF NOT EXISTS idx_trace_spans_start ON trace_spans(start_time DESC);
+      CREATE INDEX IF NOT EXISTS idx_trace_spans_status ON trace_spans(status);
+    `)
+  } catch (err) {
+    console.warn('[DB migration] trace_spans init failed:', err.message)
+  }
+
+  // ─── HITL 审批（P1）───────────────────────────────────────────────
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS approvals (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        context     TEXT NOT NULL DEFAULT '{}',
+        risk_level  TEXT NOT NULL DEFAULT 'medium',
+        status      TEXT NOT NULL DEFAULT 'pending',
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at TEXT,
+        resolved_by TEXT,
+        reason      TEXT DEFAULT '',
+        expires_at  TEXT NOT NULL,
+        callback_data TEXT DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status);
+      CREATE INDEX IF NOT EXISTS idx_approvals_created ON approvals(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_approvals_expires ON approvals(expires_at);
+    `)
+  } catch (err) {
+    console.warn('[DB migration] approvals init failed:', err.message)
+  }
+
+  // ─── 工作流引擎（P1）─────────────────────────────────────────────
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_definitions (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        description     TEXT NOT NULL DEFAULT '',
+        definition_json TEXT NOT NULL,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_def_updated ON workflow_definitions(updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS workflow_executions (
+        id            TEXT PRIMARY KEY,
+        workflow_id   TEXT NOT NULL DEFAULT '',
+        status        TEXT NOT NULL DEFAULT 'completed',
+        input_json    TEXT NOT NULL DEFAULT '{}',
+        output_json   TEXT NOT NULL DEFAULT '{}',
+        log_json      TEXT NOT NULL DEFAULT '[]',
+        started_at    TEXT NOT NULL,
+        finished_at   TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_workflow_exec_workflow ON workflow_executions(workflow_id);
+      CREATE INDEX IF NOT EXISTS idx_workflow_exec_started ON workflow_executions(started_at DESC);
+    `)
+  } catch (err) {
+    console.warn('[DB migration] workflow init failed:', err.message)
+  }
 }
 

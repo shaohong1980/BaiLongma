@@ -142,7 +142,7 @@ console.log('\n>>> 场景 7：感知信号渲染进 <self-perception> 段')
   assert(ctxWithPerception.includes('<self-perception>'), '有 perceptionText 时渲染 <self-perception> 段')
   assert(ctxWithPerception.includes('检测到镜像'), '段内容正确写入')
 
-  // 位置：紧贴 <runtime> 之后、<constraints> 之前
+  // 位置（P2-1 起）：稳定前缀（感知/约束）在前，每轮必变的 <runtime> 移到末尾命中 prefix cache。
   const ctxOrder = buildContextBlock({
     currentTime: '2026-05-27T22:00:00+08:00',
     constraints: [{ content: '回复要简洁' }],
@@ -158,8 +158,8 @@ console.log('\n>>> 场景 7：感知信号渲染进 <self-perception> 段')
   const idxRuntime = ctxOrder.indexOf('<runtime>')
   const idxSelf = ctxOrder.indexOf('<self-perception>')
   const idxConstraints = ctxOrder.indexOf('<constraints>')
-  assert(idxRuntime >= 0 && idxSelf > idxRuntime && idxConstraints > idxSelf,
-    `位置正确：runtime(${idxRuntime}) < self-perception(${idxSelf}) < constraints(${idxConstraints})`)
+  assert(idxSelf >= 0 && idxConstraints > idxSelf && idxRuntime > idxConstraints,
+    `位置正确：self-perception(${idxSelf}) < constraints(${idxConstraints}) < runtime(${idxRuntime})`)
 }
 
 // ============================ 场景 8：边界态切换 ============================
@@ -298,7 +298,7 @@ console.log('\n>>> 场景 11：self-snapshot 段渲染位置')
   assert(ctxSnap.includes('<self-snapshot>'), '有 snapshotText 时渲染')
   assert(ctxSnap.includes('身份锚'), '内容正确写入')
 
-  // 位置：runtime → self-snapshot → self-perception
+  // 位置（P2-1 起）：稳定前缀（snapshot → perception）在前，<runtime> 移到末尾。
   const ctxOrder = buildContextBlock({
     currentTime: '2026-05-27T22:00:00+08:00',
     selfSnapshot: { snapshotText: '快照' },
@@ -307,8 +307,8 @@ console.log('\n>>> 场景 11：self-snapshot 段渲染位置')
   const idxRuntime = ctxOrder.indexOf('<runtime>')
   const idxSnap = ctxOrder.indexOf('<self-snapshot>')
   const idxPerc = ctxOrder.indexOf('<self-perception>')
-  assert(idxRuntime >= 0 && idxSnap > idxRuntime && idxPerc > idxSnap,
-    `位置正确：runtime(${idxRuntime}) < snapshot(${idxSnap}) < perception(${idxPerc})`)
+  assert(idxSnap >= 0 && idxPerc > idxSnap && idxRuntime > idxPerc,
+    `位置正确：snapshot(${idxSnap}) < perception(${idxPerc}) < runtime(${idxRuntime})`)
 }
 
 // ============================ 总结 ============================

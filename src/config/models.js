@@ -149,11 +149,13 @@ export const OPENAI_MODELS = [
     id: 'gpt-4o',
     label: 'GPT-4o',
     deprecated: false,
+    supportsVision: true,
   },
   {
     id: 'gpt-4o-mini',
     label: 'GPT-4o mini',
     deprecated: false,
+    supportsVision: true,
   },
   {
     id: 'o3',
@@ -177,6 +179,24 @@ export const QWEN_MODELS = [
     id: 'qwen-plus',
     label: 'qwen-plus',
     deprecated: false,
+  },
+  {
+    id: 'qwen-vl-max',
+    label: 'qwen-vl-max（视觉）',
+    deprecated: false,
+    supportsVision: true,
+  },
+  {
+    id: 'qwen-vl-plus',
+    label: 'qwen-vl-plus（视觉）',
+    deprecated: false,
+    supportsVision: true,
+  },
+  {
+    id: 'qwen2.5vl-72b-instruct',
+    label: 'qwen2.5vl-72b-instruct（视觉）',
+    deprecated: false,
+    supportsVision: true,
   },
 ]
 
@@ -220,16 +240,19 @@ export const MOONSHOT_MODELS = [
     id: 'moonshot-v1-8k-vision-preview',
     label: 'moonshot-v1-8k-vision-preview',
     deprecated: false,
+    supportsVision: true,
   },
   {
     id: 'moonshot-v1-32k-vision-preview',
     label: 'moonshot-v1-32k-vision-preview',
     deprecated: false,
+    supportsVision: true,
   },
   {
     id: 'moonshot-v1-128k-vision-preview',
     label: 'moonshot-v1-128k-vision-preview',
     deprecated: false,
+    supportsVision: true,
   },
   {
     id: 'kimi-k2-thinking',
@@ -546,4 +569,51 @@ export async function detectProvider(OpenAI, apiKey, requestedModel) {
         })
     }
   })
+}
+
+// ─── 视觉模型支持（P0: 多模态输入）──────────────────────────────────
+// 检测模型是否支持图片输入。判断依据：
+//   1. 模型定义中显式 supportsVision: true
+//   2. 模型 ID 包含 vl/vision/4o/4v 等视觉关键词
+const VISION_MODEL_PATTERNS = [
+  /vl/i,           // qwen-vl, glm-4v
+  /vision/i,       // moonshot vision
+  /gpt-4o/i,       // gpt-4o / 4o-mini
+  /gemini/i,       // gemini pro/flash
+  /claude-3/i,     // claude 3+ 都支持视觉
+  /glm-4v/i,       // 智谱视觉
+]
+
+export function modelSupportsVision(model, provider = null) {
+  const modelId = String(model || '').trim()
+  if (!modelId) return false
+  // 1. 显式标记
+  const allModels = [
+    ...DEEPSEEK_MODELS, ...MINIMAX_MODELS, ...OPENAI_MODELS,
+    ...QWEN_MODELS, ...MOONSHOT_MODELS, ...ZHIPU_MODELS, ...MIMO_MODELS,
+  ]
+  const found = allModels.find(m => m.id === modelId)
+  if (found?.supportsVision) return true
+  // 2. 关键词匹配
+  return VISION_MODEL_PATTERNS.some(p => p.test(modelId))
+}
+
+// 获取当前 provider 下推荐的视觉模型（用于自动路由）
+export function getVisionModelForProvider(provider) {
+  const pConfig = PROVIDER_CONFIG[provider]
+  if (!pConfig) return null
+  const visionModels = pConfig.models.filter(m => m.supportsVision && !m.deprecated)
+  return visionModels.length > 0 ? visionModels[0].id : null
+}
+
+// 检测消息内容是否包含图片（多模态 content 数组）
+export function messageHasImageContent(message) {
+  if (Array.isArray(message)) {
+    return message.some(item => item?.type === 'image_url' || item?.type === 'image')
+  }
+  if (typeof message === 'string') {
+    // 字符串消息不包含图片（图片必须用数组格式）
+    return false
+  }
+  return false
 }

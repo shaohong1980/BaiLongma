@@ -18,6 +18,11 @@ import { goalsSchemas } from './schemas/goals.js'
 import { skillsSchemas } from './schemas/skills.js'
 import { mcpSchemas } from './schemas/mcp.js'
 import { workbenchSchemas } from './schemas/workbench.js'
+import { knowledgeSchemas } from './schemas/knowledge.js'
+import { pythonSchemas } from './schemas/python.js'
+import { observabilitySchemas } from './schemas/observability.js'
+import { hitlSchemas } from './schemas/hitl.js'
+import { workflowSchemas } from './schemas/workflow.js'
 
 // 所有工具的 schema 定义（按类别拆分到 ./schemas/*.js，此处合并）。
 // 调用方按需用 getToolSchemas(toolNames) 取子集，合并顺序不影响输出顺序。
@@ -41,6 +46,11 @@ export const TOOL_SCHEMAS = {
   ...skillsSchemas,
   ...mcpSchemas,
   ...workbenchSchemas,
+  ...knowledgeSchemas,
+  ...pythonSchemas,
+  ...observabilitySchemas,
+  ...hitlSchemas,
+  ...workflowSchemas,
 }
 
 function normalizeToolPromptHints(toolPromptHints = null) {

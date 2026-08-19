@@ -23,6 +23,7 @@ import { handleSocialRoutes } from './api/routes/social.js'
 import { handleStaticRoutes } from './api/routes/static.js'
 import { handleTTSRoutes } from './api/routes/tts.js'
 import { handleWorkbenchRoutes } from './api/routes/workbench.js'
+import { handleWorkspaceRoutes } from './api/routes/workspace.js'
 import { handleAgentRoutes } from './api/routes/agents.js'
 import {
   attachWebSocketIdleTimeout,
@@ -108,6 +109,10 @@ function isSensitivePath(pathname) {
     || pathname.startsWith('/settings/')
     || pathname.startsWith('/admin/')
     || pathname.startsWith('/memories/')
+    || pathname.startsWith('/knowledge/')
+    || pathname.startsWith('/approvals/')
+    || pathname.startsWith('/workflows/')
+    || pathname.startsWith('/observability/')
 }
 
 function setCorsHeaders(req, res, origin) {
@@ -128,6 +133,7 @@ async function dispatchHttpRoutes(req, res, url, context) {
   if (await handleActivationRoutes(req, res, url, context)) return true
   if (await handleSettingsRoutes(req, res, url, context)) return true
   if (await handleWorkbenchRoutes(req, res, url)) return true
+  if (await handleWorkspaceRoutes(req, res, url, context)) return true
   if (await handleAgentRoutes(req, res, url)) return true
   if (await handleEmbeddingRoutes(req, res, url)) return true
   if (await handleAdminRoutes(req, res, url, context)) return true

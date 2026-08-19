@@ -77,6 +77,28 @@ const TOOL_RISK = {
   delete_skill: 'high',
   mcp_list_servers: 'low',
   mcp_call: 'high',
+  // 知识库（RAG）
+  knowledge_ingest: 'medium',
+  knowledge_search: 'low',
+  knowledge_list: 'low',
+  knowledge_delete: 'high',
+  knowledge_stats: 'low',
+  // Python 沙箱（任意代码执行，等同高权限 shell）
+  run_python: 'high',
+  python_packages: 'low',
+  // 可观测性（只读统计 / trace）
+  cost_stats: 'low',
+  trace_list: 'low',
+  trace_detail: 'low',
+  observability_dashboard: 'low',
+  // HITL 审批
+  hitl_request: 'medium',
+  hitl_list: 'low',
+  // 工作流引擎（可串联任意工具，含 run_python / exec_command）
+  workflow_run: 'high',
+  workflow_list: 'low',
+  workflow_save: 'medium',
+  workflow_delete: 'high',
 }
 
 // Audit risk and autonomous authority are related but not identical. Several
@@ -109,6 +131,11 @@ const AUTONOMOUS_USER_AUTH_REQUIRED = new Set([
   // 本次移植：MCP 调用外部工具、删除技能包，都要求显式用户上下文
   'mcp_call',
   'delete_skill',
+  // 豆包新增能力：任意代码执行 / 可串联任意工具的工作流 / 破坏性删除，都要求显式用户上下文
+  'run_python',
+  'workflow_run',
+  'workflow_delete',
+  'knowledge_delete',
 ])
 export function classifyTool(name) {
   return TOOL_RISK[name] || 'medium'

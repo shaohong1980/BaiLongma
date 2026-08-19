@@ -10,9 +10,16 @@ import {
 } from '../config.js'
 import { recordUsage } from '../quota.js'
 import { recordUsageEvent } from '../runtime/insights.js'
+import { tracer } from '../observability/index.js'
 import { getFastModel } from '../providers/model-router.js'
 import { sanitizeAssistantReplyForDelivery, createAssistantReplyStreamSanitizer } from '../runtime/markers.js'
 import { streamWriteFileArgumentPreview, streamXmlFileWriteArgumentPreview } from '../write-file-preview.js'
+
+// 判断 messages 里是否含图片（多模态 content 数组）——用于 trace 属性与视觉路由
+function hasImageContent(messages = []) {
+  const lastUser = [...messages].reverse().find(m => m?.role === 'user')
+  return Array.isArray(lastUser?.content) && lastUser.content.some(c => c?.type === 'image_url' || c?.type === 'image')
+}
 
 // 单轮流式调用的「空闲超时」：从开始到第一个 token、以及每两个 token 之间，
 // 若超过这个时长没有任何增量到达，判定为 provider 连接卡死（连接开着却不吐字节）。
@@ -393,7 +400,20 @@ async function streamOnceWithRetry(args) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (args.signal?.aborted) throw Object.assign(new Error('Aborted'), { name: 'AbortError' })
     try {
-      return await streamOnce(args)
+      return await tracer.trace('llm.call', {
+        attributes: {
+          model: args.model || config.model,
+          provider: config.provider,
+          attempt: attempt + 1,
+          has_image: hasImageContent(args.messages),
+          tool_count: (args.toolSchemas || []).length,
+        },
+      }, async (span) => {
+        const result = await streamOnce(args)
+        span.setAttribute('output_chars', String(result?.content || '').length)
+        span.setAttribute('tool_calls', result?.toolCalls?.length || 0)
+        return result
+      })
     } catch (err) {
       if (err.name === 'AbortError' || args.signal?.aborted) throw err
       if (err.hadContent) throw err

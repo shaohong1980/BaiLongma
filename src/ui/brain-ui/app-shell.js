@@ -1470,9 +1470,15 @@ const createMainPages = () => `
             <span class="wf-ins-type" id="wf-ins-type"></span>
             <button class="wf-ins-del" id="wf-ins-del" type="button" title="删除节点">🗑 删除</button>
           </div>
+          <div class="wf-ins-breadcrumb" id="wf-ins-breadcrumb" hidden>
+            <button class="wf-ins-back" id="wf-ins-back" type="button">‹ 返回</button>
+            <span class="wf-ins-breadcrumb-text" id="wf-ins-breadcrumb-text"></span>
+          </div>
           <div class="wf-ins-row"><label class="wf-ins-label">节点名称</label><input class="settings-input" id="wf-ins-name" type="text" autocomplete="off" spellcheck="false"></div>
           <div id="wf-ins-config"><!-- 按节点类型生成的配置表单 --></div>
           <div id="wf-ins-next"><!-- 连线目标选择 --></div>
+          <div id="wf-ins-outputs"><!-- 输出变量绑定（Coze 数据流） --></div>
+          <div id="wf-ins-blocks"><!-- 嵌套分支子流（Coze blocks） --></div>
           <div id="wf-ins-runout" hidden><!-- 运行输出检视 --></div>
         </div>
       </div>

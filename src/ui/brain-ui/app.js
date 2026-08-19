@@ -4493,8 +4493,20 @@ let wfRunOutputs = new Map() // node_id -> { output, duration_ms, status }（运
 let wfLoadData = null        // { templates, saved } 缓存，避免反复请求
 let wfViewport = { x: 24, y: 16, scale: 1 }   // 画布平移/缩放（Coze 自由布局）
 let wfDragState = null       // { type:'node'|'pan', nodeId, startX, startY, origX, origY, moved }
+let wfBlockEdit = null       // 嵌套子流编辑态：{ parentId, blockIndex } 或 { parentId, blockIndex, nodeId }
 
 function wfFind(id) { return wfEditor.nodes.find(n => n.id === id) }
+function wfFindBlock(node, blockId) { return (node?.blocks || []).find(b => b.id === blockId) }
+// 当前正在编辑的节点（顶层节点或嵌套 block 内的子节点）
+function wfCurrentTarget() {
+  if (!wfBlockEdit) return { node: wfFind(wfSelectedNodeId), block: null, inSub: false }
+  const parent = wfFind(wfBlockEdit.parentId)
+  const block = wfFindBlock(parent, wfBlockEdit.blockId)
+  if (!parent || !block) { wfBlockEdit = null; return { node: wfFind(wfSelectedNodeId), block: null, inSub: false } }
+  if (wfBlockEdit.nodeId == null) return { node: parent, block, inSub: true, editingBlock: true }
+  const sub = (block.nodes || []).find(n => n.id === wfBlockEdit.nodeId)
+  return { node: sub || null, block, parent, inSub: true, subNode: true }
+}
 function wfIsBranchNode(n) { return n && (n.type === 'condition' || n.type === 'approval') }
 function wfGenId(type) { return `${type}_${Date.now().toString(36)}${Math.floor(Math.random() * 999)}` }
 function wfDefaultConfig(type) {
@@ -4561,6 +4573,30 @@ function wfNodeBBox(n) {
   return { w: isDiamond ? WF_NODE_W * 0.94 : WF_NODE_W, h: isDiamond ? WF_NODE_H * 1.28 : WF_NODE_H }
 }
 
+// 嵌套 blocks 容器渲染（Coze：条件分支/循环体/并行分支 = 子流容器，画在父节点右侧）
+function wfBlockContainerHTML(n) {
+  const b = wfNodeBBox(n)
+  const SUB_W = 132, SUB_H = 44, SUB_GAP = 10
+  return (n.blocks || []).map((blk, bi) => {
+    const subNodes = blk.nodes || []
+    const innerW = Math.max(1, subNodes.length) * (SUB_W + SUB_GAP)
+    const left = n.x + b.w + 24
+    const top = n.y + bi * 96
+    const subHTML = subNodes.map((sn, j) => {
+      const m = WF_NODE_TYPES[sn.type] || { label: sn.type, icon: '?', color: '#8892a6' }
+      const sel = (wfBlockEdit?.nodeId === sn.id && wfBlockEdit?.parentId === n.id) ? ' wf-sub-selected' : ''
+      return `<div class="wf-sub-node${sel}" data-sub="${escHtml(sn.id)}" data-parent="${escHtml(n.id)}" data-bi="${bi}" style="left:${j * (SUB_W + SUB_GAP)}px;top:12px;width:${SUB_W}px;min-height:${SUB_H}px">
+        <div class="wf-sub-node-head" style="background:${m.color}"><span class="wf-node-icon">${m.icon}</span><span class="wf-sub-node-name">${escHtml(sn.name || sn.id)}</span></div>
+        <div class="wf-sub-node-body"><span class="wf-sub-node-next">${escHtml(wfSubNextSummary(subNodes, sn))}</span></div>
+      </div>`
+    }).join('')
+    return `<div class="wf-block" data-bi="${bi}" data-parent="${escHtml(n.id)}" style="left:${left}px;top:${top}px;width:${innerW + 26}px">
+      <div class="wf-block-head">${escHtml(blk.label || blk.id)} <span class="wf-block-meta">${subNodes.length} 节点</span></div>
+      <div class="wf-block-inner" style="min-width:${innerW + 8}px;height:${SUB_H + 24}px">${subHTML}</div>
+    </div>`
+  }).join('')
+}
+
 function wfRenderCanvas() {
   const viewportEl = document.getElementById('wf-canvas-viewport')
   const nodesEl = document.getElementById('wf-nodes')
@@ -4577,9 +4613,17 @@ function wfRenderCanvas() {
   if (viewportEl) viewportEl.style.transform = `translate(${wfViewport.x}px, ${wfViewport.y}px) scale(${wfViewport.scale})`
   viewportEl.style.transformOrigin = '0 0'
 
-  // 计算内容包围盒 → 设定画布/视口尺寸（滚动区域）
+  // 计算内容包围盒 → 设定画布/视口尺寸（滚动区域），含嵌套 block 容器的右向延伸
   let maxX = 0, maxY = 0
-  for (const n of wfEditor.nodes) { const b = wfNodeBBox(n); maxX = Math.max(maxX, n.x + b.w); maxY = Math.max(maxY, n.y + b.h) }
+  for (const n of wfEditor.nodes) {
+    const b = wfNodeBBox(n)
+    maxX = Math.max(maxX, n.x + b.w); maxY = Math.max(maxY, n.y + b.h)
+    if (Array.isArray(n.blocks) && n.blocks.length) {
+      const blkW = (Math.max(1, n.blocks[0]?.nodes?.length || 1)) * (134 + 10) + 34
+      maxX = Math.max(maxX, n.x + b.w + 24 + blkW)
+      maxY = Math.max(maxY, n.y + n.blocks.length * 96)
+    }
+  }
   const contentW = Math.max(600, maxX + 240), contentH = Math.max(420, maxY + 180)
   canvas.style.minWidth = contentW + 'px'
   canvas.style.minHeight = contentH + 'px'
@@ -4601,6 +4645,8 @@ function wfRenderCanvas() {
     // 运行输出摘要（点击节点在右侧检视）
     const runOut = wfRunOutputs.get(n.id)
     const outPreview = runOut ? `<div class="wf-node-runout">${escHtml(typeof runOut.output === 'string' ? runOut.output.slice(0, 40) : JSON.stringify(runOut.output || '').slice(0, 40))}</div>` : ''
+    // 嵌套 blocks 容器（条件真/假、循环体、并行分支）
+    const blockHTML = Array.isArray(n.blocks) && n.blocks.length ? wfBlockContainerHTML(n) : ''
     return `<div class="wf-node${sel}${statusCls}${shapeCls}" data-node="${escHtml(n.id)}" style="left:${n.x}px;top:${n.y}px;width:${b.w}px;min-height:${b.h}px;">
       <div class="wf-node-head" style="background:${meta.color}">
         <span class="wf-node-icon">${meta.icon}</span><span class="wf-node-name">${escHtml(n.name || meta.label)}</span>
@@ -4609,7 +4655,7 @@ function wfRenderCanvas() {
       <div class="wf-node-body"><span class="wf-node-next">${escHtml(wfNextSummary(n))}</span></div>
       ${outPreview}
       ${statusTag}
-    </div>`
+    </div>${blockHTML}`
   }).join('')
 
   wfRenderEdges()
@@ -4626,6 +4672,7 @@ function wfRenderCanvas() {
       if (!node) return
       // 只标记选中 + 设拖动态，不重绘（重绘会摘掉当前元素导致 setPointerCapture 失败）
       wfSelectedNodeId = node.id
+      wfBlockEdit = null   // 点顶层节点退出 block 子流编辑态
       wfDragState = { type: 'node', nodeId: node.id, startX: ev.clientX, startY: ev.clientY, origX: node.x, origY: node.y, moved: false }
       el.setPointerCapture(ev.pointerId)
     })
@@ -4648,6 +4695,34 @@ function wfRenderCanvas() {
         wfDragState = null
         if (moved) { wfRenderCanvas() } else { wfRenderCanvas(); wfRenderInspector() }  // 统一重绘选中态
       }
+    })
+  })
+
+  // 嵌套 block 容器 / 子节点：点击进入子流编辑
+  nodesEl.querySelectorAll('.wf-sub-node').forEach(el => {
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      const parent = wfFind(el.dataset.parent)
+      const bi = +el.dataset.bi
+      const block = (parent?.blocks || [])[bi]
+      if (!parent || !block) return
+      wfSelectedNodeId = parent.id
+      wfBlockEdit = { parentId: parent.id, blockId: block.id, nodeId: el.dataset.sub }
+      wfRenderCanvas()
+      wfRenderInspector()
+    })
+  })
+  nodesEl.querySelectorAll('.wf-block-head').forEach(el => {
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      const parent = wfFind(el.parentElement.dataset.parent)
+      const bi = +el.parentElement.dataset.bi
+      const block = (parent?.blocks || [])[bi]
+      if (!parent || !block) return
+      wfSelectedNodeId = parent.id
+      wfBlockEdit = { parentId: parent.id, blockId: block.id, nodeId: null }
+      wfRenderCanvas()
+      wfRenderInspector()
     })
   })
 }
@@ -4684,8 +4759,8 @@ function wfBindCanvasPan() {
   const canvas = document.getElementById('wf-canvas')
   if (!canvas) return
   canvas.addEventListener('pointerdown', (ev) => {
-    // 节点 / 工具栏按钮不触发画布平移（否则 setPointerCapture 会劫持按钮的 click）
-    if (ev.target.closest('.wf-node') || ev.target.closest('.wf-canvas-toolbar')) return
+    // 节点 / 嵌套 block 容器 / 工具栏按钮不触发画布平移（否则 setPointerCapture 会劫持 click）
+    if (ev.target.closest('.wf-node') || ev.target.closest('.wf-block') || ev.target.closest('.wf-canvas-toolbar')) return
     wfDragState = { type: 'pan', startX: ev.clientX, startY: ev.clientY, origX: wfViewport.x, origY: wfViewport.y, moved: false }
     canvas.setPointerCapture(ev.pointerId)
   })
@@ -4717,17 +4792,72 @@ function wfBindCanvasPan() {
 
 function wfSelectNode(nodeId) {
   wfSelectedNodeId = nodeId
+  wfBlockEdit = null
   wfRenderCanvas()
   wfRenderInspector()
+}
+
+// 子流内节点连线摘要
+function wfSubNextSummary(nodes, node) {
+  if (!node) return '—'
+  if (wfIsBranchNode(node)) {
+    const o = node.next && typeof node.next === 'object' ? node.next : {}
+    const parts = Object.entries(o).map(([b, t]) => { const tn = (nodes || []).find(n => n.id === t); return `${b}→${tn ? tn.name : '?'}` })
+    return parts.join(' · ') || '未连线'
+  }
+  const t = (nodes || []).find(n => n.id === (Array.isArray(node.next) ? node.next[0] : node.next))
+  return t ? `→ ${t.name}` : '未连线'
+}
+
+// 渲染一个 block 卡片（概览模式 or 块详情模式）
+function wfRenderBlockCard(node, block, index, isDetail) {
+  const real = block || {}
+  const subNodes = real.nodes || []
+  const subRows = subNodes.map(sn => {
+    const m = WF_NODE_TYPES[sn.type] || { label: sn.type, icon: '?', color: '#8892a6' }
+    return `<button class="wf-subnode-row" data-bi="${index}" data-sub="${escHtml(sn.id)}" type="button">
+      <span class="wf-subnode-icon">${m.icon}</span><span class="wf-subnode-name">${escHtml(sn.name || sn.id)}</span>
+      <span class="wf-subnode-next">${escHtml(wfSubNextSummary(subNodes, sn))}</span>
+    </button>`
+  }).join('')
+  const addSelect = `<select class="wf-block-addtype" data-bi="${index}" data-bid="${escHtml(real.id || '')}">
+    <option value="">＋ 添加子节点…</option>
+    ${Object.entries(WF_NODE_TYPES).filter(([t]) => !['start', 'end'].includes(t)).map(([t, m]) => `<option value="${t}">${m.icon} ${m.label}</option>`).join('')}
+  </select>`
+  const headBtns = isDetail
+    ? ''
+    : `<button class="wf-block-edit" data-bi="${index}" data-bid="${escHtml(real.id || '')}" type="button" title="编辑子流">✎</button>
+       <button class="wf-block-del" data-bi="${index}" data-bid="${escHtml(real.id || '')}" type="button" title="删除块">🗑</button>`
+  return `<div class="wf-block-card">
+    <div class="wf-block-card-head">
+      <span class="wf-block-card-label">${escHtml(real.label || real.id || '块')}</span>
+      <span class="wf-block-card-meta">${subNodes.length} 节点</span>
+      ${headBtns}
+    </div>
+    <div class="wf-block-card-nodes">${subRows || '<span class="wf-ins-hint" style="padding:4px">空块 · 用下方下拉添加子节点</span>'}</div>
+    ${addSelect}
+  </div>`
 }
 
 function wfRenderInspector() {
   const emptyEl = document.getElementById('wf-inspector-empty')
   const bodyEl = document.getElementById('wf-inspector-body')
-  const node = wfFind(wfSelectedNodeId)
-  if (!node) { wfSelectedNodeId = null; if (emptyEl) emptyEl.hidden = false; if (bodyEl) bodyEl.hidden = true; return }
+  const { node, block, inSub, editingBlock, parent } = wfCurrentTarget()
+  if (!node) { wfSelectedNodeId = null; wfBlockEdit = null; if (emptyEl) emptyEl.hidden = false; if (bodyEl) bodyEl.hidden = true; return }
   if (emptyEl) emptyEl.hidden = true
   if (bodyEl) bodyEl.hidden = false
+
+  // 面包屑（子流编辑态）
+  const bcEl = document.getElementById('wf-ins-breadcrumb')
+  const bcText = document.getElementById('wf-ins-breadcrumb-text')
+  if (bcEl && bcText) {
+    if (inSub && parent && block) {
+      bcEl.hidden = false
+      bcText.textContent = editingBlock
+        ? `${parent.name || parent.id} › ${block.label || block.id}`
+        : `${parent.name || parent.id} › ${block.label || block.id} › ${node?.name || node?.id || ''}`
+    } else { bcEl.hidden = true }
+  }
 
   const meta = WF_NODE_TYPES[node.type] || { label: node.type, icon: '?', color: '#8892a6' }
   document.getElementById('wf-ins-type').textContent = `${meta.icon} ${meta.label} · ${node.id}`
@@ -4736,35 +4866,38 @@ function wfRenderInspector() {
   // 类型相关配置表单
   const cfgEl = document.getElementById('wf-ins-config')
   const cfg = node.config || {}
-  const otherIds = wfEditor.nodes.filter(n => n.id !== node.id).map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name || n.id)}</option>`).join('')
+  const siblingIds = (inSub ? (block?.nodes || []) : wfEditor.nodes).filter(n => n.id !== node.id).map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name || n.id)}</option>`).join('')
   const typeForm = {
     llm: `
-      <div class="wf-ins-row"><label class="wf-ins-label">提示词 (prompt)</label><textarea class="settings-input wf-ins-area" data-field="config.prompt" rows="3" placeholder="支持 {{var}} 模板变量">${escHtml(cfg.prompt || '')}</textarea></div>
+      <div class="wf-ins-row"><label class="wf-ins-label">提示词 (prompt)</label><textarea class="settings-input wf-ins-area" data-field="config.prompt" rows="3" placeholder="支持 {{var}} 模板变量，如 {{input}} / {{其他节点.输出名}}">${escHtml(cfg.prompt || '')}</textarea></div>
       <div class="wf-ins-row"><label class="wf-ins-label">系统提示 (system_prompt)</label><textarea class="settings-input wf-ins-area" data-field="config.system_prompt" rows="2" placeholder="可选">${escHtml(cfg.system_prompt || '')}</textarea></div>`,
     tool: `
       <div class="wf-ins-row"><label class="wf-ins-label">工具</label><select class="settings-select" data-field="config.tool">${WF_KNOWN_TOOLS.map(t => `<option value="${t}" ${cfg.tool === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="wf-ins-row"><label class="wf-ins-label">参数 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.args_json" rows="3" placeholder='{"query":"{{input}}"}'>${escHtml(cfg.args ? JSON.stringify(cfg.args, null, 1) : '')}</textarea></div>`,
     condition: `
-      <div class="wf-ins-row"><label class="wf-ins-label">条件表达式</label><textarea class="settings-input wf-ins-area" data-field="config.condition" rows="3" placeholder="context.input.length > 3 或 {{var}}">${escHtml(cfg.condition || '')}</textarea></div>`,
+      <div class="wf-ins-row"><label class="wf-ins-label">条件表达式</label><textarea class="settings-input wf-ins-area" data-field="config.condition" rows="3" placeholder="context.input.length > 3 或 {{var}}">${escHtml(cfg.condition || '')}</textarea></div>
+      <div class="wf-ins-hint">真/假分支请在下方「分支/子流」中编辑</div>`,
     loop: `
       <div class="wf-ins-row"><label class="wf-ins-label">遍历路径</label><input class="settings-input" data-field="config.items" value="${escHtml(cfg.items || 'input')}"></div>
-      <div class="wf-ins-row"><label class="wf-ins-label">循环体节点</label><select class="settings-select" data-field="config.body"><option value="">— 选一个节点作为循环体 —</option>${otherIds}</select></div>`,
+      <div class="wf-ins-hint">循环体请在下方「分支/子流」中编辑</div>`,
     parallel: `
-      <div class="wf-ins-row"><label class="wf-ins-label">并行分支 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.branches_json" rows="4" placeholder='[["nodeA","nodeB"],["nodeC"]]'>${escHtml(cfg.branches ? JSON.stringify(cfg.branches, null, 1) : '')}</textarea></div>`,
+      <div class="wf-ins-row"><label class="wf-ins-label">并行分支 (JSON)</label><textarea class="settings-input wf-ins-area" data-field="config.branches_json" rows="4" placeholder='[["nodeA","nodeB"],["nodeC"]]（或直接用下方分支/子流）'>${escHtml(cfg.branches ? JSON.stringify(cfg.branches, null, 1) : '')}</textarea></div>
+      <div class="wf-ins-hint">建议直接用下方「分支/子流」添加并行分支</div>`,
     approval: `
       <div class="wf-ins-row"><label class="wf-ins-label">审批标题</label><input class="settings-input" data-field="config.title" value="${escHtml(cfg.title || '需要审批')}"></div>
       <div class="wf-ins-row"><label class="wf-ins-label">审批说明</label><textarea class="settings-input wf-ins-area" data-field="config.description" rows="2">${escHtml(cfg.description || '')}</textarea></div>
       <div class="wf-ins-row"><label class="wf-ins-label">风险等级</label><select class="settings-select" data-field="config.risk_level">${['low','medium','high'].map(r => `<option value="${r}" ${cfg.risk_level === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>`,
     code: `
-      <div class="wf-ins-row"><label class="wf-ins-label">JS 代码</label><textarea class="settings-input wf-ins-area" data-field="config.code" rows="4">${escHtml(cfg.code || '')}</textarea></div>`,
+      <div class="wf-ins-row"><label class="wf-ins-label">JS 代码</label><textarea class="settings-input wf-ins-area" data-field="config.code" rows="4">${escHtml(cfg.code || '')}</textarea></div>
+      <div class="wf-ins-hint">代码里可用 context 访问变量；return 的值即本节点输出</div>`,
     start: `<div class="wf-ins-hint">起始节点：工作流从这里开始。无需配置。</div>`,
     end: `<div class="wf-ins-hint">结束节点：工作流到此结束。可有多个。</div>`,
   }[node.type] || '<div class="wf-ins-hint">该节点类型无需额外配置。</div>'
   cfgEl.innerHTML = typeForm
 
-  // 连线目标选择
+  // 连线目标选择（子流内连子流节点，顶层连顶层节点）
   const nextEl = document.getElementById('wf-ins-next')
-  const nodeOpts = wfEditor.nodes.filter(n => n.id !== node.id).map(n => `<option value="${escHtml(n.id)}">${escHtml(n.name || n.id)}</option>`).join('')
+  const nodeOpts = siblingIds
   if (wfIsBranchNode(node)) {
     const o = node.next && typeof node.next === 'object' && !Array.isArray(node.next) ? node.next : {}
     const branchName = node.type === 'condition' ? { true: '真 (true)', false: '假 (false)' } : { approved: '通过 (approved)', rejected: '拒绝 (rejected)' }
@@ -4777,6 +4910,50 @@ function wfRenderInspector() {
     nextEl.innerHTML = `<div class="wf-ins-row"><label class="wf-ins-label">下一个节点</label>
       <select class="settings-select" data-field="next"><option value="">— 结束 / 无 —</option>${nodeOpts}</select></div>`
     nextEl.querySelector('[data-field="next"]').value = cur || ''
+  }
+
+  // 输出变量绑定（Coze 数据流）
+  const outEl = document.getElementById('wf-ins-outputs')
+  if (outEl) {
+    const outputs = node.outputs || []
+    const rows = outputs.map((o, i) => `
+      <div class="wf-out-row">
+        <input class="settings-input" data-out-name="${i}" placeholder="输出名（下游用 {{${escHtml(node.id)}.输出名}} 引用）" value="${escHtml(o.name || '')}" autocomplete="off" spellcheck="false">
+        <select class="settings-select" data-out-source="${i}">
+          <option value="output" ${o.source === 'output' ? 'selected' : ''}>主输出</option>
+          <option value="result" ${o.source === 'result' ? 'selected' : ''}>result</option>
+          <option value="raw" ${o.source === 'raw' ? 'selected' : ''}>raw</option>
+        </select>
+        <button class="wf-out-del" data-out-del="${i}" type="button" title="删除输出">✕</button>
+      </div>`).join('')
+    outEl.innerHTML = `<div class="wf-ins-section-title">输出变量</div>${rows}
+      <div class="wf-out-addrow"><button class="wf-out-add" id="wf-out-add" type="button">＋ 添加输出</button>
+      ${outputs.length ? '' : '<span class="wf-ins-hint" style="font-size:10px">下游节点可用 {{' + escHtml(node.id) + '.输出名}} 引用本节点输出</span>'}</div>`
+  }
+
+  // 嵌套 blocks（仅顶层 condition/loop/parallel；editingBlock 时显示块详情）
+  const blocksEl = document.getElementById('wf-ins-blocks')
+  if (blocksEl) {
+    const isContainer = node.type === 'condition' || node.type === 'loop' || node.type === 'parallel'
+    if (isContainer && (!inSub || editingBlock)) {
+      blocksEl.hidden = false
+      const blocks = node.blocks || []
+      if (editingBlock && block) {
+        // 块详情：聚焦当前 block 的子流
+        const bi = blocks.findIndex(x => x.id === block.id)
+        blocksEl.innerHTML = `<div class="wf-ins-section-title">分支 / 子流 · ${escHtml(block.label || block.id)}</div>` + wfRenderBlockCard(node, block, bi, true)
+      } else {
+        const defaultBlocks = node.type === 'condition' ? [{ id: 'true', label: '真' }, { id: 'false', label: '假' }]
+          : node.type === 'loop' ? [{ id: 'body', label: '循环体' }]
+          : [{ id: 'branch1', label: '分支1' }]
+        const list = blocks.length ? blocks : defaultBlocks
+        blocksEl.innerHTML = `<div class="wf-ins-section-title">分支 / 子流 (blocks)</div>` +
+          list.map((b, i) => {
+            const real = blocks.find(x => x.id === b.id) || b
+            return wfRenderBlockCard(node, real, blocks.findIndex(x => x.id === real.id) >= 0 ? blocks.findIndex(x => x.id === real.id) : i, false)
+          }).join('')
+      }
+    } else { blocksEl.hidden = true }
   }
 
   // 运行输出检视（Coze 测试运行后点节点看结果）
@@ -4794,7 +4971,7 @@ function wfRenderInspector() {
 // 从表单读回选中节点的配置（输入时实时应用，防抖重渲染）
 let wfInspectorTimer = null
 function wfApplyInspector() {
-  const node = wfFind(wfSelectedNodeId)
+  const { node } = wfCurrentTarget()
   if (!node) return
   node.name = document.getElementById('wf-ins-name').value.trim() || node.name
   const cfgEl = document.getElementById('wf-ins-config')
@@ -4807,8 +4984,7 @@ function wfApplyInspector() {
       if (field.startsWith('config.')) {
         const key = field.split('.')[1]
         node.config = node.config || {}
-        if (key === 'items' || key === 'body' || key === 'tool' || key === 'title' || key === 'risk_level') node.config[key] = val
-        else node.config[key] = val
+        node.config[key] = val
         return
       }
     })
@@ -4830,6 +5006,83 @@ function wfApplyInspector() {
   clearTimeout(wfInspectorTimer)
   wfInspectorTimer = setTimeout(() => wfRenderCanvas(), 250)
 }
+
+// ── 输出变量 / blocks 编辑事件（事件委托）──
+document.getElementById('wf-ins-back')?.addEventListener('click', () => {
+  if (wfBlockEdit?.nodeId != null) { wfBlockEdit.nodeId = null; wfRenderInspector(); return }
+  const parentId = wfBlockEdit?.parentId
+  wfBlockEdit = null
+  if (parentId) { wfSelectedNodeId = parentId; wfRenderCanvas() }
+  wfRenderInspector()
+})
+document.getElementById('wf-ins-outputs')?.addEventListener('input', (e) => {
+  const t = e.target
+  if (t.dataset.outName === undefined) return
+  const { node } = wfCurrentTarget()
+  if (!node) return
+  node.outputs = node.outputs || []
+  const i = +t.dataset.outName
+  if (!node.outputs[i]) node.outputs[i] = {}
+  node.outputs[i].name = t.value
+})
+document.getElementById('wf-ins-outputs')?.addEventListener('change', (e) => {
+  const t = e.target
+  const { node } = wfCurrentTarget()
+  if (!node) return
+  if (t.dataset.outSource !== undefined) { node.outputs = node.outputs || []; const i = +t.dataset.outSource; if (node.outputs[i]) node.outputs[i].source = t.value }
+  if (t.classList.contains('wf-out-add')) { node.outputs = node.outputs || []; node.outputs.push({ name: '', source: 'output' }); wfRenderInspector() }
+})
+document.getElementById('wf-ins-outputs')?.addEventListener('click', (e) => {
+  const addBtn = e.target.closest('.wf-out-add')
+  const delBtn = e.target.closest('.wf-out-del')
+  if (!addBtn && !delBtn) return
+  const { node } = wfCurrentTarget()
+  if (!node) return
+  if (addBtn) { node.outputs = node.outputs || []; node.outputs.push({ name: '', source: 'output' }); wfRenderInspector() }
+  if (delBtn) { const i = +delBtn.dataset.outDel; node.outputs = node.outputs || []; node.outputs.splice(i, 1); wfRenderInspector() }
+})
+document.getElementById('wf-ins-blocks')?.addEventListener('change', (e) => {
+  const t = e.target
+  if (!t.classList.contains('wf-block-addtype') || !t.value) return
+  const { node } = wfCurrentTarget()
+  if (!node) return
+  const bi = +t.dataset.bi
+  const block = (node.blocks || [])[bi]
+  if (!block) return
+  block.nodes = block.nodes || []
+  const type = t.value
+  const id = wfGenId(type)
+  block.nodes.push({ id, type, name: WF_NODE_TYPES[type]?.label || type, config: wfDefaultConfig(type), next: null })
+  t.value = ''
+  wfRenderInspector()
+  wfRenderCanvas()
+})
+document.getElementById('wf-ins-blocks')?.addEventListener('click', (e) => {
+  const subRow = e.target.closest('.wf-subnode-row')
+  const editBtn = e.target.closest('.wf-block-edit')
+  const delBtn = e.target.closest('.wf-block-del')
+  const { node } = wfCurrentTarget()
+  if (!node) return
+  if (subRow) {
+    const bi = +subRow.dataset.bi
+    const block = (node.blocks || [])[bi]
+    if (block) { wfBlockEdit = { parentId: node.id, blockId: block.id, nodeId: subRow.dataset.sub }; wfRenderInspector() }
+    return
+  }
+  if (editBtn) {
+    const bi = +editBtn.dataset.bi
+    const block = (node.blocks || [])[bi]
+    if (block) { wfBlockEdit = { parentId: node.id, blockId: block.id, nodeId: null }; wfRenderInspector() }
+    return
+  }
+  if (delBtn) {
+    const bi = +delBtn.dataset.bi
+    node.blocks = node.blocks || []
+    node.blocks.splice(bi, 1)
+    wfRenderInspector()
+    wfRenderCanvas()
+  }
+})
 
 async function wfLoadOptions() {
   const sel = document.getElementById('wf-load-select')

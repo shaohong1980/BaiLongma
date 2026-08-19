@@ -6663,6 +6663,43 @@ body.page-chat .console { left: 212px; }
 .wf-canvas-viewport { position: absolute; inset: 0; }
 .wf-canvas-viewport .wf-edges, .wf-canvas-viewport .wf-nodes { position: absolute; inset: 0; width: 100%; height: 100%; }
 /* 运行输出检视（右侧配置面板） */
+/* ── 嵌套 blocks / 输出变量 / 子流编辑 ── */
+.wf-ins-breadcrumb { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line, rgba(255,255,255,0.08)); }
+.wf-ins-back { background: rgba(110,168,254,0.1); color: var(--cool, #6ea8fe); border: 1px solid rgba(110,168,254,0.25); border-radius: 6px; padding: 2px 10px; font-size: 11px; cursor: pointer; }
+.wf-ins-breadcrumb-text { font-size: 11px; color: var(--dim, #7b87a0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-ins-section-title { font-size: 11px; font-weight: 700; color: var(--dim, #7b87a0); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.wf-out-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.wf-out-row .settings-input { flex: 1; }
+.wf-out-row .settings-select { width: 74px; flex: none; }
+.wf-out-del { background: rgba(224,98,98,0.1); color: #e06262; border: 1px solid rgba(224,98,98,0.25); border-radius: 6px; width: 24px; height: 24px; flex: none; cursor: pointer; font-size: 12px; }
+.wf-out-addrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wf-out-add { background: rgba(72,195,122,0.12); color: #48c37a; border: 1px solid rgba(72,195,122,0.3); border-radius: 6px; padding: 3px 12px; font-size: 12px; cursor: pointer; }
+.wf-block-card { border: 1px solid var(--line, rgba(255,255,255,0.12)); border-radius: 10px; padding: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.02); }
+.wf-block-card-head { display: flex; align-items: center; gap: 8px; }
+.wf-block-card-label { font-size: 12px; font-weight: 700; color: var(--ink, #e7edf8); flex: 1; }
+.wf-block-card-meta { font-size: 10px; color: var(--dim, #7b87a0); }
+.wf-block-card-head button { background: none; border: 1px solid var(--line, rgba(255,255,255,0.15)); color: var(--dim, #7b87a0); border-radius: 6px; font-size: 11px; cursor: pointer; padding: 1px 6px; }
+.wf-block-card-nodes { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.wf-subnode-row { display: flex; align-items: center; gap: 6px; background: rgba(110,168,254,0.06); border: 1px solid var(--line, rgba(255,255,255,0.08)); border-radius: 7px; padding: 4px 8px; cursor: pointer; font-size: 11px; text-align: left; }
+.wf-subnode-row:hover { background: rgba(110,168,254,0.14); }
+.wf-subnode-icon { flex: none; }
+.wf-subnode-name { flex: 1; color: var(--ink, #e7edf8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-subnode-next { font-size: 10px; color: var(--dim, #7b87a0); flex: none; }
+.wf-block-addtype { width: 100%; font-size: 11px; }
+/* 画布上的嵌套 block 容器 */
+.wf-block { position: absolute; z-index: 3; border: 1px dashed rgba(110,168,254,0.4); border-radius: 10px; background: rgba(110,168,254,0.04); }
+.wf-block-head { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-size: 11px; color: var(--cool, #6ea8fe); cursor: pointer; }
+.wf-block-head:hover { background: rgba(110,168,254,0.1); border-radius: 10px 10px 0 0; }
+.wf-block-meta { font-size: 9px; color: var(--dim, #7b87a0); }
+.wf-block-inner { position: relative; }
+.wf-sub-node { position: absolute; background: var(--panel-2, #1a2236); border: 1px solid var(--line-strong, #2a3550); border-radius: 8px; overflow: hidden; cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,0.3); }
+.wf-sub-node:hover { border-color: rgba(110,168,254,0.5); }
+.wf-sub-selected { box-shadow: 0 0 0 2px var(--cool, #6ea8fe); }
+.wf-sub-node-head { display: flex; align-items: center; gap: 5px; padding: 3px 7px; }
+.wf-sub-node-name { flex: 1; font-size: 11px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-sub-node-body { padding: 2px 7px 4px; }
+.wf-sub-node-next { font-size: 9px; color: var(--dim, #7b87a0); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 .wf-ins-runout-title { font-size: 11px; color: var(--dim, #7b87a0); margin-bottom: 4px; }
 .wf-ins-runout-status { margin-left: 6px; font-weight: 700; font-size: 10px; }
 .wf-ins-runout-status.ok { color: #48c37a; }

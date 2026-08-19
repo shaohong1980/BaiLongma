@@ -19,7 +19,7 @@
 const NODE_TYPES = ['start', 'end', 'llm', 'tool', 'condition', 'loop', 'parallel', 'human_input', 'approval', 'code']
 
 // 验证工作流定义
-export function validateWorkflow(workflow) {
+export function validateWorkflow(workflow, { allowNoStart = false } = {}) {
   const errors = []
   if (!workflow || typeof workflow !== 'object') {
     return { valid: false, errors: ['workflow 必须是对象'] }
@@ -56,9 +56,44 @@ export function validateWorkflow(workflow) {
     if (node.type === 'code' && !node.config?.code) {
       errors.push(`代码节点 ${node.id} 缺少 config.code`)
     }
+
+    // 命名输出：node.outputs = [{ name, source?, description? }]
+    if (node.outputs !== undefined) {
+      if (!Array.isArray(node.outputs)) {
+        errors.push(`节点 ${node.id} 的 outputs 必须是数组`)
+      } else {
+        for (const o of node.outputs) {
+          if (!o || typeof o !== 'object') { errors.push(`节点 ${node.id} 的 outputs 元素必须是对象`); continue }
+          if (!String(o.name || '').trim()) errors.push(`节点 ${node.id} 的 outputs 元素缺少 name`)
+        }
+      }
+    }
+
+    // 嵌套 blocks：node.blocks = [{ id, label, nodes: [...] }]（条件分支/循环体/并行分支子流）
+    if (node.blocks !== undefined) {
+      if (!Array.isArray(node.blocks)) {
+        errors.push(`节点 ${node.id} 的 blocks 必须是数组`)
+      } else {
+        const blockIds = new Set()
+        for (const b of node.blocks) {
+          if (!b || typeof b !== 'object') { errors.push(`节点 ${node.id} 的 blocks 元素必须是对象`); continue }
+          const bid = String(b.id || '')
+          if (!bid) { errors.push(`节点 ${node.id} 的 block 缺少 id`); continue }
+          if (blockIds.has(bid)) { errors.push(`节点 ${node.id} 的 block id 重复: ${bid}`); continue }
+          blockIds.add(bid)
+          if (!Array.isArray(b.nodes) || b.nodes.length === 0) {
+            errors.push(`节点 ${node.id} 的 block「${bid}」必须包含非空 nodes`)
+            continue
+          }
+          // 递归校验子流（子流入口是 block.start 或首个节点，不强制 start 节点）
+          const sub = validateWorkflow({ id: `${node.id}__${bid}`, name: `${node.id}__${bid}`, nodes: b.nodes }, { allowNoStart: true })
+          for (const e of sub.errors) errors.push(`[${node.id}.${bid}] ${e}`)
+        }
+      }
+    }
   }
 
-  if (startCount === 0) errors.push('缺少 start 节点')
+  if (startCount === 0 && !allowNoStart) errors.push('缺少 start 节点')
   if (startCount > 1) errors.push(`有 ${startCount} 个 start 节点，只能有 1 个`)
 
   // 验证边的目标节点存在

@@ -37,13 +37,30 @@ function isConversationMemory(n) {
   return typeof (n && n.source_ref) === "string" && n.source_ref.startsWith("session_");
 }
 
+// 节点/图例共用：event_type → 颜色。
+// 语义主色（self/conversation/knowledge/system/task_complete/behavioral_constraint）
+// 跟随主题 token（themeColors，读自 design-tokens.css），画布与 DOM 配色统一；
+// 其余类型走固定分类调色板，保持图谱多色区分度。
+function resolveNodeColor(type) {
+  const t = themeColors;
+  switch (type) {
+    case "self":                 return t.warm || "#ff9f1c";
+    case "conversation":         return t.ink || "#ffffff";
+    case "knowledge":            return t.cool || "#4f8cff";
+    case "system":               return t.dim || "#778397";
+    case "task_complete":        return t.ok || "#6fcf97";
+    case "behavioral_constraint": return t.danger || "#eb5757";
+    default:                     return NODE_TYPE_COLORS[type] || t.dim || NODE_TYPE_DEFAULT;
+  }
+}
+
 function nodeColor(d) {
   // 核心节点（自身）用暖色高亮
-  if (d._core) return themeColors.warm || "#ff9f1c";
-  // 对话记忆（与爻台的会话产生）单独一类，白色
-  if (isConversationMemory(d)) return "#ffffff";
+  if (d._core) return resolveNodeColor("self");
+  // 对话记忆（与爻台的会话产生）单独一类，随主题 ink
+  if (isConversationMemory(d)) return resolveNodeColor("conversation");
   // 其余按 event_type 分类着色
-  return NODE_TYPE_COLORS[d.event_type] || NODE_TYPE_DEFAULT;
+  return resolveNodeColor(d.event_type || "default");
 }
 
 function nodeRadius(d) {
@@ -113,9 +130,7 @@ function renderLegend() {
         : type === "conversation" ? "对话"
         : (NODE_TYPE_LABELS[type] || type),
       count,
-      color: type === "self" ? (themeColors.warm || "#ff9f1c")
-        : type === "conversation" ? "#ffffff"
-        : (NODE_TYPE_COLORS[type] || NODE_TYPE_DEFAULT),
+      color: resolveNodeColor(type),
     }))
     .sort((a, b) => b.count - a.count);
 
@@ -234,4 +249,4 @@ function findAnchorNode(memory, nodeMap) {
     || null;
 }
 
-export { isConversationMemory, nodeColor, nodeRadius, semanticChildTargets, computeDegrees, markCore, renderLegend, chooseVisualParent, getCurrentVisualChildCounts, maxVisualChildren, addSupplementalVisualLinks, addRandomVisualLinks, findAnchorNode, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NODE_TYPE_DEFAULT };
+export { isConversationMemory, resolveNodeColor, nodeColor, nodeRadius, semanticChildTargets, computeDegrees, markCore, renderLegend, chooseVisualParent, getCurrentVisualChildCounts, maxVisualChildren, addSupplementalVisualLinks, addRandomVisualLinks, findAnchorNode, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NODE_TYPE_DEFAULT };

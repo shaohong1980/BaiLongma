@@ -2,6 +2,9 @@
 // 纯状态 + 纯函数（读 CSS 变量 / localStorage），不依赖 app.js 的 DOM/canvas。
 // physicsSettings / themeColors 是可变状态；app.js 通过 ESM live binding 读取，
 // 模块内更新（readPhysicsSettings / refreshThemeColors）后 app.js 立即看到新值。
+// 依赖 tokens.js（单向）：refreshThemeColors 用其 readThemeTokens 读取全套语义 token。
+
+import { readThemeTokens } from "./tokens.js";
 
 export const physicsSettings = {
   gravity: 1,
@@ -37,14 +40,6 @@ export function savePhysicsSettings() {
 }
 
 export function refreshThemeColors() {
-  themeColors = {
-    cool: readCSSVar("--cool"),
-    warm: readCSSVar("--warm"),
-    nodeLow: readCSSVar("--node-low"),
-    nodeHigh: readCSSVar("--node-high"),
-    dim: readCSSVar("--dim"),
-    ink2: readCSSVar("--ink2"),
-    linkStroke: readCSSVar("--link-stroke"),
-    bg0: readCSSVar("--bg0"),
-  };
+  // 读取全套语义 + 阴影 token（含原 8 项：cool/warm/nodeLow/nodeHigh/dim/ink2/linkStroke/bg0）
+  themeColors = readThemeTokens();
 }

@@ -1,0 +1,6 @@
+dist
+lib
+es
+coverage
+examples/dist
+node_modules

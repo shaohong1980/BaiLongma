@@ -11,6 +11,7 @@ import { setTyphoonMode } from './typhoon.js';
 import { setPersonCardMode } from './person-card.js';
 import { setDocPanelMode } from './doc.js';
 import { TRIGRAMS, HEXAGRAMS, castHexagram } from './iching-data.js';
+import { themeColors } from './ui-preferences.js';
 
 const $ = (id) => document.getElementById(id);
 const ESC = (s) => String(s == null ? '' : s)
@@ -344,18 +345,22 @@ function drawCanvasFrame(now) {
   const S = Math.min(w, h);
   const t = now / 1000;
 
+  // 太极配色跟随主题 token（--cool / --warm，读自 design-tokens.css），切主题即时生效
+  const taijiColor = themeColors.cool ? hexToRgb(themeColors.cool) : TAIJI_COLOR;
+  const taijiAccent = themeColors.warm ? hexToRgb(themeColors.warm) : TAIJI_ACCENT;
+
   // 背景辉光
   const bg = ctx.createRadialGradient(cx, cy, S * 0.1, cx, cy, S * 0.75);
-  bg.addColorStop(0, rgba(TAIJI_COLOR, 0.10));
-  bg.addColorStop(1, rgba(TAIJI_COLOR, 0));
+  bg.addColorStop(0, rgba(taijiColor, 0.10));
+  bg.addColorStop(1, rgba(taijiColor, 0));
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
-  drawStardust(ctx, cx, cy, S * 0.45, rotateAngle + t * 0.05, t, TAIJI_COLOR);
+  drawStardust(ctx, cx, cy, S * 0.45, rotateAngle + t * 0.05, t, taijiColor);
 
   // 外圈装饰环
-  drawRing(ctx, cx, cy, S * 0.46, TAIJI_COLOR, 1, 0.18);
-  drawRing(ctx, cx, cy, S * 0.445, TAIJI_ACCENT, 0.6, 0.12);
+  drawRing(ctx, cx, cy, S * 0.46, taijiColor, 1, 0.18);
+  drawRing(ctx, cx, cy, S * 0.445, taijiAccent, 0.6, 0.12);
 
   // 八卦爻环（先天序顺时针）
   const rot = rotateAngle + t * 0.02;
@@ -366,7 +371,7 @@ function drawCanvasFrame(now) {
     const angle = -Math.PI / 2 + rot + (i / 8) * Math.PI * 2;
     const lit = tr.name === '乾' || tr.name === '坤';
     drawTrigramLines(ctx, cx, cy, angle, tr.lines, innerR, outerR,
-      lit ? rgba(TAIJI_ACCENT, 1) : rgba(TAIJI_COLOR, 1), 0.85, TAIJI_ACCENT, lit);
+      lit ? rgba(taijiAccent, 1) : rgba(taijiColor, 1), 0.85, taijiAccent, lit);
     // 卦名 + 自然
     const nx = cx + Math.cos(angle) * nameR;
     const ny = cy + Math.sin(angle) * nameR;
@@ -375,7 +380,7 @@ function drawCanvasFrame(now) {
     ctx.globalAlpha = 0.92;
     ctx.fillStyle = lit ? 'rgba(255,214,150,0.95)' : 'rgba(214,224,244,0.9)';
     ctx.font = `600 ${Math.max(12, Math.round(S * 0.045))}px 'Inter','PingFang SC','Microsoft YaHei',sans-serif`;
-    ctx.shadowColor = rgba(TAIJI_ACCENT, 0.5);
+    ctx.shadowColor = rgba(taijiAccent, 0.5);
     ctx.shadowBlur = 8;
     ctx.fillText(tr.name, nx, ny - S * 0.022);
     ctx.font = `500 ${Math.max(9, Math.round(S * 0.032))}px 'Inter','PingFang SC',sans-serif`;
@@ -388,7 +393,7 @@ function drawCanvasFrame(now) {
   // 中央太极
   const yin = rgba({ r: 14, g: 18, b: 30 }, 0.96);
   const yang = rgba({ r: 250, g: 246, b: 238 }, 0.97);
-  drawTaiji(ctx, cx, cy, S * 0.26, rotateAngle * 0.6 + t * 0.12, yin, yang, TAIJI_ACCENT);
+  drawTaiji(ctx, cx, cy, S * 0.26, rotateAngle * 0.6 + t * 0.12, yin, yang, taijiAccent);
 }
 
 function startCanvas() {

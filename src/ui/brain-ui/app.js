@@ -21,7 +21,8 @@ import { initAudioOutputRouting, applyOutputSink, listOutputDevices, getOutputPr
 import { parseEntities, parseLinks, deterministicIndex, shuffleArray, createVisualOrder } from "./memory-graph.js";
 import { initUiZoom } from "./ui-zoom.js";
 import { physicsSettings, themeColors, readCSSVar, readPhysicsSettings, savePhysicsSettings, refreshThemeColors } from "./ui-preferences.js";
-import { setGraphData, computeDegrees, markCore, renderLegend, isConversationMemory, nodeColor, nodeRadius, semanticChildTargets, chooseVisualParent, getCurrentVisualChildCounts, maxVisualChildren, addSupplementalVisualLinks, addRandomVisualLinks, findAnchorNode, NODE_TYPE_COLORS, NODE_TYPE_LABELS, NODE_TYPE_DEFAULT } from "./memory-graph-core.js";
+import { withStates } from "./with-states.js";
+import { setGraphData, computeDegrees, markCore, renderLegend, isConversationMemory, nodeColor, nodeRadius, resolveNodeColor, semanticChildTargets, chooseVisualParent, getCurrentVisualChildCounts, maxVisualChildren, addSupplementalVisualLinks, addRandomVisualLinks, findAnchorNode, NODE_TYPE_LABELS } from "./memory-graph-core.js";
 renderBrainUiApp(document.body);
 const THEME_KEY = "jarvis-brain-ui-theme";
 const ACTIVATION_WARMUP_KEY = "bailongma_activation_warmup_until";
@@ -143,6 +144,10 @@ physicsToggle.addEventListener("click", () => {
   physicsControl.classList.toggle("open", nextOpen);
   physicsToggle.setAttribute("aria-expanded", String(nextOpen));
 });
+
+// 借鉴 Radium 的状态感知样式：图谱控制按钮写入 data-state="hover/focus/active"
+withStates(physicsToggle);
+withStates(resetViewBtn);
 
 gravitySlider.addEventListener("input", () => {
   physicsSettings.gravity = Number(gravitySlider.value);
@@ -4301,7 +4306,7 @@ function renderDashLegend() {
   const items = Array.from(counts.entries()).map(([type, count]) => ({
     name: type === "self" ? "自身" : type === "conversation" ? "对话" : (NODE_TYPE_LABELS[type] || type),
     count,
-    color: type === "self" ? (themeColors.warm || "#ff9f1c") : type === "conversation" ? "#ffffff" : (NODE_TYPE_COLORS[type] || NODE_TYPE_DEFAULT),
+    color: resolveNodeColor(type),
   })).sort((a, b) => b.count - a.count);
   el.innerHTML = items.map(i => `
     <div class="legend-item">

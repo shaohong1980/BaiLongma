@@ -1,0 +1,155 @@
+/* ═══════════════════════════════════════════════════════════════
+   design-tokens.css —— 爻台 Brain UI 设计 Token 层
+   · 唯一事实源：语义/主题 token 只在此定义，组件样式一律引用 var(--*)。
+   · 6 套主题：midnight(默认 :root) / neon / phosphor / violet / rose / arctic / sand
+   · 语义色分组：
+       bg*         背景层级（bg0=最深，bg1=面板底，bg-deep=全局最底）
+       ink/ink2/dim 文字层级（主/次/弱）
+       line*       分隔线与描边
+       panel*       面板/抬升面板/控制台底色
+       cool/warm    品牌冷/暖强调色
+       ok/warn/danger 语义状态色
+       node-low/high  图谱节点低/高重要度色
+       glow-* / link-stroke 霓虹辉光与连线
+       shadow-*    阴影层级
+   · 布局 token（--sphere-size/--kanban-width/--media-panel-width 等）
+     不属于主题语义，保留在 styles.css 组件作用域。
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* 主页面布局：左上角图谱记忆球 + 右侧军机处看板，左右面板下移到其下方 */
+  --sphere-size: 280px;
+  --widget-top: calc(16px + var(--sphere-size) + 40px);
+  --kanban-width: 380px;
+  --bg0: #111821;
+  --bg1: #172231;
+  --bg-deep: #0d141d;
+  --ink: #f3f5fb;
+  --ink2: #a2adbd;
+  --dim: #778397;
+  --line: rgba(150, 169, 198, 0.13);
+  --line-strong: rgba(164, 183, 214, 0.32);
+  --panel: rgba(20, 28, 40, 0.78);
+  --panel-raised: rgba(26, 36, 50, 0.70);
+  --console-bg: rgba(22, 31, 44, 0.78);
+  --cool: #4f8cff;
+  --warm: #ff9f1c;
+  --ok: #39d98a;
+  --warn: #f59e0b;
+  --danger: #f87171;
+  --node-low: #213652;
+  --node-high: #ffbe6b;
+  --glow-halo: rgba(255, 159, 28, 0.16);
+  --glow-tint1: rgba(255, 159, 28, 0.12);
+  --glow-tint2: rgba(79, 140, 255, 0.08);
+  --link-stroke: rgba(255, 159, 28, 0.22);
+  --shadow-soft: 0 14px 40px rgba(0, 0, 0, 0.18);
+  --shadow-console: 0 12px 32px rgba(0, 0, 0, 0.22);
+  --shadow-pop: 0 8px 22px rgba(0, 0, 0, 0.20);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+[data-theme="phosphor"] {
+  --bg0: #050806; --bg1: #0a120c; --bg-deep: #020403;
+  --ink: #c8f0c8; --ink2: #8fb48a; --dim: #4a6b4e;
+  --line: rgba(140, 220, 140, 0.08); --line-strong: rgba(140, 220, 140, 0.22);
+  --panel: rgba(6, 12, 8, 0.58); --panel-raised: rgba(10, 20, 12, 0.70); --console-bg: rgba(10, 20, 12, 0.42);
+  --cool: #9fe09a; --warm: #f0c866;
+  --node-low: #2d5a36; --node-high: #d4ffce;
+  --glow-halo: rgba(140, 220, 140, 0.10);
+  --glow-tint1: rgba(140, 220, 140, 0.08);
+  --glow-tint2: rgba(240, 200, 102, 0.05);
+  --link-stroke: rgba(140, 220, 140, 0.18);
+}
+
+[data-theme="violet"] {
+  --bg0: #0d0a1a; --bg1: #161128; --bg-deep: #070512;
+  --ink: #e4deff; --ink2: #a89fd4; --dim: #645b8a;
+  --line: rgba(170, 140, 240, 0.10); --line-strong: rgba(170, 140, 240, 0.22);
+  --panel: rgba(14, 10, 26, 0.56); --panel-raised: rgba(22, 17, 40, 0.70); --console-bg: rgba(22, 17, 40, 0.42);
+  --cool: #b098f0; --warm: #78e0c8;
+  --node-low: #4a3a6e; --node-high: #e0d4ff;
+  --glow-halo: rgba(170, 140, 240, 0.12);
+  --glow-tint1: rgba(170, 140, 240, 0.09);
+  --glow-tint2: rgba(120, 224, 200, 0.06);
+  --link-stroke: rgba(170, 140, 240, 0.20);
+}
+
+[data-theme="rose"] {
+  --bg0: #1a0f16; --bg1: #24151f; --bg-deep: #10080d;
+  --ink: #f4e0e4; --ink2: #c9a8ae; --dim: #7a5a61;
+  --line: rgba(230, 160, 170, 0.10); --line-strong: rgba(230, 160, 170, 0.22);
+  --panel: rgba(26, 15, 22, 0.56); --panel-raised: rgba(36, 21, 31, 0.70); --console-bg: rgba(36, 21, 31, 0.42);
+  --cool: #e89aa8; --warm: #f2c27a;
+  --node-low: #5a3a44; --node-high: #fad8de;
+  --glow-halo: rgba(230, 160, 170, 0.10);
+  --glow-tint1: rgba(230, 160, 170, 0.08);
+  --glow-tint2: rgba(242, 194, 122, 0.06);
+  --link-stroke: rgba(230, 160, 170, 0.20);
+}
+
+[data-theme="arctic"] {
+  --bg0: #f5f7f9; --bg1: #eaeef2; --bg-deep: #dfe4ea;
+  --ink: #1a2330; --ink2: #4a5a6e; --dim: #8a98a8;
+  --line: rgba(40, 60, 85, 0.08); --line-strong: rgba(40, 60, 85, 0.18);
+  --panel: rgba(255, 255, 255, 0.54); --panel-raised: rgba(255, 255, 255, 0.72); --console-bg: rgba(255, 255, 255, 0.46);
+  --cool: #3a6a8f; --warm: #b85a3a;
+  --node-low: #c0ccd8; --node-high: #2a3e58;
+  --glow-halo: rgba(58, 106, 143, 0.06);
+  --glow-tint1: rgba(58, 106, 143, 0.05);
+  --glow-tint2: rgba(184, 90, 58, 0.04);
+  --link-stroke: rgba(40, 60, 85, 0.18);
+  --shadow-soft: 0 14px 36px rgba(30, 45, 65, 0.10);
+  --shadow-console: 0 10px 28px rgba(30, 45, 65, 0.12);
+  --shadow-pop: 0 6px 18px rgba(30, 45, 65, 0.12);
+}
+
+[data-theme="sand"] {
+  --bg0: #f2ede3; --bg1: #eae2d2; --bg-deep: #ddd2bc;
+  --ink: #2a231a; --ink2: #6a5c48; --dim: #9e917c;
+  --line: rgba(70, 55, 35, 0.08); --line-strong: rgba(70, 55, 35, 0.20);
+  --panel: rgba(250, 246, 238, 0.54); --panel-raised: rgba(250, 246, 238, 0.72); --console-bg: rgba(250, 246, 238, 0.46);
+  --cool: #7a5a2c; --warm: #c8502e;
+  --node-low: #cdbfa6; --node-high: #3a2a16;
+  --glow-halo: rgba(122, 90, 44, 0.06);
+  --glow-tint1: rgba(122, 90, 44, 0.06);
+  --glow-tint2: rgba(200, 80, 46, 0.05);
+  --link-stroke: rgba(70, 55, 35, 0.18);
+  --shadow-soft: 0 14px 36px rgba(70, 55, 35, 0.10);
+  --shadow-console: 0 10px 28px rgba(70, 55, 35, 0.12);
+  --shadow-pop: 0 6px 18px rgba(70, 55, 35, 0.12);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   科研指挥官 · Neon 霓虹工作台主题（参照 workspace.html）
+   深空蓝底 + 网格/星云背景 + 玻璃拟态卡片 + 青紫霓虹辉光
+   ═══════════════════════════════════════════════════════════════ */
+
+[data-theme="neon"] {
+  --bg0: #0a0e1a;
+  --bg1: #0f1729;
+  --bg-deep: #050810;
+  --ink: #e6f0ff;
+  --ink2: #8a9bb8;
+  --dim: #5a6a82;
+  --line: rgba(120, 180, 255, 0.09);
+  --line-strong: rgba(120, 180, 255, 0.24);
+  --panel: rgba(15, 23, 42, 0.55);
+  --panel-raised: rgba(15, 23, 42, 0.82);
+  --console-bg: rgba(15, 23, 42, 0.6);
+  --cool: #00d9ff;
+  --warm: #ff8c42;
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --node-low: #10233d;
+  --node-high: #00d9ff;
+  --glow-halo: rgba(0, 217, 255, 0.16);
+  --glow-tint1: rgba(0, 217, 255, 0.12);
+  --glow-tint2: rgba(168, 85, 247, 0.08);
+  --link-stroke: rgba(0, 217, 255, 0.22);
+  --shadow-soft: 0 14px 40px rgba(0, 0, 0, 0.42);
+  --shadow-console: 0 12px 32px rgba(0, 0, 0, 0.42);
+  --shadow-pop: 0 8px 22px rgba(0, 0, 0, 0.45);
+  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}

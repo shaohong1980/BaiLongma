@@ -1,106 +1,25 @@
-:root {
-  /* 主页面布局：左上角图谱记忆球 + 右侧军机处看板，左右面板下移到其下方 */
-  --sphere-size: 280px;
-  --widget-top: calc(16px + var(--sphere-size) + 40px);
-  --kanban-width: 380px;
-  --bg0: #111821;
-  --bg1: #172231;
-  --bg-deep: #0d141d;
-  --ink: #f3f5fb;
-  --ink2: #a2adbd;
-  --dim: #778397;
-  --line: rgba(150, 169, 198, 0.13);
-  --line-strong: rgba(164, 183, 214, 0.32);
-  --panel: rgba(20, 28, 40, 0.78);
-  --panel-raised: rgba(26, 36, 50, 0.70);
-  --console-bg: rgba(22, 31, 44, 0.78);
-  --cool: #4f8cff;
-  --warm: #ff9f1c;
-  --ok: #39d98a;
-  --warn: #f59e0b;
-  --danger: #f87171;
-  --node-low: #213652;
-  --node-high: #ffbe6b;
-  --glow-halo: rgba(255, 159, 28, 0.16);
-  --glow-tint1: rgba(255, 159, 28, 0.12);
-  --glow-tint2: rgba(79, 140, 255, 0.08);
-  --link-stroke: rgba(255, 159, 28, 0.22);
-  --shadow-soft: 0 14px 40px rgba(0, 0, 0, 0.18);
-  --shadow-console: 0 12px 32px rgba(0, 0, 0, 0.22);
-  --shadow-pop: 0 8px 22px rgba(0, 0, 0, 0.20);
-  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-}
+@import url("./design-tokens.css");
 
-[data-theme="phosphor"] {
-  --bg0: #050806; --bg1: #0a120c; --bg-deep: #020403;
-  --ink: #c8f0c8; --ink2: #8fb48a; --dim: #4a6b4e;
-  --line: rgba(140, 220, 140, 0.08); --line-strong: rgba(140, 220, 140, 0.22);
-  --panel: rgba(6, 12, 8, 0.58); --panel-raised: rgba(10, 20, 12, 0.70); --console-bg: rgba(10, 20, 12, 0.42);
-  --cool: #9fe09a; --warm: #f0c866;
-  --node-low: #2d5a36; --node-high: #d4ffce;
-  --glow-halo: rgba(140, 220, 140, 0.10);
-  --glow-tint1: rgba(140, 220, 140, 0.08);
-  --glow-tint2: rgba(240, 200, 102, 0.05);
-  --link-stroke: rgba(140, 220, 140, 0.18);
-}
+/* ═══════════════════════════════════════════════════════════════
+   爻台 Brain UI 样式表（组件层）
+   · 语义/主题 token 见 design-tokens.css（此处自动引入，勿重复定义）
+   · 组件分区索引（约略行号）：
+       基础重置 + body ................. 105
+       图谱记忆球 / AI 状态 / 焦点栈 ..... 139
+       斜杠命令 / 输入区 / 麦克风 ........ 1096
+       设置弹窗 ......................... 1559
+       地图面板 ......................... 1734
+       多 Agent 会议室 / 军机处看板 ....... 1866
+       知识图谱详情弹层 .................. 2114
+       晨间简报 / 语音面板 / 八卦图 ........ 2452
+       视频模式 / 全局命令面板 ........... 2611
+       侧栏最近会话 / 媒体生成 ............ 2752
+       面板折叠 tab ..................... 3181
+       音乐模式 ......................... 3295
+       热点面板 ......................... 3685
+       Neon 主题元素级样式 ............... 6425
+   ═══════════════════════════════════════════════════════════════ */
 
-[data-theme="violet"] {
-  --bg0: #0d0a1a; --bg1: #161128; --bg-deep: #070512;
-  --ink: #e4deff; --ink2: #a89fd4; --dim: #645b8a;
-  --line: rgba(170, 140, 240, 0.10); --line-strong: rgba(170, 140, 240, 0.22);
-  --panel: rgba(14, 10, 26, 0.56); --panel-raised: rgba(22, 17, 40, 0.70); --console-bg: rgba(22, 17, 40, 0.42);
-  --cool: #b098f0; --warm: #78e0c8;
-  --node-low: #4a3a6e; --node-high: #e0d4ff;
-  --glow-halo: rgba(170, 140, 240, 0.12);
-  --glow-tint1: rgba(170, 140, 240, 0.09);
-  --glow-tint2: rgba(120, 224, 200, 0.06);
-  --link-stroke: rgba(170, 140, 240, 0.20);
-}
-
-[data-theme="rose"] {
-  --bg0: #1a0f16; --bg1: #24151f; --bg-deep: #10080d;
-  --ink: #f4e0e4; --ink2: #c9a8ae; --dim: #7a5a61;
-  --line: rgba(230, 160, 170, 0.10); --line-strong: rgba(230, 160, 170, 0.22);
-  --panel: rgba(26, 15, 22, 0.56); --panel-raised: rgba(36, 21, 31, 0.70); --console-bg: rgba(36, 21, 31, 0.42);
-  --cool: #e89aa8; --warm: #f2c27a;
-  --node-low: #5a3a44; --node-high: #fad8de;
-  --glow-halo: rgba(230, 160, 170, 0.10);
-  --glow-tint1: rgba(230, 160, 170, 0.08);
-  --glow-tint2: rgba(242, 194, 122, 0.06);
-  --link-stroke: rgba(230, 160, 170, 0.20);
-}
-
-[data-theme="arctic"] {
-  --bg0: #f5f7f9; --bg1: #eaeef2; --bg-deep: #dfe4ea;
-  --ink: #1a2330; --ink2: #4a5a6e; --dim: #8a98a8;
-  --line: rgba(40, 60, 85, 0.08); --line-strong: rgba(40, 60, 85, 0.18);
-  --panel: rgba(255, 255, 255, 0.54); --panel-raised: rgba(255, 255, 255, 0.72); --console-bg: rgba(255, 255, 255, 0.46);
-  --cool: #3a6a8f; --warm: #b85a3a;
-  --node-low: #c0ccd8; --node-high: #2a3e58;
-  --glow-halo: rgba(58, 106, 143, 0.06);
-  --glow-tint1: rgba(58, 106, 143, 0.05);
-  --glow-tint2: rgba(184, 90, 58, 0.04);
-  --link-stroke: rgba(40, 60, 85, 0.18);
-  --shadow-soft: 0 14px 36px rgba(30, 45, 65, 0.10);
-  --shadow-console: 0 10px 28px rgba(30, 45, 65, 0.12);
-  --shadow-pop: 0 6px 18px rgba(30, 45, 65, 0.12);
-}
-
-[data-theme="sand"] {
-  --bg0: #f2ede3; --bg1: #eae2d2; --bg-deep: #ddd2bc;
-  --ink: #2a231a; --ink2: #6a5c48; --dim: #9e917c;
-  --line: rgba(70, 55, 35, 0.08); --line-strong: rgba(70, 55, 35, 0.20);
-  --panel: rgba(250, 246, 238, 0.54); --panel-raised: rgba(250, 246, 238, 0.72); --console-bg: rgba(250, 246, 238, 0.46);
-  --cool: #7a5a2c; --warm: #c8502e;
-  --node-low: #cdbfa6; --node-high: #3a2a16;
-  --glow-halo: rgba(122, 90, 44, 0.06);
-  --glow-tint1: rgba(122, 90, 44, 0.06);
-  --glow-tint2: rgba(200, 80, 46, 0.05);
-  --link-stroke: rgba(70, 55, 35, 0.18);
-  --shadow-soft: 0 14px 36px rgba(70, 55, 35, 0.10);
-  --shadow-console: 0 10px 28px rgba(70, 55, 35, 0.12);
-  --shadow-pop: 0 6px 18px rgba(70, 55, 35, 0.12);
-}
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 100%; height: 100%; }
@@ -6179,39 +6098,6 @@ body.aivideo-mode > #voice-panel { top: 62px; }
   .console { left: 8px; right: 8px; top: 58px; }
   .nav-center { display: none; }
 }
-/* ═══════════════════════════════════════════════════════════════
-   科研指挥官 · Neon 霓虹工作台主题（参照 workspace.html）
-   深空蓝底 + 网格/星云背景 + 玻璃拟态卡片 + 青紫霓虹辉光
-   ═══════════════════════════════════════════════════════════════ */
-
-[data-theme="neon"] {
-  --bg0: #0a0e1a;
-  --bg1: #0f1729;
-  --bg-deep: #050810;
-  --ink: #e6f0ff;
-  --ink2: #8a9bb8;
-  --dim: #5a6a82;
-  --line: rgba(120, 180, 255, 0.09);
-  --line-strong: rgba(120, 180, 255, 0.24);
-  --panel: rgba(15, 23, 42, 0.55);
-  --panel-raised: rgba(15, 23, 42, 0.82);
-  --console-bg: rgba(15, 23, 42, 0.6);
-  --cool: #00d9ff;
-  --warm: #ff8c42;
-  --ok: #10b981;
-  --warn: #f59e0b;
-  --danger: #ef4444;
-  --node-low: #10233d;
-  --node-high: #00d9ff;
-  --glow-halo: rgba(0, 217, 255, 0.16);
-  --glow-tint1: rgba(0, 217, 255, 0.12);
-  --glow-tint2: rgba(168, 85, 247, 0.08);
-  --link-stroke: rgba(0, 217, 255, 0.22);
-  --shadow-soft: 0 14px 40px rgba(0, 0, 0, 0.42);
-  --shadow-console: 0 12px 32px rgba(0, 0, 0, 0.42);
-  --shadow-pop: 0 8px 22px rgba(0, 0, 0, 0.45);
-  --shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
 
 /* 网格 + 星云背景（浅层网格动画 + 三团霓虹辉光） */
 [data-theme="neon"] body::before {
@@ -8315,4 +8201,21 @@ body.sphere-enlarged #legend {
 body.sphere-enlarged::after {
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bg-deep) 82%, transparent) 20% 80%, transparent);
   border: 1px solid color-mix(in srgb, var(--line-strong) 60%, transparent);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   with-states 状态感知样式（借鉴 Radium「状态感知样式」思路）
+   data-state 由 with-states.js 监听交互后写入：hover / focus / active
+   使用 [data-state~="..."] 子串匹配，与语义状态（busy/empty/open…）不冲突。
+   仅作用于接入了 withStates 的元素（当前：图谱控制按钮）。
+   ═══════════════════════════════════════════════════════════════ */
+.graph-controls [data-state~="focus"] {
+  outline: 2px solid color-mix(in srgb, var(--cool) 65%, transparent);
+  outline-offset: 1px;
+}
+.graph-controls [data-state~="hover"] {
+  filter: brightness(1.07);
+}
+.graph-controls [data-state~="active"] {
+  filter: brightness(0.94) translateY(1px);
 }

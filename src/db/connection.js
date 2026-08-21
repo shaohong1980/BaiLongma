@@ -17,6 +17,8 @@ export function getDB() {
 
 export function closeDBForTest() {
   if (!db) return
+  // P0-5：关闭前 checkpoint WAL，避免测试库残留膨胀的 -wal/-shm 文件
+  try { db.pragma('wal_checkpoint(TRUNCATE)') } catch {}
   db.close()
   db = null
 }

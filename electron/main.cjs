@@ -490,6 +490,18 @@ async function loadMainApp() {
   emitStartupProgress({ id: 'interface', status: 'done', completed: true, message: '启动完成' })
 }
 
+// P0-3：对所有子窗口统一导航加固 —— window.open 只放 http(s)，页面导航只放 http(s)。
+function hardenChildWebContents(wc) {
+  wc.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  wc.on('will-navigate', (event, url) => {
+    if (/^https?:\/\//i.test(url)) return
+    event.preventDefault()
+  })
+}
+
 async function createWindow({ loadStartup = true } = {}) {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -529,7 +541,7 @@ async function createWindow({ loadStartup = true } = {}) {
   //   Ctrl+R   → reload（仅 dev）
   mainWindow.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return
-    if (input.key === 'F12') {
+    if (input.key === 'F12' && IS_DEV) {
       mainWindow.webContents.toggleDevTools()
       event.preventDefault()
       return
@@ -547,11 +559,20 @@ async function createWindow({ loadStartup = true } = {}) {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // P0-3：只允许 http(s) 交给系统浏览器外部打开；file:/javascript:/自定义协议等一律拒绝，
+    // 不允许在应用内以新窗口打开（避免 file:// / 任意协议注入）。
     if (/^https?:\/\//i.test(url)) {
       shell.openExternal(url)
-      return { action: 'deny' }
     }
-    return { action: 'allow' }
+    return { action: 'deny' }
+  })
+
+  // P0-3：will-navigate 白名单 —— 只允许 http(s) 与本地后端 origin 的页面内导航，
+  // 拒绝 javascript:/data:/file:（渲染进程导航）与未知来源，防止导航劫持/注入。
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const localOrigin = backendPort ? `http://127.0.0.1:${backendPort}` : ''
+    if (/^https?:\/\//i.test(url) && (!localOrigin || url.startsWith(localOrigin))) return
+    event.preventDefault()
   })
 
   if (loadStartup) {
@@ -645,6 +666,7 @@ function createFocusBannerWindow({ task = '', current_step = '', tasks = [] } = 
     if (permission === 'media') return true
     return false
   })
+  hardenChildWebContents(focusBannerWindow.webContents)
 
   focusBannerWindow.loadFile(path.join(RESOURCE_ROOT, 'focus-banner.html'))
 
@@ -943,6 +965,7 @@ function createTerminalStreamWindow(payload = {}) {
     },
   })
 
+  hardenChildWebContents(terminalStreamWindow.webContents)
   terminalStreamWindowStreamId = streamId
   terminalStreamWindow.loadURL(url)
   showTerminalStreamWindow(terminalStreamWindow, focusWindow)
@@ -986,6 +1009,7 @@ function createWakeProbeWindow() {
     callback(permission === 'media')
   })
   wakeProbeWindow.webContents.session.setPermissionCheckHandler((wc, permission) => permission === 'media')
+  hardenChildWebContents(wakeProbeWindow.webContents)
 
   wakeProbeWindow.loadFile(path.join(__dirname, 'wake-probe.html'))
   wakeProbeWindow.on('closed', () => { wakeProbeWindow = null })
@@ -1031,6 +1055,7 @@ function createVoiceOrbWindow() {
       backgroundThrottling: false,
     },
   })
+  hardenChildWebContents(voiceOrbWindow.webContents)
   // 复用 brain-ui 的静态路由(/src/ui/brain-ui/*),voice-orb.html 的 import './voice-core.js' 才能解析
   voiceOrbWindow.loadURL(`http://127.0.0.1:${backendPort}/src/ui/brain-ui/voice-orb.html`)
   voiceOrbWindow.on('closed', () => { voiceOrbWindow = null })

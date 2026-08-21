@@ -3,6 +3,12 @@ import fs from 'fs'
 import path from 'path'
 import { paths } from './paths.js'
 import { nowTimestamp } from './time.js'
+// P0-2：Provider 密钥加密存储（secret-store：Electron safeStorage / AES-GCM 兜底）
+import { getSecret, setSecret } from './capabilities/secret-store.js'
+
+// secret-store 引用键
+export const SECRET_REF_LLM_KEY = 'llm.api_key'
+export const SECRET_REF_MINIMAX_KEY = 'llm.minimax_key'
 
 import {
   DEEPSEEK_PROVIDER, MINIMAX_PROVIDER, OPENAI_PROVIDER, MOONSHOT_PROVIDER, ZHIPU_PROVIDER, MIMO_PROVIDER,
@@ -349,6 +355,10 @@ function loadFromEnv() {
 }
 
 function applyConfig(provider, apiKey, model, customBaseURL) {
+  // P0-2：真实 key 同步写入 secret-store（加密），config.json 只留占位，明文不落地。
+  if (typeof apiKey === 'string' && apiKey && apiKey !== 'none' && apiKey.length > 4) {
+    try { setSecret(SECRET_REF_LLM_KEY, apiKey) } catch (e) { console.warn('[config] store llm key failed:', e?.message || e) }
+  }
   if (provider === 'custom') {
     config.provider = 'custom'
     config.model = String(model || '').trim()
@@ -532,7 +542,13 @@ if (parsedConfig) {
 
 const storedLlm = resolveStoredLlm(parsedConfig)
 if (storedLlm) {
-  applyConfig(storedLlm.provider, storedLlm.apiKey, storedLlm.model, storedLlm.baseURL)
+  // P0-2：config.json 里 apiKey 是占位（'none'）时，从 secret-store 取真实 key
+  let effectiveKey = storedLlm.apiKey
+  if (!effectiveKey || effectiveKey === 'none') {
+    const secretKey = getSecret(SECRET_REF_LLM_KEY)
+    if (secretKey) effectiveKey = secretKey
+  }
+  applyConfig(storedLlm.provider, effectiveKey, storedLlm.model, storedLlm.baseURL)
   if (storedLlm.provider !== 'custom' && storedLlm.model) {
     const normalized = normalizeModel(storedLlm.model, storedLlm.provider)
     if (normalized !== storedLlm.model) {
@@ -543,6 +559,37 @@ if (storedLlm) {
   const fromEnv = loadFromEnv()
   if (fromEnv) applyConfig(fromEnv.provider, fromEnv.apiKey, fromEnv.model)
 }
+
+// P0-2：把 config.json 里的明文 Provider 密钥迁移到 secret-store（加密）。
+// 复制 → 验证 round-trip → 才把 config.json 置占位，保证不丢 key。
+function migrateConfigSecretsToStore() {
+  try {
+    const parsed = readParsedConfig()
+    if (!parsed) return
+    let changed = false
+    const moves = [
+      { ref: SECRET_REF_LLM_KEY, plainKey: 'apiKey' },
+      { ref: SECRET_REF_MINIMAX_KEY, plainKey: 'minimax_api_key' },
+    ]
+    for (const { ref, plainKey } of moves) {
+      const plain = typeof parsed[plainKey] === 'string' ? parsed[plainKey].trim() : ''
+      if (!plain || plain === 'none') continue
+      const stored = getSecret(ref)
+      if (stored && stored !== plain) continue   // secret-store 有不同 key：不动 config.json（防误清）
+      if (!stored) {
+        setSecret(ref, plain)
+        if (getSecret(ref) !== plain) continue   // 加密不可回读：不清明文，保住 key
+      }
+      parsed[plainKey] = 'none'                  // secret-store 已有同值或刚写入成功 → 清明文
+      changed = true
+    }
+    if (changed) {
+      try { fs.writeFileSync(paths.configFile, JSON.stringify(parsed, null, 2), 'utf-8') } catch (e) { console.warn('[config] migrate secrets write failed:', e?.message || e) }
+      console.log('[config] Provider 密钥已迁移到加密 secret-store，config.json 明文已清除')
+    }
+  } catch (e) { console.warn('[config] migrate secrets failed:', e?.message || e) }
+}
+migrateConfigSecretsToStore()
 
 // At startup, copy social credentials from the config file into process.env so connectors can read them
 ;(function loadSocialEnv() {
@@ -719,6 +766,14 @@ export function getActivationStatus() {
   }
 }
 
+// P0-2：密钥脱敏 —— 接口/日志只暴露"是否已配置 + 后 4 位"，不暴露明文。
+export function maskSecret(value) {
+  const s = String(value || '')
+  if (!s) return ''
+  if (s.length <= 8) return '••••'
+  return '••••' + s.slice(-4)
+}
+
 export function getProviderSummaries() {
   const result = Object.fromEntries(Object.entries(PROVIDER_CONFIG).map(([name, pConfig]) => [
     name,
@@ -730,7 +785,7 @@ export function getProviderSummaries() {
         models: withCurrentModel(pConfig.models, stored?.model),
         defaultModel: pConfig.defaultModel,
         configured: local || !!stored,
-        apiKey: local ? '' : (stored?.apiKey || ''),
+        apiKey: local ? '' : maskSecret(stored?.apiKey),
         model: stored?.model ? normalizeModel(stored.model, name) : pConfig.defaultModel,
         local: local || undefined,
       }
@@ -980,6 +1035,9 @@ export function setNetworkConfig(updates) {
 }
 
 export function getMinimaxKey() {
+  // P0-2：secret-store 优先（加密），回退 config.json/env
+  const fromSecret = getSecret(SECRET_REF_MINIMAX_KEY)
+  if (fromSecret) return fromSecret
   try {
     const raw = fs.readFileSync(paths.configFile, 'utf-8')
     const parsed = JSON.parse(raw)
@@ -990,11 +1048,18 @@ export function getMinimaxKey() {
 export function setMinimaxKey(key) {
   const trimmed = String(key || '').trim()
   if (trimmed) {
-    patchConfig({ minimax_api_key: trimmed })
+    setSecret(SECRET_REF_MINIMAX_KEY, trimmed)   // P0-2：加密存储
+    patchConfig({ minimax_api_key: 'none' })      // 明文位置置占位，下次启动迁移/读取走 secret-store
   } else {
+    deleteSecretRef(SECRET_REF_MINIMAX_KEY)
     const { minimax_api_key: _removed, ...rest } = readExistingStoredConfig()
     writeStoredConfig(rest)
   }
+}
+
+// P0-2：删除 secret-store 引用（setSecret('') 等效）
+function deleteSecretRef(ref) {
+  try { setSecret(ref, '') } catch (e) { console.warn('[config] delete secret failed:', e?.message || e) }
 }
 
 // ── Seedance AI 视频生成（火山方舟 Ark）配置 ──

@@ -74,9 +74,12 @@ function getSafeStorage() {
 
 function readFallbackMasterKey() {
   try {
-    const raw = fs.readFileSync(paths.apiCapabilitySecretKeyFile, 'utf-8').trim()
-    const key = Buffer.from(raw, 'base64')
-    if (key.length >= 32) return key.subarray(0, 32)
+    // 首次运行无 key 文件是预期（下面生成），不告警
+    if (fs.existsSync(paths.apiCapabilitySecretKeyFile)) {
+      const raw = fs.readFileSync(paths.apiCapabilitySecretKeyFile, 'utf-8').trim()
+      const key = Buffer.from(raw, 'base64')
+      if (key.length >= 32) return key.subarray(0, 32)
+    }
   } catch (e) { console.warn('[src/capabilities/secret-store.js] op failed:', e?.message || e) }
 
   const key = crypto.randomBytes(32)

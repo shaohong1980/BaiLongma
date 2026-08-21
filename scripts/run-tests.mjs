@@ -9,7 +9,7 @@
 //   node scripts/run-tests.mjs src/test-a2a-client.js   # 跑指定文件
 //   node scripts/run-tests.mjs --node src/test-*.js     # 全部强制 node
 //   node scripts/run-tests.mjs --electron ...           # 全部强制 electron
-import { readdirSync, readFileSync, statSync } from 'fs'
+import { readdirSync, readFileSync, statSync, rmSync } from 'fs'
 import { spawn } from 'child_process'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -28,6 +28,27 @@ function needsElectron(file, src) {
   if (NATIVE_IMPORT_RE.test(src)) return true
   if (DB_IMPORT_RE.test(src)) return true
   return false
+}
+
+// P0-5：测试前清扫 sandbox 里被中断运行遗留的临时目录（active-policy-test-* / relevance-test-* 等）。
+// 只删 1 小时前的，避免误删正在并发的同类测试目录。
+function sweepStaleSandboxDirs() {
+  const sandboxDir = path.join(ROOT, 'sandbox')
+  let entries
+  try { entries = readdirSync(sandboxDir, { withFileTypes: true }) } catch { return }
+  const cutoff = Date.now() - 60 * 60 * 1000
+  let removed = 0
+  for (const e of entries) {
+    if (!e.isDirectory() || !e.name.toLowerCase().includes('test')) continue
+    try {
+      const st = statSync(path.join(sandboxDir, e.name))
+      if (st.mtimeMs < cutoff) {
+        rmSync(path.join(sandboxDir, e.name), { recursive: true, force: true })
+        removed++
+      }
+    } catch {}
+  }
+  if (removed) console.log(`[run-tests] 清扫 ${removed} 个过期的 sandbox 测试临时目录`)
 }
 
 function walkTestFiles(dir, out = []) {
@@ -81,6 +102,7 @@ if (explicit.length) {
 
 if (!files.length) { console.log('没有找到测试文件'); process.exit(1) }
 
+sweepStaleSandboxDirs()
 console.log(`运行 ${files.length} 个测试文件（${forceRunner ? `强制 ${forceRunner}` : '自动选择运行器'}）...\n`)
 let pass = 0, fail = 0
 const failures = []

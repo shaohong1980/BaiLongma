@@ -340,13 +340,6 @@ export function setConfig(key, value) {
 }
 
 // 解析语义 mem_id 字符串 → 真实整数 id
-function resolveMemId(memId) {
-  if (!memId) return null
-  const db = getDB()
-  const row = db.prepare(`SELECT id FROM memories WHERE mem_id = ? LIMIT 1`).get(memId)
-  return row ? row.id : null
-}
-
 // 解析 parent_ref 语义字符串 → 真实 memory id（兼容旧格式 "type:identifier"）
 // 格式："person:ID:000001"  → 找该 entity 最新的 person 根节点
 //       "knowledge:X框架"   → FTS 搜索最近匹配的 knowledge 记录
@@ -1315,7 +1308,7 @@ export function insertActionLog({
 }) {
   const db = getDB()
   const serializedArgs = argsJson ?? safeStringify(args ?? {})
-  db.prepare(`
+  const result = db.prepare(`
     INSERT INTO action_logs (
       timestamp, tool, summary, detail,
       status, risk, args_json, result_preview, error, duration_ms, source
@@ -1333,6 +1326,18 @@ export function insertActionLog({
     Number(durationMs) || 0,
     String(source || '').slice(0, 120)
   )
+  return Number(result.lastInsertRowid)
+}
+
+// 工具回执（ZeroClaw 移植）：按 action_log id 取回执 / 写回执
+export function getActionLog(id) {
+  const db = getDB()
+  return db.prepare(`SELECT * FROM action_logs WHERE id = ?`).get(Number(id) || 0) || null
+}
+export function updateActionLogReceipt(id, receiptJson) {
+  const db = getDB()
+  db.prepare(`UPDATE action_logs SET receipt = ? WHERE id = ?`).run(String(receiptJson || ''), Number(id) || 0)
+  return Number(id) || 0
 }
 
 // 获取最近 N 条行动日志（时间正序）

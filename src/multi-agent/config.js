@@ -18,7 +18,7 @@ function load() {
   } catch { overrides = {} }
 }
 function persist() {
-  try { fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true }); fs.writeFileSync(CONFIG_FILE, JSON.stringify(overrides, null, 2), 'utf-8') } catch {}
+  try { fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true }); fs.writeFileSync(CONFIG_FILE, JSON.stringify(overrides, null, 2), 'utf-8') } catch (e) { console.warn('[src/multi-agent/config.js] op failed:', e?.message || e) }
 }
 
 // 合并默认 + 覆盖，返回某 Agent 的完整配置（含运行时注册的外部 agent）

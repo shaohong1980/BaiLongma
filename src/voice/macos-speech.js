@@ -104,11 +104,11 @@ export function createMacSpeechSession(config = {}, onTranscript, onError, onClo
     close() {
       if (closed) return
       closed = true
-      try { child.kill('SIGTERM') } catch {}
+      try { child.kill('SIGTERM') } catch (e) { console.warn('[src/voice/macos-speech.js] op failed:', e?.message || e) }
       forceKillTimer = setTimeout(() => {
         forceKillTimer = null
         if (!child.killed || child.exitCode === null) {
-          try { child.kill('SIGKILL') } catch {}
+          try { child.kill('SIGKILL') } catch (e) { console.warn('[src/voice/macos-speech.js] op failed:', e?.message || e) }
         }
       }, 800)
       forceKillTimer.unref?.()

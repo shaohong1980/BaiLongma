@@ -34,27 +34,6 @@ export function parseMessageInput(message) {
 //
 // 注：此函数已被 sortByDecay 取代（见 memory-decay.js），保留仅为向后兼容。
 // 新代码应使用 import { sortByDecay } from './memory-decay.js'
-function rerankByImportance(memories) {
-  if (!Array.isArray(memories) || memories.length === 0) return memories
-  const now = Date.now()
-  const isStale = (m) => {
-    const t = m.timestamp ? new Date(m.timestamp).getTime() : NaN
-    if (!Number.isFinite(t)) return false
-    return (now - t) / 86400000 > 365
-  }
-  const boostOf = (m) => {
-    const s = Number(m.salience) || 0
-    return s >= 4 ? s : 0
-  }
-  return [...memories].sort((a, b) => {
-    const ba = boostOf(a), bb = boostOf(b)
-    if (ba !== bb) return bb - ba          // 高 boost 在前
-    const sa = isStale(a) ? 1 : 0, sb = isStale(b) ? 1 : 0
-    if (sa !== sb) return sa - sb           // 同 boost 内陈旧（>365天）下沉
-    return 0                                // 其余维持原顺序（stable sort）
-  })
-}
-
 // 动态上下文记忆池 ·「少即是强」选择器（取代旧的 rerankByImportance(merged).slice(cap)）
 //
 // 旧逻辑的病灶：searchRelevantMemories 已按相关度排好序（focus FTS → 向量 → context FTS），

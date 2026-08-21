@@ -14,7 +14,7 @@ export const AGENTS = [
     model: '', base_url: '', api_key: '', temperature: 0.5, cli_command: '',
     ceo: true,   // 坐镇会议桌首席
     capabilities: ['顶层统筹', '拆解分工', '决策拍板', '验收成果'],
-    persona: '你是办公室的 CEO 决策者，坐镇会议桌首席。会议桌上还有两位独立外部 Agent：Hermes（HermesAgent）与 Claude Code（ClaudeCode），以独立身份参与讨论与评审。收到上级指令后，拆解任务、分派给合适的职能成员（工位员工）执行，必要时邀请外部 Agent 参与评审，验收成果并向用户汇报。你不亲自执笔执行，只做决策与管理。',
+    persona: '你是办公室的 CEO 决策者，坐镇会议桌首席。会议桌上还有三位独立外部 Agent：Hermes（HermesAgent）、Claude Code（ClaudeCode）与 OpenHuman，以独立身份参与讨论与评审。收到上级指令后，拆解任务、分派给合适的职能成员（工位员工）执行，必要时邀请外部 Agent 参与评审，验收成果并向用户汇报。你不亲自执笔执行，只做决策与管理。',
     style: '1. 收到任务先拆解，说明分工方案。2. 指派对应职能成员执行。3. 验收交付，不合格要求返工。4. 全部完成后向用户汇总。',
     private_memory: '我是 CEO 决策者：统筹/决策/分派/验收，不亲自执笔。',
   },
@@ -57,6 +57,25 @@ export const AGENTS = [
     private_memory: '我是独立外部 Agent Claude Code：写代码、调优、修 bug、交付可运行软件。',
   },
   {
+    id: 'openhuman',
+    name: 'OpenHuman',
+    role: '独立外部 Agent · OpenHuman',
+    avatar: '🧠',
+    avatar_image: '',
+    color: '#10b981',
+    voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
+    engine: 'a2a',   // A2A 调用独立外部 OpenHuman（127.0.0.1:9930）
+    model: '', base_url: '', api_key: '', temperature: 0.5,
+    a2a_url: 'http://127.0.0.1:9930',
+    a2a_timeout: 180,
+    table: true,      // 会议桌成员
+    external: true,   // 独立外部 Agent（非 CEO 子 agent）
+    capabilities: ['自主推理', '任务规划', '工具调用', '记忆检索', '多模态', '讨论协作'],
+    persona: '你是独立外部 Agent「OpenHuman」，通过 A2A 协议接入本办公室，坐镇会议桌。你是自主通用型智能体：长程任务规划、工具调用、记忆检索与多轮推理，以独立身份参与讨论与评审。',
+    style: '1. 独立判断，从自身能力与知识出发给出专业意见。2. 复杂任务先拆解再逐步推进。3. 参与评审时给出可执行的判断与依据。',
+    private_memory: '我是独立外部 Agent OpenHuman：自主推理/工具调用/记忆检索/任务规划/多轮讨论。',
+  },
+  {
     id: 'host',
     name: '文件管理',
     role: '文件管理',
@@ -67,7 +86,7 @@ export const AGENTS = [
     voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
     engine: 'internal',
     model: '', base_url: '', api_key: '', temperature: 0.3, cli_command: '',
-    tools: ['list_dir', 'read_file', 'write_file', 'make_dir', 'delete_file'],   // 真实文件工具
+    tools: ['list_dir', 'read_file', 'write_file', 'make_dir', 'delete_file', 'rename_file', 'copy_file', 'move_file', 'find_file'],   // 真实文件工具
     capabilities: ['文件读写', '归档整理', '检索定位', '版本管理'],
     persona: '你是办公室的文件管理员工，负责文件读写、归档、检索与版本管理。',
     style: '1. 文件任务先确认路径与格式。2. 产出整理/归档/检索结果。3. 版本管理要清晰可追溯。',

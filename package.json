@@ -55,6 +55,11 @@
     "repair:memories": "electron ./scripts/repair-memory-quality.js --apply",
     "probe:config-upgrade": "node ./scripts/probe-config-upgrade.mjs",
     "smoke:tools": "node scripts/smoke-tools.mjs",
+    "smoke:security-guards": "node scripts/smoke-security-guards.mjs",
+    "smoke:vault": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-vault.mjs\"",
+    "smoke:tool-receipts": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-tool-receipts.mjs\"",
+    "smoke:reminders": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-reminders.mjs\"",
+    "smoke:ui-enhancements": "node scripts/smoke-ui-enhancements.mjs",
     "smoke:tool-factory-web": "node scripts/smoke-tool-factory-web-e2e.mjs",
     "smoke:brain-ui": "node scripts/smoke-brain-ui.mjs",
     "smoke:social": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-social.mjs\"",
@@ -66,7 +71,7 @@
     "check": "npm run lint && node scripts/run-tests.mjs"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.0.0",
+    "@huggingface/transformers": "^4.2.0",
     "@larksuiteoapi/node-sdk": "^1.68.0",
     "better-sqlite3": "^12.8.0",
     "d3": "^7.9.0",

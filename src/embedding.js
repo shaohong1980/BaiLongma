@@ -68,7 +68,7 @@ export function getEmbeddingTimeoutMs() {
   try {
     const cred = getEmbeddingCredentials()
     if (cred && Number.isFinite(cred.timeoutMs) && cred.timeoutMs > 0) return cred.timeoutMs
-  } catch {}
+  } catch (e) { console.warn('[src/embedding.js] op failed:', e?.message || e) }
   return 1500
 }
 

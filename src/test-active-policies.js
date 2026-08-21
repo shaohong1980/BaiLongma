@@ -14,6 +14,21 @@ function assert(cond, label) {
 }
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+// 清扫上次被中断（kill/超时）遗留的测试临时目录：normally finally 里 rmSync，
+// 但进程被强杀时 finally 不执行，会越积越多（曾积累 16 个 ≈ 274MB）。
+// 只删 1 小时前的，避免误删正在并发的同测试目录。
+try {
+  const staleCutoff = Date.now() - 60 * 60 * 1000
+  for (const entry of fs.readdirSync(path.join(repoRoot, 'sandbox'), { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith('active-policy-test-')) continue
+    try {
+      const stat = fs.statSync(path.join(repoRoot, 'sandbox', entry.name))
+      if (stat.mtimeMs < staleCutoff) fs.rmSync(path.join(repoRoot, 'sandbox', entry.name), { recursive: true, force: true })
+    } catch {}
+  }
+} catch {}
+
 const tempUserDir = fs.mkdtempSync(path.join(repoRoot, 'sandbox', 'active-policy-test-'))
 process.env.BAILONGMA_USER_DIR = tempUserDir
 process.env.USERPROFILE = tempUserDir

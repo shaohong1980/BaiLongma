@@ -49,7 +49,6 @@ function extractTextFromMessage(message) {
   for (const p of parts) {
     if (!p || typeof p !== 'object') continue
     if (typeof p.text === 'string') chunks.push(p.text)
-    else if (p.kind === 'text' && typeof p.text === 'string') chunks.push(p.text)
   }
   return chunks.join('\n').trim()
 }

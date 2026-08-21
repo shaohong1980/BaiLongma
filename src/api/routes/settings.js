@@ -173,6 +173,7 @@ export async function handleSettingsRoutes(req, res, url, { requireLocalOrToken,
       setSocialConfig(updates)
       const PLATFORM_KEYS = {
         discord: ['DISCORD_BOT_TOKEN'],
+        telegram: ['TELEGRAM_BOT_TOKEN'],
       }
       for (const [platform, keys] of Object.entries(PLATFORM_KEYS)) {
         if (keys.some(k => updates[k])) {
@@ -281,7 +282,7 @@ export async function handleSettingsRoutes(req, res, url, { requireLocalOrToken,
       try {
         const { clearEmbeddingCache } = await import('../../embedding.js')
         clearEmbeddingCache()
-      } catch {}
+      } catch (e) { console.warn('[src/api/routes/settings.js] op failed:', e?.message || e) }
       try {
         const { getEmbeddingCredentials } = await import('../../config.js')
         const cred = getEmbeddingCredentials()
@@ -289,7 +290,7 @@ export async function handleSettingsRoutes(req, res, url, { requireLocalOrToken,
           const { warmupLocalEmbedding } = await import('../../embedding-local.js')
           warmupLocalEmbedding(cred.model).catch(() => {})
         }
-      } catch {}
+      } catch (e) { console.warn('[src/api/routes/settings.js] op failed:', e?.message || e) }
       jsonResponse(res, 200, { ok: true, embedding: getEmbeddingConfig() })
     } catch (err) {
       jsonResponse(res, 400, { ok: false, error: err.message })

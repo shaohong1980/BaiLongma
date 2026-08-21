@@ -4,9 +4,9 @@
 // 瞬时错误退避重试、MiMo 模型回退。供 src/llm.js 的 callLLM 主循环使用。
 import OpenAI from 'openai'
 import {
-  config, MIMO_PROVIDER, ZHIPU_PROVIDER, getProviderModelFallbacks,
+  config, ZHIPU_PROVIDER, getProviderModelFallbacks,
   shouldOmitSamplingForProviderModel, shouldSendThinkingDisabledForProviderModel,
-  shouldUseMaxCompletionTokensForProviderModel, switchModel,
+  shouldUseMaxCompletionTokensForProviderModel, switchModel, switchProviderConfig,
 } from '../config.js'
 import { recordUsage } from '../quota.js'
 import { recordUsageEvent } from '../runtime/insights.js'
@@ -148,13 +148,13 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
     if (idleTimer) clearTimeout(idleTimer)
     idleTimer = setTimeout(() => {
       idleFired = true
-      try { idleController.abort('stream idle timeout') } catch {}
+      try { idleController.abort('stream idle timeout') } catch (e) { console.warn('[src/llm/stream.js] op failed:', e?.message || e) }
     }, STREAM_IDLE_TIMEOUT_MS)
   }
   // 合并「调用方 signal（watchdog/抢占）」与「空闲超时 signal」：任一触发都中止底层请求。
   const reqController = new AbortController()
-  const onCallerAbort = () => { try { reqController.abort(signal?.reason || 'Aborted') } catch {} }
-  const onIdleAbort = () => { try { reqController.abort('stream idle timeout') } catch {} }
+  const onCallerAbort = () => { try { reqController.abort(signal?.reason || 'Aborted') } catch (e) { console.warn('[src/llm/stream.js] op failed:', e?.message || e) } }
+  const onIdleAbort = () => { try { reqController.abort('stream idle timeout') } catch (e) { console.warn('[src/llm/stream.js] op failed:', e?.message || e) } }
   if (signal) {
     if (signal.aborted) reqController.abort(signal.reason || 'Aborted')
     else signal.addEventListener('abort', onCallerAbort, { once: true })
@@ -162,7 +162,7 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
   idleController.signal.addEventListener('abort', onIdleAbort, { once: true })
   const cleanupIdle = () => {
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
-    try { signal?.removeEventListener('abort', onCallerAbort) } catch {}
+    try { signal?.removeEventListener('abort', onCallerAbort) } catch (e) { console.warn('[src/llm/stream.js] op failed:', e?.message || e) }
   }
 
   armIdle()
@@ -437,13 +437,31 @@ async function streamOnceWithRetry(args) {
 }
 
 // XML 格式工具调用的参数名别名映射（某些模型使用不同参数名）
+//
+// ZeroClaw fallback chain 移植：两段式回退——
+//   1. 模型级：当前 provider 的模型链（getProviderModelFallbacks，MiMo 历史行为 + 任意 provider 的
+//      fallbackChain 配置）。主模型在流出内容前失败（瞬时错误/超时/网络），按链依次尝试。
+//   2. provider 级：当前 provider 全部模型失败后，按 config.llmFallbackChain（config.json 顶层
+//      数组，如 ["minimax","ollama"]）依次切到后备 provider。切到后备并成功则持久化；
+//      全失败则切回原 provider 再抛错，保证会话 provider 稳定、不把用户留在坏 provider 上。
+function getFallbackProviderChain() {
+  const chain = config.llmFallbackChain || []
+  const current = config.provider
+  return chain.filter(p => typeof p === 'string' && p && p !== current)
+}
+
 export async function streamOnceWithModelFallback(args) {
-  if (config.provider !== MIMO_PROVIDER) return await streamOnceWithRetry(args)
-
   const models = getProviderModelFallbacks(config.provider, args.model || config.model)
-  if (models.length <= 1) return await streamOnceWithRetry({ ...args, model: models[0] || config.model })
+  const providerChain = getFallbackProviderChain()
+  if (models.length <= 1 && providerChain.length === 0) {
+    return await streamOnceWithRetry({ ...args, model: models[0] || config.model })
+  }
 
+  const originalProvider = config.provider
+  const originalModel = config.model
   let lastErr
+
+  // ── 1. 模型级回退链 ──
   for (let idx = 0; idx < models.length; idx++) {
     const model = models[idx]
     try {
@@ -452,9 +470,9 @@ export async function streamOnceWithModelFallback(args) {
         try {
           switchModel(model)
         } catch (persistErr) {
-          console.warn(`[LLM] MiMo fallback model "${model}" worked but could not be saved: ${persistErr.message || persistErr}`)
+          console.warn(`[LLM] fallback model "${model}" worked but could not be saved: ${persistErr.message || persistErr}`)
         }
-        console.warn(`[LLM] MiMo model fallback selected "${model}"`)
+        console.warn(`[LLM] model fallback selected "${model}"`)
       }
       return result
     } catch (err) {
@@ -473,7 +491,40 @@ export async function streamOnceWithModelFallback(args) {
         model,
         nextModel,
       })
-      console.warn(`[LLM] MiMo model "${model}" failed before content; falling back to "${nextModel}": ${(err.message || String(err)).slice(0, 120)}`)
+      console.warn(`[LLM] model "${model}" failed before content; falling back to "${nextModel}": ${(err.message || String(err)).slice(0, 120)}`)
+    }
+  }
+
+  // ── 2. provider 级回退链（ZeroClaw 风格）──
+  for (const backupProvider of providerChain) {
+    if (!backupProvider || backupProvider === originalProvider) continue
+    try {
+      // switchProviderConfig 读取该 provider 的已存配置；本地 provider 无需预存。
+      // 非本地且未保存过 key → 抛错，被 catch 后跳到下一个后备。
+      const target = switchProviderConfig({ provider: backupProvider })
+      const result = await streamOnceWithRetry({ ...args, model: target.model })
+      args.onRetry?.({
+        providerFallback: true,
+        from: originalProvider,
+        to: backupProvider,
+        error: (lastErr?.message || String(lastErr)).slice(0, 200),
+      })
+      console.warn(`[LLM] provider fallback: ${originalProvider} → ${backupProvider} (${target.model})`)
+      return result
+    } catch (err) {
+      if (err.name === 'AbortError' || args.signal?.aborted) throw err
+      if (err.hadContent || isAuthenticationError(err)) throw err
+      lastErr = err
+      console.warn(`[LLM] provider fallback "${backupProvider}" also failed: ${(err.message || String(err)).slice(0, 120)}`)
+    }
+  }
+
+  // ── 全失败：切回原 provider / model，保持会话稳定再抛错 ──
+  if (config.provider !== originalProvider || config.model !== originalModel) {
+    try {
+      switchProviderConfig({ provider: originalProvider, model: originalModel })
+    } catch (restoreErr) {
+      console.warn(`[LLM] 回退链全部失败后恢复原 provider 失败: ${restoreErr.message || restoreErr}`)
     }
   }
   throw lastErr

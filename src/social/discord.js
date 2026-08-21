@@ -188,7 +188,7 @@ export async function startDiscordConnector({ pushMessage, emitEvent }) {
     stop() {
       stopped = true
       clearTimers()
-      try { ws?.close() } catch {}
+      try { ws?.close() } catch (e) { console.warn('[src/social/discord.js] op failed:', e?.message || e) }
     },
   }
 }

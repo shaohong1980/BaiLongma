@@ -230,7 +230,7 @@ export function buildPostSendNudge(outboundMessages = [], tickState = null) {
   ].filter(Boolean).join('\n')
 }
 
-export function shouldPersistActionLog(toolName) {
+export function shouldPersistActionLog(_toolName) {
   return false
 }
 
@@ -314,7 +314,7 @@ export function isToolFailure(result) {
     if (parsed?.ok === false) return true
     if (parsed?.error && parsed.ok !== true) return true
     return false
-  } catch {}
+  } catch (e) { console.warn('[src/llm/tool-utils.js] op failed:', e?.message || e) }
   return /^(错误|请求失败|执行失败|命令超时|命令执行失败|閿欒|璇锋眰澶辫触|鎵ц澶辫触|鍛戒护瓒呮椂|鍛戒护鎵ц澶辫触)/.test(text)
 }
 

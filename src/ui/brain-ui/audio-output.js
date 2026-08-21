@@ -63,7 +63,7 @@ export function setOutputPreference(deviceId) {
   try {
     if (deviceId) localStorage.setItem(OUTPUT_DEVICE_KEY, deviceId);
     else localStorage.removeItem(OUTPUT_DEVICE_KEY);
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/audio-output.js] op failed:', e?.message || e) }
   // 选择变化后立即重评估横幅，并把当前在播元素切过去
   reapplyToCurrent();
   refreshOutputStatus();
@@ -162,7 +162,7 @@ export async function applyOutputSink(audioEl) {
     await audioEl.setSinkId(res.sinkId || '');
   } catch (err) {
     // setSinkId 失败（设备刚拔掉/权限/不支持）→ 退回默认，不让语音直接哑掉
-    try { if (res.sinkId) await audioEl.setSinkId(''); } catch {}
+    try { if (res.sinkId) await audioEl.setSinkId(''); } catch (e) { console.warn('[src/ui/brain-ui/audio-output.js] op failed:', e?.message || e) }
     res.sinkApplyError = String(err?.message || err);
   }
   return res;
@@ -185,7 +185,7 @@ export async function applyContextSink(ctx) {
     await ctx.setSinkId(want);
     ctx.__blmSink = want;
   } catch (err) {
-    try { if (want) { await ctx.setSinkId(''); ctx.__blmSink = ''; } } catch {}
+    try { if (want) { await ctx.setSinkId(''); ctx.__blmSink = ''; } } catch (e) { console.warn('[src/ui/brain-ui/audio-output.js] op failed:', e?.message || e) }
     res.ctxApplyError = String(err?.message || err);
   }
   return res;
@@ -226,7 +226,7 @@ function ensureBanner() {
   `;
   document.body.appendChild(el);
   el.querySelector('#audio-output-banner-close').addEventListener('click', () => {
-    try { sessionStorage.setItem(BANNER_DISMISS_KEY, '1'); } catch {}
+    try { sessionStorage.setItem(BANNER_DISMISS_KEY, '1'); } catch (e) { console.warn('[src/ui/brain-ui/audio-output.js] op failed:', e?.message || e) }
     hideBanner();
   });
   bannerEl = el;
@@ -238,7 +238,7 @@ function hideBanner() {
 }
 
 function showBanner(msg, fixDeviceId, fixLabel) {
-  try { if (sessionStorage.getItem(BANNER_DISMISS_KEY) === '1') return; } catch {}
+  try { if (sessionStorage.getItem(BANNER_DISMISS_KEY) === '1') return; } catch (e) { console.warn('[src/ui/brain-ui/audio-output.js] op failed:', e?.message || e) }
   const el = ensureBanner();
   el.querySelector('#audio-output-banner-msg').textContent = msg;
   const fixBtn = el.querySelector('#audio-output-banner-fix');
@@ -286,7 +286,7 @@ export function initAudioOutputRouting(opts = {}) {
   navigator.mediaDevices?.addEventListener?.('devicechange', () => {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
-      try { sessionStorage.removeItem(BANNER_DISMISS_KEY); } catch {} // 设备一变，重新允许提示
+      try { sessionStorage.removeItem(BANNER_DISMISS_KEY); } catch (e) { console.warn('[src/ui/brain-ui/audio-output.js] op failed:', e?.message || e) } // 设备一变，重新允许提示
       reapplyToCurrent();       // 把正在播的语音切到新解析出的设备（拔耳机即时回到扬声器）
       refreshOutputStatus();    // 重新评估横幅
     }, 250);
@@ -295,7 +295,7 @@ export function initAudioOutputRouting(opts = {}) {
   // 暴露给控制台诊断
   try {
     window.__audioOutput = { resolveSink, listOutputDevices, refreshOutputStatus, getOutputPreference };
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/audio-output.js] op failed:', e?.message || e) }
 
   refreshOutputStatus();
 }

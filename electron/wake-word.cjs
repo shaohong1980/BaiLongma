@@ -46,7 +46,7 @@ function initWakeWord({ codeRoot, logDir }) {
         console.error('[wake] KWS 子进程初始化失败(功能禁用):', msg.error)
       } else if (msg.type === 'hit') {
         console.log('[wake] 命中唤醒词:', msg.keyword)
-        try { onHit && onHit(msg.keyword) } catch {}
+        try { onHit && onHit(msg.keyword) } catch (e) { console.warn('[electron/wake-word.cjs] op failed:', e?.message || e) }
       }
     })
     child.on('exit', (code) => {
@@ -57,7 +57,7 @@ function initWakeWord({ codeRoot, logDir }) {
     })
     // 等子进程真正起好再发 init,否则 fork 后立刻 post 可能在监听器挂上前丢失
     child.on('spawn', () => {
-      try { child.postMessage({ type: 'init', modelDir, logFile }) } catch {}
+      try { child.postMessage({ type: 'init', modelDir, logFile }) } catch (e) { console.warn('[electron/wake-word.cjs] op failed:', e?.message || e) }
       readyTimer = setTimeout(() => {
         clearReadyTimer()
         console.error(`[wake] KWS 子进程 ${READY_TIMEOUT_MS / 1000}s 未就绪(模型加载卡住?)——唤醒功能禁用，请检查 kws-model 模型文件`)

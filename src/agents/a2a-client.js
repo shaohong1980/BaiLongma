@@ -61,7 +61,7 @@ async function rpcRequest(baseUrl, method, params, { timeoutMs = 30_000, signal 
   const url = joinBaseUrl(baseUrl) + JSONRPC_ENDPOINT
   const controller = new AbortController()
   let timer = null
-  const onOuterAbort = () => { try { controller.abort(signal?.reason || 'aborted') } catch {} }
+  const onOuterAbort = () => { try { controller.abort(signal?.reason || 'aborted') } catch (e) { console.warn('[src/agents/a2a-client.js] op failed:', e?.message || e) } }
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason || 'aborted')
     else signal.addEventListener('abort', onOuterAbort, { once: true })
@@ -90,7 +90,7 @@ async function rpcRequest(baseUrl, method, params, { timeoutMs = 30_000, signal 
     return { ok: false, error: `A2A ${method} 失败：${reason}` }
   } finally {
     if (timer) clearTimeout(timer)
-    try { signal?.removeEventListener('abort', onOuterAbort) } catch {}
+    try { signal?.removeEventListener('abort', onOuterAbort) } catch (e) { console.warn('[src/agents/a2a-client.js] op failed:', e?.message || e) }
   }
 }
 
@@ -119,7 +119,7 @@ export async function fetchAgentCard(baseUrl, { timeoutMs = DEFAULT_CARD_TIMEOUT
 async function fetchJson(url, timeoutMs, signal) {
   const controller = new AbortController()
   let timer = null
-  const onOuterAbort = () => { try { controller.abort(signal?.reason || 'aborted') } catch {} }
+  const onOuterAbort = () => { try { controller.abort(signal?.reason || 'aborted') } catch (e) { console.warn('[src/agents/a2a-client.js] op failed:', e?.message || e) } }
   if (signal) {
     if (signal.aborted) controller.abort(signal.reason || 'aborted')
     else signal.addEventListener('abort', onOuterAbort, { once: true })
@@ -134,7 +134,7 @@ async function fetchJson(url, timeoutMs, signal) {
     return { ok: false }
   } finally {
     if (timer) clearTimeout(timer)
-    try { signal?.removeEventListener('abort', onOuterAbort) } catch {}
+    try { signal?.removeEventListener('abort', onOuterAbort) } catch (e) { console.warn('[src/agents/a2a-client.js] op failed:', e?.message || e) }
   }
 }
 

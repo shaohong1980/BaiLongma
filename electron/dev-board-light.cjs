@@ -23,7 +23,7 @@ function setColor(hex) {
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
     }, (res) => { res.resume(); res.on('end', resolve) })
     r.on('error', () => resolve())
-    r.on('timeout', () => { try { r.destroy() } catch {}; resolve() })
+    r.on('timeout', () => { try { r.destroy() } catch (e) { console.warn('[electron/dev-board-light.cjs] op failed:', e?.message || e) }; resolve() })
     r.write(data)
     r.end()
   })
@@ -43,7 +43,7 @@ async function blink() {
       await setColor(OFF_COLOR)
       if (i < BLINKS - 1) await sleep(OFF_MS)
     }
-  } catch {} finally { busy = false }
+  } catch (e) { console.warn('[electron/dev-board-light.cjs] op failed:', e?.message || e) } finally { busy = false }
 }
 
 module.exports = { blink }

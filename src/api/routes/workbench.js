@@ -4,7 +4,7 @@ import { emitEvent } from '../../events.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
 
 function notifyUI() {
-  try { emitEvent('workbench_updated', { snapshot: getWorkbenchSnapshot() }) } catch {}
+  try { emitEvent('workbench_updated', { snapshot: getWorkbenchSnapshot() }) } catch (e) { console.warn('[src/api/routes/workbench.js] op failed:', e?.message || e) }
 }
 
 function parseTodoId(pathname) {

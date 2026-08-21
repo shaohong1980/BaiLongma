@@ -80,7 +80,11 @@ const STATE_CFG = {
 // 放 core 作单一来源，continuous 从这里 import，避免两处各写一份。
 export const BARGEIN_THRESHOLD = 0.09; // 振幅阈值（高于环境噪声和 AEC 残留）
 
-const CLOUD_WS_URL  = 'ws://127.0.0.1:3721/voice/cloud';
+// WS 基址从页面 origin 推导（http→ws），避免硬编码 3721 在端口被占用时断连。
+const _wsOrigin = (typeof window !== 'undefined' && /^https?:$/.test(window.location?.protocol || ""))
+  ? window.location.origin.replace(/^http/, "ws")
+  : "ws://localhost:3721"
+const CLOUD_WS_URL  = _wsOrigin + '/voice/cloud';
 const VOICE_PROVIDER_KEY = 'bailongma-voice-provider';
 const VOICE_MIC_DEVICE_KEY = 'bailongma-voice-mic-device-id';
 
@@ -124,7 +128,7 @@ class PcmCaptureProcessor extends AudioWorkletProcessor {
 registerProcessor('pcm-capture', PcmCaptureProcessor);
 `;
 
-export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessage, getLang, renderer }) {
+export function createVoiceCore({ canvas, transcript, _getChatInput, getSendMessage, getLang, renderer }) {
   // 2D 上下文懒获取：一旦提前 getContext('2d') 就锁死 canvas，Rive(WebGL2) 拿不到上下文。
   // 只有渲染器缺省、走内置点阵球绘制时才真正申请 2D context。
   let ctx = null;
@@ -462,7 +466,7 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
       if (now - lastLoudTs < 1200 && now - lastInboundTs > STALL_RECONNECT_MS) {
         diag('watchdog: stalled → force reconnect', 'sinceTx=' + (now - lastInboundTs) + 'ms');
         lastInboundTs = now;            // 防重连窗口内重复触发
-        try { cloudWs.close(); } catch {} // onclose(!intentional) → commitPendingInterim + 重连续上
+        try { cloudWs.close(); } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) } // onclose(!intentional) → commitPendingInterim + 重连续上
       }
     }, 1000);
   }
@@ -646,7 +650,7 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
             audio: makeAudioConstraints(''),
           });
           return attachMicStream(fallbackStream);
-        } catch {}
+        } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
       }
       // 权限拒绝时球体变红，不在 transcript 显示文字
       setStatus('error');
@@ -658,7 +662,7 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
     micData?.stream.getTracks().forEach(t => t.stop());
     // 关闭分析用的 AudioContext，否则反复开关/媒体挂起会累积 AudioContext，
     // 触顶浏览器约 6 个的硬上限后麦克风彻底失灵。
-    try { micData?.actx?.close(); } catch {}
+    try { micData?.actx?.close(); } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
     micData = null;
   }
 
@@ -688,7 +692,7 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
 
     ws.onmessage = (ev) => {
       if (cloudWs !== ws) return;
-      try { handleAsrMessage(JSON.parse(ev.data)); } catch {}
+      try { handleAsrMessage(JSON.parse(ev.data)); } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
     };
 
     ws.onerror = () => { if (cloudWs === ws) setStatus('error'); };
@@ -804,19 +808,19 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
     try {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'flush' }));
-        setTimeout(() => { try { ws.close(); } catch {} }, 200);
+        setTimeout(() => { try { ws.close(); } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) } }, 200);
       } else {
         ws?.close();
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
     if (cloudWs === ws) cloudWs = null;
 
     if (!preserveProcessor) {
-      try { cloudWorkletNode?.disconnect(); } catch {}
+      try { cloudWorkletNode?.disconnect(); } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
       cloudWorkletNode = null;
-      try { cloudProcessor?.disconnect(); } catch {}
+      try { cloudProcessor?.disconnect(); } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
       cloudProcessor = null;
-      try { if (cloudAudioCtx) { cloudAudioCtx.close(); cloudAudioCtx = null; } } catch {}
+      try { if (cloudAudioCtx) { cloudAudioCtx.close(); cloudAudioCtx = null; } } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
     }
   }
 
@@ -826,7 +830,7 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
       if (cloudWs && cloudWs.readyState === WebSocket.OPEN) {
         cloudWs.send(JSON.stringify({ type: 'flush' }));
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
   }
 
   // ─── 会话生命周期 ───
@@ -923,7 +927,7 @@ export function createVoiceCore({ canvas, transcript, getChatInput, getSendMessa
       };
       bargeinWs.onmessage = (ev) => {
         if (cloudWs !== bargeinWs) return;
-        try { handleAsrMessage(JSON.parse(ev.data)); } catch {}
+        try { handleAsrMessage(JSON.parse(ev.data)); } catch (e) { console.warn('[src/ui/brain-ui/voice-core.js] op failed:', e?.message || e) }
       };
       bargeinWs.onerror = () => { if (cloudWs === bargeinWs) setStatus('error'); };
       bargeinWs.onclose = () => {

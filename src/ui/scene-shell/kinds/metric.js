@@ -26,7 +26,7 @@ export const metric = {
   exit() {},
 
   // morph:数值原地翻动 + 趋势重算。数值变化是 metric 最常见的更新,做得最讲究。
-  morph(el_, prev = {}, next = {}) {
+  morph(el_, _prev = {}, next = {}) {
     const label = el_.querySelector('.s-title')
     const value = el_.querySelector('.m-value')
     const row = el_.querySelector('.m-row')

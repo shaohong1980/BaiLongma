@@ -87,6 +87,14 @@ const createGraphStage = () => `
 </div>
 `;
 
+const createApprovalBanner = () => `
+<div class="approval-banner" id="approval-banner" hidden>
+  <span class="approval-banner-icon">☑</span>
+  <span class="approval-banner-text" id="approval-banner-text">有待审批事项</span>
+  <button class="approval-banner-btn" id="approval-banner-btn" type="button">查看</button>
+</div>
+`;
+
 const createNavbar = () => `
 <header class="navbar" id="navbar">
   <div class="nav-left">
@@ -107,6 +115,7 @@ const createNavbar = () => `
     <button class="nav-icon" id="project-btn" type="button" title="投影界面（scene 声明式界面）">◉</button>
     <button class="nav-icon" id="video-btn" title="视频模式 (V)：粘贴链接播放" type="button">⊞</button>
     <button class="nav-icon" id="music-btn" title="音乐模式 (M)：本地曲库播放" type="button">♪</button>
+    <button class="nav-icon" id="preview-btn" title="文件预览 (P)：预览沙箱内文件" type="button">👁</button>
     <button class="nav-icon" id="approvals-btn" type="button" title="审批中心（人工确认）">
       ☑<span class="nav-badge" id="approvals-badge" style="display:none">0</span>
     </button>
@@ -449,6 +458,14 @@ const createSettingsModal = () => `
             <div class="settings-row">
               <label class="settings-label" for="social-discord-token">Bot Token</label>
               <input class="settings-input" id="social-discord-token" type="password" placeholder="留空保持原值不变…" autocomplete="new-password">
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Telegram</div>
+            <div class="settings-platform-status" id="social-status-telegram"></div>
+            <div class="settings-row">
+              <label class="settings-label" for="social-telegram-token">Bot Token</label>
+              <input class="settings-input" id="social-telegram-token" type="password" placeholder="@BotFather 创建机器人拿到 token…" autocomplete="new-password">
             </div>
           </div>
           <div class="settings-section">
@@ -859,6 +876,44 @@ const createSettingsModal = () => `
             <div class="settings-row"><label class="settings-label"><input type="checkbox" class="security-blocked-tool" value="web_search"> web_search &nbsp;<span style="color:var(--ink2);font-size:12px;">（网页搜索）</span></label></div>
             <div class="settings-row"><label class="settings-label"><input type="checkbox" class="security-blocked-tool" value="ui_set"> ui_set &nbsp;<span style="color:var(--ink2);font-size:12px;">（投影声明式界面 surface）</span></label></div>
           </div>
+          <div class="settings-section">
+            <div class="settings-section-label">Shell 命令防护（ShellEvasionGuardian）</div>
+            <p class="settings-hint">执行命令前检测命令注入 / 路径穿越 / 反弹 Shell / 混淆编码 / 数据外泄。STRICT 最严，OFF 关闭。</p>
+            <div class="settings-row">
+              <label class="settings-label" for="security-shell-guard">防护等级</label>
+              <select class="settings-input" id="security-shell-guard" style="width:160px;">
+                <option value="off">OFF 关闭</option>
+                <option value="auto">AUTO 保守</option>
+                <option value="smart" selected>SMART 智能（默认）</option>
+                <option value="strict">STRICT 最严</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">敏感文件防护（FileGuard）</div>
+            <p class="settings-hint">阻止 Agent 访问 SSH 私钥 / .env / 云凭证 / 浏览器凭据等敏感文件。与文件沙箱正交。</p>
+            <div class="settings-row">
+              <label class="settings-label" for="security-file-guard">防护等级</label>
+              <select class="settings-input" id="security-file-guard" style="width:160px;">
+                <option value="off">OFF 关闭</option>
+                <option value="auto">AUTO 保守</option>
+                <option value="smart" selected>SMART 智能（默认）</option>
+                <option value="strict">STRICT 最严</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">技能包安全扫描（SkillScanner）</div>
+            <p class="settings-hint">技能加载时扫描 prompt injection / 硬编码密钥 / 数据外泄。BLOCK 直接阻止，WARN 仅告警。</p>
+            <div class="settings-row">
+              <label class="settings-label" for="security-skill-scan">扫描模式</label>
+              <select class="settings-input" id="security-skill-scan" style="width:160px;">
+                <option value="off">OFF 关闭</option>
+                <option value="warn" selected>WARN 告警（默认）</option>
+                <option value="block">BLOCK 阻止</option>
+              </select>
+            </div>
+          </div>
           <div class="settings-section settings-section-action">
             <button class="settings-save-btn" id="settings-save-security" type="button">保存</button>
             <button class="settings-save-btn hidden" id="settings-restart-security" type="button" style="width:auto;padding:0 14px;">立即重启</button>
@@ -1193,6 +1248,42 @@ const createImagePanel = () => `
 </div>
 `;
 
+const createPreviewPanel = () => `
+<div class="preview-panel" id="preview-panel">
+  <div class="media-stage-head">
+    <div class="media-stage-title" id="preview-title">文件预览</div>
+    <span class="preview-file" id="preview-file-label"></span>
+    <button class="preview-exit-btn" id="preview-exit-btn" type="button" title="关闭预览 (Esc)">×</button>
+  </div>
+  <div class="preview-input-bar">
+    <input id="preview-path-input" type="text" placeholder="输入 sandbox 内文件路径预览（如 reports/summary.md、map.png）…" autocomplete="off" spellcheck="false" />
+    <button id="preview-load-btn" type="button" title="预览">▶</button>
+  </div>
+  <div class="preview-status" id="preview-status" hidden></div>
+  <div class="preview-stage" id="preview-stage">
+    <div class="preview-empty" id="preview-empty">输入路径或让 Agent 打开预览</div>
+    <div class="preview-loading" id="preview-loading" hidden>加载中…</div>
+    <img class="preview-img" id="preview-img" alt="" hidden />
+    <iframe class="preview-iframe" id="preview-iframe" title="文件预览" hidden></iframe>
+    <audio class="preview-audio" id="preview-audio" controls hidden></audio>
+    <video class="preview-video" id="preview-video" controls hidden></video>
+    <div class="preview-text-wrap" id="preview-text-wrap" hidden>
+      <pre class="preview-text" id="preview-text"></pre>
+    </div>
+    <div class="preview-markdown" id="preview-markdown" hidden></div>
+    <div class="preview-unsupported" id="preview-unsupported" hidden>
+      <div class="preview-unsupported-icon">📄</div>
+      <div class="preview-unsupported-text" id="preview-unsupported-text">该格式暂不支持直接预览</div>
+      <div class="preview-unsupported-hint" id="preview-unsupported-hint"></div>
+    </div>
+  </div>
+  <div class="preview-recent">
+    <div class="preview-recent-title">沙箱文件</div>
+    <div class="preview-recent-list" id="preview-recent-list"></div>
+  </div>
+</div>
+`;
+
 const createApprovalsModal = () => `
 <div class="approvals-overlay" id="approvals-overlay" hidden>
   <div class="approvals-modal" role="dialog" aria-modal="true" aria-label="审批中心">
@@ -1255,6 +1346,12 @@ const createSidebar = () => `
   <div class="nav-item" data-page="observability" title="用量监控：成本 / token / 工具使用">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
     <span>用量监控</span>
+  </div>
+
+  <!-- 最近会话（QwenPaw 会话列表思路）：点选快速回到该对话 -->
+  <div class="nav-section-title recent-nav-title">最近会话</div>
+  <div class="recent-convs" id="recent-convs">
+    <div class="recent-convs-empty">暂无对话记录</div>
   </div>
 </aside>
 `;
@@ -1327,7 +1424,7 @@ const createMainPages = () => `
         <div class="office-stage" id="office-stage">
           <div class="office-floor" id="office-floor">
             <div class="office-table"><span>信息交互区 · 会议桌</span></div>
-            <div class="office-tip">会议桌：CEO / HermesAgent / ClaudeCode（外部 A2A）· 工位员工执行 · @点名可直呼</div>
+            <div class="office-tip">会议桌：CEO / HermesAgent / ClaudeCode / OpenHuman（外部 A2A）· 工位员工执行 · @点名可直呼</div>
           </div>
         </div>
 
@@ -1540,6 +1637,7 @@ const createMainPages = () => `
 
 export function createBrainUiMarkup() {
   return [
+    createApprovalBanner(),
     createNavbar(),
     createSidebar(),
     createMainPages(),
@@ -1554,6 +1652,7 @@ export function createBrainUiMarkup() {
     createAIVideoPanel(),
     createMusicPanel(),
     createImagePanel(),
+    createPreviewPanel(),
     createMapPanel(),
     createHotspotPanel(),
     createWorldcupPanel(),

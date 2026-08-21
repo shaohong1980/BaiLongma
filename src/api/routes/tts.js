@@ -79,7 +79,7 @@ export async function handleTTSRoutes(req, res, url) {
     } catch (err) {
       console.warn('[TTS] Streaming synthesis failed:', err.message)
       if (!res.headersSent) jsonResponse(res, 500, { ok: false, error: err.message })
-      else try { res.end() } catch {}
+      else try { res.end() } catch (e) { console.warn('[src/api/routes/tts.js] op failed:', e?.message || e) }
     }
     return true
   }

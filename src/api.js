@@ -14,6 +14,9 @@ import { handleAdminRoutes } from './api/routes/admin.js'
 import { handleEmbeddingRoutes } from './api/routes/embedding.js'
 import { handleEventRoutes } from './api/routes/events.js'
 import { handleMediaRoutes } from './api/routes/media.js'
+import { handlePreviewRoutes } from './api/routes/preview.js'
+import { handleVaultRoutes } from './api/routes/vault.js'
+import { handleReceiptRoutes } from './api/routes/receipts.js'
 import { handleMapRoutes } from './api/routes/map.js'
 import { handleMemoryRoutes } from './api/routes/memory.js'
 import { handleMessageRoutes } from './api/routes/message.js'
@@ -113,6 +116,22 @@ function isSensitivePath(pathname) {
     || pathname.startsWith('/approvals/')
     || pathname.startsWith('/workflows/')
     || pathname.startsWith('/observability/')
+    // 命令面/隐私面：LAN 模式下同样要求 token（否则局域网任意设备可驱动 Agent/读媒体）
+    || pathname === '/message'
+    || pathname === '/agents'
+    || pathname.startsWith('/agents/')
+    || pathname === '/room'
+    || pathname.startsWith('/room/')
+    || pathname === '/task'
+    || pathname.startsWith('/task/')
+    || pathname.startsWith('/media/')
+    || pathname.startsWith('/preview/')
+    || pathname.startsWith('/vault/')
+    || pathname.startsWith('/embedding')
+    || pathname.startsWith('/panels/')
+    || pathname.startsWith('/workbench/')
+    || pathname.startsWith('/tts/')
+    || pathname === '/events'
 }
 
 function setCorsHeaders(req, res, origin) {
@@ -129,6 +148,9 @@ async function dispatchHttpRoutes(req, res, url, context) {
   if (await handleMemoryRoutes(req, res, url)) return true
   if (await handlePanelRoutes(req, res, url, context)) return true
   if (await handleMediaRoutes(req, res, url)) return true
+  if (await handlePreviewRoutes(req, res, url)) return true
+  if (await handleVaultRoutes(req, res, url, context)) return true
+  if (await handleReceiptRoutes(req, res, url, context)) return true
   if (await handleMapRoutes(req, res, url, context)) return true
   if (await handleActivationRoutes(req, res, url, context)) return true
   if (await handleSettingsRoutes(req, res, url, context)) return true
@@ -183,19 +205,19 @@ function attachCloudASR() {
             (text, isFinal, seg) => {
               diagTranscriptCount++
               console.log(`[voice-ws] #${diagWsId} 转录#${diagTranscriptCount} isFinal=${isFinal} seg=${seg} → ${String(text).slice(0, 50)}`)
-              try { ws.send(JSON.stringify({ type: 'transcript', text, is_final: isFinal, seg })) } catch {}
+              try { ws.send(JSON.stringify({ type: 'transcript', text, is_final: isFinal, seg })) } catch (e) { console.warn('[voice-ws] transcript send failed:', e?.message) }
             },
             (errMsg) => {
               console.warn(`[voice-ws] #${diagWsId} ASR错误: ${errMsg}`)
-              try { ws.send(JSON.stringify({ type: 'error', message: errMsg })) } catch {}
+              try { ws.send(JSON.stringify({ type: 'error', message: errMsg })) } catch (e) { console.warn('[voice-ws] ASR error send failed:', e?.message) }
             },
-            () => { try { ws.close() } catch {} },
+            () => { try { ws.close() } catch (e) { console.warn('[voice-ws] ws.close failed:', e?.message) } },
             (event, info) => {
-              try { ws.send(JSON.stringify({ type: 'diag', event, info })) } catch {}
+              try { ws.send(JSON.stringify({ type: 'diag', event, info })) } catch (e) { console.warn('[voice-ws] diag send failed:', e?.message) }
             },
           )
           configured = true
-        } catch {}
+        } catch (e) { console.warn('[voice-ws] ASR session init failed:', e?.message) }
         return
       }
 
@@ -208,7 +230,7 @@ function attachCloudASR() {
             const v = Math.abs(samples[i])
             if (v > diagPeak) diagPeak = v
           }
-        } catch {}
+        } catch (e) { console.warn('[voice-ws] peak analysis failed:', e?.message) }
         if (diagAudioChunks % 20 === 0 || (diagPeak > 0 && diagAudioChunks - diagLastPeakLog >= 60)) {
           diagLastPeakLog = diagAudioChunks
           console.log(`[voice-ws] #${diagWsId} 音频块=${diagAudioChunks} (${(diagAudioChunks * 4096 / 16000 / 1000 * 1000).toFixed(0)}ms 音频) 峰值=${diagPeak}`)
@@ -221,7 +243,7 @@ function attachCloudASR() {
             console.log(`[voice-ws] #${diagWsId} flush`)
             session?.flush()
           }
-        } catch {}
+        } catch (e) { console.warn('[voice-ws] WS message parse failed:', e?.message) }
       }
     })
 
@@ -353,7 +375,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
   try {
     const storedName = (getConfig('agent_name') || '').trim()
     if (storedName) setStickyEvent('agent_name_updated', { name: storedName })
-  } catch {}
+  } catch (e) { console.warn('[api] read agent_name failed:', e?.message) }
 
   const routeContext = {
     getStateSnapshot,
@@ -396,7 +418,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     } catch (err) {
       console.error('[API] request failed:', err)
       if (!res.headersSent) jsonResponse(res, 500, { ok: false, error: err.message || 'internal error' })
-      else try { res.end() } catch {}
+      else try { res.end() } catch (e) { console.warn('[api] res.end failed:', e?.message) }
     }
   })
 

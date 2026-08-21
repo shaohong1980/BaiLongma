@@ -151,11 +151,11 @@ export async function compressPoppedFrame(poppedFrame, currentTopFrame, { sessio
       // overlapping frame 已经把部分对话标 absorbed，默认过滤会让压缩器丢失上下文。
       conversations = getRecentConversationTimeline(MAX_TIMELINE_LIMIT, hoursSince, { includeAbsorbed: true }) || []
       conversations = filterSince(conversations, poppedFrame.startedAt)
-    } catch {}
+    } catch (e) { console.warn('[src/memory/focus-compress.js] op failed:', e?.message || e) }
     try {
       actionLogs = getRecentActionLogs(MAX_ACTIONLOG_LIMIT) || []
       actionLogs = filterSince(actionLogs, poppedFrame.startedAt)
-    } catch {}
+    } catch (e) { console.warn('[src/memory/focus-compress.js] op failed:', e?.message || e) }
 
     if (conversations.length === 0 && actionLogs.length === 0) {
       // 没东西可压
@@ -196,7 +196,7 @@ export async function compressPoppedFrame(poppedFrame, currentTopFrame, { sessio
       // currentTopFrame 是 state.focusStack 末元素的引用——调用方传进来的
       // saveStack 闭包指向同一份 state.focusStack，所以这里直接调即可。
       // 任何异常吞掉（saveFocusStack 自带 try/catch + console.warn）。
-      try { saveStack?.() } catch {}
+      try { saveStack?.() } catch (e) { console.warn('[src/memory/focus-compress.js] op failed:', e?.message || e) }
     }
 
     // 沉淀到长期记忆。insertMemory 自带去重，可能 reject —— 吞掉。
@@ -230,7 +230,7 @@ export async function compressPoppedFrame(poppedFrame, currentTopFrame, { sessio
       const marked = markConversationsAbsorbed(poppedFrame.startedAt, new Date().toISOString())
       const topicLabel = Array.isArray(poppedFrame.topic) ? poppedFrame.topic.join(',') : ''
       console.log(`[focus-compress] 标记 ${marked} 条对话为 absorbed (frame: ${topicLabel})`)
-    } catch {}
+    } catch (e) { console.warn('[src/memory/focus-compress.js] op failed:', e?.message || e) }
 
     // emit 事件（如果给了回调）
     try {
@@ -241,7 +241,7 @@ export async function compressPoppedFrame(poppedFrame, currentTopFrame, { sessio
           sessionRef,
         })
       }
-    } catch {}
+    } catch (e) { console.warn('[src/memory/focus-compress.js] op failed:', e?.message || e) }
 
     return { conclusion, attempted: true }
   } catch (err) {

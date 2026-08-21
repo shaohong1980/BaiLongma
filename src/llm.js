@@ -121,7 +121,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
   const endTurnSpan = (status, attrs = {}) => {
     try {
       turnSpan.end({ status, attributes: { ...attrs, model: visionRouting.model, rounds: completedRounds } })
-    } catch {}
+    } catch (e) { console.warn('[src/llm.js] op failed:', e?.message || e) }
   }
 
   const messages = Array.isArray(inputMessages) && inputMessages.length > 0
@@ -434,7 +434,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
             ? String(toolContext.getTaskState()?.task || '')
             : ''
           recordReflection({ content: reflection, task: taskText, tags: [`tool:${tc.name}`] })
-        } catch {}
+        } catch (e) { console.warn('[src/llm.js] op failed:', e?.message || e) }
       } else if (validation && !validation.ok) {
         // P2：工具参数运行时校验失败——返回结构化错误引导模型修正（计入熔断计数防死循环）
         result = JSON.stringify({
@@ -580,7 +580,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           try {
             const parsedResult = JSON.parse(String(result || '{}'))
             deliveredByToolResult = parsedResult?.delivered === true && parsedResult?.message_sent === true
-          } catch {}
+          } catch { /* 工具结果多数非 JSON，探测失败是预期高频，无需告警 */ }
           recordToolLoopOutcome(toolLoopState, tc.name, fingerprint, result)
           if (tickState && toolAddsTickEvidence(tc.name, result)) {
             tickState.evidenceVersion += 1
@@ -626,7 +626,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       try {
         const parsedResult = JSON.parse(String(result || '{}'))
         deliveredByToolResultForTurn = parsedResult?.delivered === true && parsedResult?.message_sent === true
-      } catch {}
+      } catch { /* 工具结果多数非 JSON，探测失败是预期高频，无需告警 */ }
       if ((tc.name === 'send_message' || deliveredByToolResultForTurn) && !strictSuppressed && !actionContractSendSuppressed) {
         sentMessage = true
         // 仅对真实发出的（未被 dedup 拦截的）send_message 记录到 turn 历史，避免被拦截的

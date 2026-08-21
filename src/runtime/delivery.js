@@ -367,7 +367,7 @@ export async function deliverMessage({ target_id, content = '', channel = 'AUTO'
   })
   if (isOpenFollowup && insertedId) {
     // 写入时 open_question 已设；此处保留兜底（万一上面 column 没生效）
-    try { markConversationOpenQuestion(insertedId, true) } catch {}
+    try { markConversationOpenQuestion(insertedId, true) } catch (e) { console.warn('[src/runtime/delivery.js] op failed:', e?.message || e) }
   }
 
   const shouldSpeakLocally = Boolean(cleanedContent)

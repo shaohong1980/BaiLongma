@@ -9,6 +9,8 @@ export const QWEN_PROVIDER = 'qwen'
 export const MOONSHOT_PROVIDER = 'moonshot'
 export const ZHIPU_PROVIDER = 'zhipu'
 export const MIMO_PROVIDER = 'mimo'
+// 本地模型 Provider（QwenPaw 本地小模型运行时思路：无需 API Key、数据不出机器）
+export const OLLAMA_PROVIDER = 'ollama'
 
 export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro'
 export const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7'
@@ -17,6 +19,7 @@ export const DEFAULT_QWEN_MODEL = 'qwen-turbo'
 export const DEFAULT_MOONSHOT_MODEL = 'kimi-k2.6'
 export const DEFAULT_ZHIPU_MODEL = 'glm-5.1'
 export const DEFAULT_MIMO_MODEL = 'mimo-v2.5-pro'
+export const DEFAULT_OLLAMA_MODEL = 'qwen2.5:7b'
 
 export const DEEPSEEK_MODELS = [
   {
@@ -358,6 +361,32 @@ export const MIMO_MODELS = [
   },
 ]
 
+// ── 本地模型（Ollama / llama.cpp）──
+// 复用 OpenAI 兼容接口（Ollama 默认监听 http://127.0.0.1:11434/v1）。
+// 模型 ID 即 `ollama pull <id>` 的标签；用户可随时自定义（withCurrentModel 兜底）。
+// local: true 标记：激活 / 调用时不要求 API Key。
+export const OLLAMA_MODELS = [
+  { id: 'qwen2.5:0.5b', label: 'Qwen2.5 0.5B（最轻量）', deprecated: false, local: true },
+  { id: 'qwen2.5:1.5b', label: 'Qwen2.5 1.5B（轻量）', deprecated: false, local: true },
+  { id: 'qwen2.5:3b', label: 'Qwen2.5 3B', deprecated: false, local: true },
+  { id: 'qwen2.5:7b', label: 'Qwen2.5 7B（推荐）', deprecated: false, local: true },
+  { id: 'qwen2.5:14b', label: 'Qwen2.5 14B', deprecated: false, local: true },
+  { id: 'qwen2.5-coder:7b', label: 'Qwen2.5-Coder 7B（代码）', deprecated: false, local: true },
+  { id: 'qwen3:8b', label: 'Qwen3 8B', deprecated: false, local: true },
+  { id: 'deepseek-r1:7b', label: 'DeepSeek-R1 7B（推理）', deprecated: false, local: true },
+  { id: 'deepseek-r1:8b', label: 'DeepSeek-R1 8B（推理）', deprecated: false, local: true },
+  { id: 'llama3.1:8b', label: 'Llama 3.1 8B', deprecated: false, local: true },
+  { id: 'llama3.2:3b', label: 'Llama 3.2 3B（轻量）', deprecated: false, local: true },
+  { id: 'gemma2:9b', label: 'Gemma2 9B', deprecated: false, local: true },
+  { id: 'mistral:7b', label: 'Mistral 7B', deprecated: false, local: true },
+  { id: 'phi4:14b', label: 'Phi-4 14B', deprecated: false, local: true },
+  // 视觉模型（llava / qwen-vl / minicpm-v 等，Ollama 需按 tag 拉取）
+  { id: 'llava:7b', label: 'LLaVA 7B（视觉）', deprecated: false, local: true, supportsVision: true },
+  { id: 'llava:13b', label: 'LLaVA 13B（视觉）', deprecated: false, local: true, supportsVision: true },
+  { id: 'qwen2.5-vl:7b', label: 'Qwen2.5-VL 7B（视觉）', deprecated: false, local: true, supportsVision: true },
+  { id: 'minicpm-v:8b', label: 'MiniCPM-V 8B（视觉）', deprecated: false, local: true, supportsVision: true },
+]
+
 export const PROVIDER_CONFIG = {
   [DEEPSEEK_PROVIDER]: {
     label: 'DeepSeek',
@@ -408,6 +437,19 @@ export const PROVIDER_CONFIG = {
     models: MIMO_MODELS,
     defaultModel: DEFAULT_MIMO_MODEL,
   },
+  [OLLAMA_PROVIDER]: {
+    label: 'Ollama（本地）',
+    baseURL: 'http://127.0.0.1:11434/v1',
+    envVar: '',
+    local: true,
+    models: OLLAMA_MODELS,
+    defaultModel: DEFAULT_OLLAMA_MODEL,
+  },
+}
+
+// 是否为本地 Provider（无需 API Key）：用于激活校验、provider 摘要、设置页展示。
+export function isLocalProvider(provider) {
+  return !!PROVIDER_CONFIG[provider]?.local
 }
 
 export const AUTO_PROVIDER = 'auto'
@@ -465,12 +507,18 @@ export function getProviderModelFallbacks(provider, model) {
   const pConfig = PROVIDER_CONFIG[provider]
   if (!pConfig) return String(model || '').trim() ? [String(model).trim()] : []
   const primary = normalizeModel(model, provider)
-  if (provider !== MIMO_PROVIDER) return [primary]
-
   const chain = [primary]
-  for (const item of pConfig.models) {
-    if (!item?.id || item.deprecated || chain.includes(item.id)) continue
-    chain.push(item.id)
+  // ZeroClaw fallback chain 移植：provider 配置里可声明 fallbackChain（后备模型列表）。
+  // 主模型在流出内容前失败时，按链依次尝试。默认各 provider 无链 → 保持单模型语义。
+  for (const id of pConfig.fallbackChain || []) {
+    if (id && !chain.includes(id)) chain.push(id)
+  }
+  // MiMo 保留历史行为：整表作为后备（其主模型偶发不可用时自动降级到真实可用模型）。
+  if (provider === MIMO_PROVIDER) {
+    for (const item of pConfig.models) {
+      if (!item?.id || item.deprecated || chain.includes(item.id)) continue
+      chain.push(item.id)
+    }
   }
   return chain
 }
@@ -584,13 +632,13 @@ const VISION_MODEL_PATTERNS = [
   /glm-4v/i,       // 智谱视觉
 ]
 
-export function modelSupportsVision(model, provider = null) {
+export function modelSupportsVision(model, _provider = null) {
   const modelId = String(model || '').trim()
   if (!modelId) return false
   // 1. 显式标记
   const allModels = [
     ...DEEPSEEK_MODELS, ...MINIMAX_MODELS, ...OPENAI_MODELS,
-    ...QWEN_MODELS, ...MOONSHOT_MODELS, ...ZHIPU_MODELS, ...MIMO_MODELS,
+    ...QWEN_MODELS, ...MOONSHOT_MODELS, ...ZHIPU_MODELS, ...MIMO_MODELS, ...OLLAMA_MODELS,
   ]
   const found = allModels.find(m => m.id === modelId)
   if (found?.supportsVision) return true

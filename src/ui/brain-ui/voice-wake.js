@@ -14,6 +14,8 @@
 //   ③ 一分钟内没有识别到新语音 → 退场。计时只在「空闲等用户」时累积:Agent 思考/调用工具/说话
 //      期间会刷新活跃时刻,避免长回复中途被误关。
 
+import { apiSseUrl } from './api-client.js'
+
 const IDLE_DISMISS_MS = 60000; // 条件三:60s 无新语音(且系统空闲)→ 退场
 const IDLE_CHECK_MS = 2000;
 const ORB_EXIT_MS = 320;       // 退场动画时长上限,过后才真停会话(与 voice-orb.html 0.28s 过渡对齐)
@@ -93,12 +95,12 @@ export function createWakeFlow(core) {
     if (typeof EventSource === 'undefined') return;
     let es;
     const connect = () => {
-      try { es = new EventSource('/events'); } catch { return; }
+      try { es = new EventSource(apiSseUrl('/events')); } catch { return; }
       es.onmessage = (ev) => {
         let msg; try { msg = JSON.parse(ev.data); } catch { return; }
         onAgentEvent(msg?.type, msg?.data || {});
       };
-      es.onerror = () => { try { es.close(); } catch {} setTimeout(connect, 3000); };
+      es.onerror = () => { try { es.close(); } catch (e) { console.warn('[src/ui/brain-ui/voice-wake.js] op failed:', e?.message || e) } setTimeout(connect, 3000); };
     };
     connect();
   }

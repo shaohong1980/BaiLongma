@@ -25,7 +25,7 @@ function decomposeQuery(query) {
 }
 
 function progress(stage, msg) {
-  try { emitEvent('action', { tool: 'deep_research', summary: `${stage}：${msg}` }) } catch {}
+  try { emitEvent('action', { tool: 'deep_research', summary: `${stage}：${msg}` }) } catch (e) { console.warn('[src/capabilities/tools/web/deep-research.js] op failed:', e?.message || e) }
   console.log(`[deep_research] ${stage}: ${msg}`)
 }
 

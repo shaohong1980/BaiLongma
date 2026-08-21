@@ -216,7 +216,7 @@ export async function recordSelfEvolutionFromMemories(memories = [], { emitEvent
       // 稀疏的 item 而丢失 kind:* 标签（kind 退化成 mem_id 的粗糙匹配）。
       const { getMemoryByMemId: getSqliteMemory } = await import('../db.js')
       full = getSqliteMemory(memId)
-    } catch {}
+    } catch (e) { console.warn('[src/memory/self-evolution.js] op failed:', e?.message || e) }
     const memory = full || item
     if (!isSelfEvolutionMemory(memory)) continue
     learned.push(memoryToEntry(memory, item))

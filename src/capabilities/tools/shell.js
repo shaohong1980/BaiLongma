@@ -263,7 +263,7 @@ export function isFastLaneEligible(command = '') {
 
 function terminateProcessTree(child, pid = child?.pid) {
   if (!pid) {
-    try { child?.kill?.() } catch {}
+    try { child?.kill?.() } catch (e) { console.warn('[src/capabilities/tools/shell.js] op failed:', e?.message || e) }
     return { ok: false, error: 'missing pid' }
   }
   if (IS_WIN) {
@@ -272,7 +272,7 @@ function terminateProcessTree(child, pid = child?.pid) {
       windowsHide: true,
     })
     if (result.status === 0) return { ok: true }
-    try { child?.kill?.() } catch {}
+    try { child?.kill?.() } catch (e) { console.warn('[src/capabilities/tools/shell.js] op failed:', e?.message || e) }
     return {
       ok: false,
       error: (result.stderr || result.stdout || `taskkill exited with ${result.status}`).trim(),
@@ -334,7 +334,7 @@ async function probeLocalUrl(url, timeoutMs = 3000) {
     const res = await fetch(url, { signal: controller.signal, redirect: 'follow' })
     clearTimeout(t)
     let preview = ''
-    try { preview = (await res.text()).replace(/\s+/g, ' ').slice(0, 160) } catch {}
+    try { preview = (await res.text()).replace(/\s+/g, ' ').slice(0, 160) } catch (e) { console.warn('[src/capabilities/tools/shell.js] op failed:', e?.message || e) }
     return { url, status: res.status, ok: res.ok, body_preview: preview }
   } catch (e) {
     return { url, status: 0, ok: false, error: e?.name === 'AbortError' ? 'timeout' : (e?.message || 'connection failed') }
@@ -411,7 +411,7 @@ export async function execRunNodeScript(args = {}, context = {}) {
       return result
     }
   } finally {
-    try { fs.unlinkSync(scriptPath) } catch {}
+    try { fs.unlinkSync(scriptPath) } catch (e) { console.warn('[src/capabilities/tools/shell.js] op failed:', e?.message || e) }
   }
 }
 
@@ -520,7 +520,7 @@ export async function execDownloadFile(args, context = {}) {
       hint: 'Download completed and the output file exists.',
     })
   } catch (err) {
-    try { if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true }) } catch {}
+    try { if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true }) } catch (e) { console.warn('[src/capabilities/tools/shell.js] op failed:', e?.message || e) }
     const error = err?.name === 'AbortError' ? 'download aborted' : (err?.message || 'download failed')
     reporter.fail(error)
     return toolJson({

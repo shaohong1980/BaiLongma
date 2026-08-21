@@ -24,10 +24,6 @@ const MAX_FTS_CANDIDATES = 30
 // 请先确保 initializeSchema(db) 已执行。
 
 // ─── 工具函数 ──────────────────────────────────────────────────────
-function toolJson(payload) {
-  return JSON.stringify(payload, null, 2)
-}
-
 function generateDocId(name) {
   const safe = String(name || 'doc').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
   return `kb_${safe}_${Date.now().toString(36)}`

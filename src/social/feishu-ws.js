@@ -139,8 +139,8 @@ export async function startFeishuConnector({ pushMessage, emitEvent } = {}) {
       // 必须真正断开旧连接：飞书长连接是 cluster 模式，同 app 多条连接时消息只随机投给其中一条，
       // 热重启（改 App ID/Secret）若留着旧连接，会和新连接抢消息导致投递飘忽。
       // SDK 的断开方法叫 close()（非 stop），对未启动/已关闭的 client 调用也安全。
-      try { wsClient?.close?.() } catch {}
-      try { wsClient?.stop?.() } catch {} // 兜底：防 SDK 后续版本改名
+      try { wsClient?.close?.() } catch (e) { console.warn('[src/social/feishu-ws.js] op failed:', e?.message || e) }
+      try { wsClient?.stop?.() } catch (e) { console.warn('[src/social/feishu-ws.js] op failed:', e?.message || e) } // 兜底：防 SDK 后续版本改名
       feishuStatus = 'idle'
     },
   }

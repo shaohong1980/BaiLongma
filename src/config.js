@@ -12,17 +12,17 @@ import {
   normalizeModel, withCurrentModel, isThinkingEnabledForModel,
   withTimeout, buildPingParams, probeProvider, detectProvider,
   shouldOmitSamplingForProviderModel, shouldUseMaxCompletionTokensForProviderModel,
-  shouldSendThinkingDisabledForProviderModel, getProviderModelFallbacks,
+  shouldSendThinkingDisabledForProviderModel, getProviderModelFallbacks, isLocalProvider,
 } from "./config/models.js"
 
 // 模型目录 / Provider 常量已拆分到 src/config/models.js；re-export 保持既有消费方兼容。
 export {
-  DEEPSEEK_PROVIDER, MINIMAX_PROVIDER, OPENAI_PROVIDER, QWEN_PROVIDER, MOONSHOT_PROVIDER, ZHIPU_PROVIDER, MIMO_PROVIDER,
+  DEEPSEEK_PROVIDER, MINIMAX_PROVIDER, OPENAI_PROVIDER, QWEN_PROVIDER, MOONSHOT_PROVIDER, ZHIPU_PROVIDER, MIMO_PROVIDER, OLLAMA_PROVIDER,
   DEFAULT_DEEPSEEK_MODEL, DEFAULT_MINIMAX_MODEL, DEFAULT_OPENAI_MODEL, DEFAULT_QWEN_MODEL,
-  DEFAULT_MOONSHOT_MODEL, DEFAULT_ZHIPU_MODEL, DEFAULT_MIMO_MODEL,
-  DEEPSEEK_MODELS, MINIMAX_MODELS, OPENAI_MODELS, QWEN_MODELS, MOONSHOT_MODELS, ZHIPU_MODELS, MIMO_MODELS,
+  DEFAULT_MOONSHOT_MODEL, DEFAULT_ZHIPU_MODEL, DEFAULT_MIMO_MODEL, DEFAULT_OLLAMA_MODEL,
+  DEEPSEEK_MODELS, MINIMAX_MODELS, OPENAI_MODELS, QWEN_MODELS, MOONSHOT_MODELS, ZHIPU_MODELS, MIMO_MODELS, OLLAMA_MODELS,
   shouldOmitSamplingForProviderModel, shouldUseMaxCompletionTokensForProviderModel,
-  shouldSendThinkingDisabledForProviderModel, getProviderModelFallbacks,
+  shouldSendThinkingDisabledForProviderModel, getProviderModelFallbacks, isLocalProvider,
 } from "./config/models.js"
 // 旧版本用过、之后被改名/合并的 provider id → 现行 id。
 // 作用：升级后老 config.json 里的旧 provider 名不会再让整份 LLM 配置作废（见下方分块容错加载），
@@ -439,6 +439,9 @@ export const config = {
   baseURL: null,
   needsActivation: true,
   temperature: 0.5,
+  // ZeroClaw provider fallback chain 移植：当前 provider 在流出内容前失败（瞬时错误/超时）
+  // 时，按此数组顺序尝试后备 provider（如 ['minimax', 'ollama']）。仅在明确配置时生效。
+  llmFallbackChain: [],
   // 思考模式开关：true=向 provider 传 thinking enabled（深度由模型自控），false=thinking disabled。
   // 默认关闭——只有用户在设置里显式开启才思考。这是「用户显式选择」的开关，
   // 不是 runtime 按难度替模型决定开关 reasoning（那条路 index.js 已注释外掉）。
@@ -447,6 +450,17 @@ export const config = {
     fileSandbox: true,
     execSandbox: true,
     blockedTools: [],
+    // QwenPaw 安全四件套移植（security-guards.js）：
+    //   shellGuard:  Shell 命令拦截等级 off/auto/smart/strict（默认 smart）
+    //   fileGuard:   敏感文件路径拦截等级 off/auto/smart/strict（默认 smart）
+    //   skillScan:   技能包内容扫描模式 off/warn/block（默认 warn）
+    //   skillScanWhitelist: 跳过扫描的技能 id/名称白名单
+    shellGuard: 'smart',
+    fileGuard: 'smart',
+    skillScan: 'warn',
+    skillScanWhitelist: [],
+    // ZeroClaw 工具回执：每条 action_log 附带 HMAC 签名回执（默认开启）
+    toolReceipts: true,
     updatedAt: null,
   },
   network: {
@@ -483,11 +497,19 @@ if (parsedConfig) {
   if (typeof parsedConfig.thinking === 'boolean') {
     config.thinking = parsedConfig.thinking
   }
+  if (Array.isArray(parsedConfig.llmFallbackChain)) {
+    config.llmFallbackChain = parsedConfig.llmFallbackChain.filter(t => typeof t === 'string')
+  }
   if (parsedConfig.security && typeof parsedConfig.security === 'object') {
     const s = parsedConfig.security
     if (typeof s.fileSandbox === 'boolean') config.security.fileSandbox = s.fileSandbox
     if (typeof s.execSandbox === 'boolean') config.security.execSandbox = s.execSandbox
     if (Array.isArray(s.blockedTools)) config.security.blockedTools = s.blockedTools
+    if (typeof s.shellGuard === 'string') config.security.shellGuard = s.shellGuard
+    if (typeof s.fileGuard === 'string') config.security.fileGuard = s.fileGuard
+    if (typeof s.skillScan === 'string') config.security.skillScan = s.skillScan
+    if (Array.isArray(s.skillScanWhitelist)) config.security.skillScanWhitelist = s.skillScanWhitelist
+    if (typeof s.toolReceipts === 'boolean') config.security.toolReceipts = s.toolReceipts
     if (typeof s.updatedAt === 'string') config.security.updatedAt = s.updatedAt
   }
   if (parsedConfig.network && typeof parsedConfig.network === 'object') {
@@ -583,9 +605,12 @@ export async function prepareActivation({ provider = AUTO_PROVIDER, apiKey, mode
 
   const normalizedKey = String(apiKey || '').trim()
   const normalizedModel = normalizeModel(model, p)
-  if (normalizedKey.length < 8) {
+  // 本地 Provider（Ollama 等）无需 API Key：占位 key 即可，跳过长度校验。
+  const local = isLocalProvider(p)
+  if (!local && normalizedKey.length < 8) {
     throw new Error(`${p} key is invalid`)
   }
+  const effectiveKey = local && !normalizedKey ? 'ollama' : normalizedKey
 
   const { default: OpenAI } = await import('openai')
   if (p === AUTO_PROVIDER) {
@@ -601,18 +626,22 @@ export async function prepareActivation({ provider = AUTO_PROVIDER, apiKey, mode
 
   let detected
   try {
-    detected = await probeProvider(OpenAI, p, normalizedKey, normalizedModel)
+    detected = await probeProvider(OpenAI, p, effectiveKey, normalizedModel)
   } catch (err) {
     const message = err?.message || String(err)
     if (/401|unauthoriz|invalid.*api.*key|authentication/i.test(message)) {
       throw new Error(`${p} key validation failed — please check that the key is correct`, { cause: err })
+    }
+    // 本地 Provider 连接失败给更友好的提示（通常就是 Ollama 没启动 / 模型没 pull）
+    if (local) {
+      throw new Error(`${p} 连接失败：请确认本地服务已启动（${PROVIDER_CONFIG[p].baseURL}）且已拉取模型。详情：${message}`, { cause: err })
     }
     throw new Error(`${p} validation failed: ${message}`, { cause: err })
   }
 
   return {
     provider: p,
-    apiKey: normalizedKey,
+    apiKey: effectiveKey,
     model: detected.model,
     baseURL: undefined,
     models: withCurrentModel(pConfig.models, detected.model),
@@ -695,14 +724,16 @@ export function getProviderSummaries() {
     name,
     (() => {
       const stored = resolveStoredLlmForProvider(name)
+      const local = !!pConfig.local
       return {
-      label: pConfig.label || name,
-      models: withCurrentModel(pConfig.models, stored?.model),
-      defaultModel: pConfig.defaultModel,
-      configured: !!stored,
-      apiKey: stored?.apiKey || '',
-      model: stored?.model ? normalizeModel(stored.model, name) : pConfig.defaultModel,
-    }
+        label: pConfig.label || name,
+        models: withCurrentModel(pConfig.models, stored?.model),
+        defaultModel: pConfig.defaultModel,
+        configured: local || !!stored,
+        apiKey: local ? '' : (stored?.apiKey || ''),
+        model: stored?.model ? normalizeModel(stored.model, name) : pConfig.defaultModel,
+        local: local || undefined,
+      }
     })(),
   ]))
   const custom = resolveStoredLlmForProvider('custom')
@@ -721,7 +752,7 @@ export function getProviderSummaries() {
 export function deactivate() {
   try {
     if (fs.existsSync(paths.configFile)) fs.unlinkSync(paths.configFile)
-  } catch {}
+  } catch (e) { console.warn('[src/config.js] op failed:', e?.message || e) }
   config.provider = null
   config.model = null
   config.apiKey = null
@@ -758,7 +789,9 @@ export function switchModel(model) {
 export function switchProviderConfig({ provider, model } = {}) {
   const p = resolveProviderId(provider)
   if (p === AUTO_PROVIDER) throw new Error('Auto-detect requires an API key')
-  const stored = resolveStoredLlmForProvider(p)
+  // 本地 Provider（Ollama）无 Key：未保存配置时用占位记录即可，无需先激活。
+  const local = !!PROVIDER_CONFIG[p]?.local
+  const stored = resolveStoredLlmForProvider(p) || (local ? { apiKey: 'ollama', model: model || PROVIDER_CONFIG[p]?.defaultModel || null } : null)
   if (!stored) {
     throw new Error(`No saved ${p} configuration. Enter the API key once to save it.`)
   }
@@ -848,6 +881,11 @@ export function getSecurity() {
     fileSandbox: config.security.fileSandbox,
     execSandbox: config.security.execSandbox,
     blockedTools: [...config.security.blockedTools],
+    shellGuard: config.security.shellGuard || 'smart',
+    fileGuard: config.security.fileGuard || 'smart',
+    skillScan: config.security.skillScan || 'warn',
+    skillScanWhitelist: [...(config.security.skillScanWhitelist || [])],
+    toolReceipts: config.security.toolReceipts !== false,
     updatedAt: config.security.updatedAt || null,
   }
 }
@@ -859,8 +897,20 @@ export function setSecurity(updates) {
   if (Array.isArray(updates.blockedTools)) {
     config.security.blockedTools = updates.blockedTools.filter(t => typeof t === 'string')
   }
+  if (typeof updates.shellGuard === 'string') config.security.shellGuard = updates.shellGuard
+  if (typeof updates.fileGuard === 'string') config.security.fileGuard = updates.fileGuard
+  if (typeof updates.skillScan === 'string') config.security.skillScan = updates.skillScan
+  if (Array.isArray(updates.skillScanWhitelist)) {
+    config.security.skillScanWhitelist = updates.skillScanWhitelist.filter(t => typeof t === 'string')
+  }
+  if (typeof updates.toolReceipts === 'boolean') config.security.toolReceipts = updates.toolReceipts
   const changed = before.fileSandbox !== config.security.fileSandbox
     || before.execSandbox !== config.security.execSandbox
+    || before.shellGuard !== config.security.shellGuard
+    || before.fileGuard !== config.security.fileGuard
+    || before.skillScan !== config.security.skillScan
+    || before.toolReceipts !== config.security.toolReceipts
+    || JSON.stringify(before.skillScanWhitelist) !== JSON.stringify(config.security.skillScanWhitelist)
     || JSON.stringify(before.blockedTools) !== JSON.stringify(config.security.blockedTools)
   if (changed) config.security.updatedAt = nowTimestamp()
   patchConfig({ security: { ...config.security } })
@@ -1009,7 +1059,7 @@ export function setSeedanceConfig({ apiKey, model, baseURL } = {}) {
   if (baseURL !== undefined) next.baseURL = String(baseURL || '').trim()
   // 没有 key 时删掉独立文件，保持干净
   if (!next.apiKey) {
-    try { fs.rmSync(paths.seedanceConfigFile, { force: true }) } catch {}
+    try { fs.rmSync(paths.seedanceConfigFile, { force: true }) } catch (e) { console.warn('[src/config.js] op failed:', e?.message || e) }
     return getSeedanceConfig()
   }
   writeSeedanceFile(next)

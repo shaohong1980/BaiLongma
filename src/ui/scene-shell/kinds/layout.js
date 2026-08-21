@@ -38,7 +38,7 @@ function makeKind(name) {
 
     // morph:对 children 按 id 做一层 diff —— 新增子 enter、消失子 exit、留存子递归 morph。
     // 这让"容器里的某张卡变了"也走原地过渡,而不是整容器重建。
-    morph(el_, prev = {}, next = {}, ctx = {}) {
+    morph(el_, _prev = {}, next = {}, ctx = {}) {
       el_.className = classes(name, next)
       const prevMap = el_._children || new Map()
       const nextChildren = Array.isArray(next.children) ? next.children : []

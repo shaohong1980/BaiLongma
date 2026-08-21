@@ -45,7 +45,9 @@
       },
     })
 
-    const client = new SceneClient('ws://127.0.0.1:3721/scene', {
+    const _wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const _wsHost = location.host || 'localhost:3721'
+    const client = new SceneClient(`${_wsProto}//${_wsHost}/scene`, {
       onScene: (scene) => shell.applyScene(scene),
       onStatus: (state) => {
         status.dataset.state = state

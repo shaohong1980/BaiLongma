@@ -22,7 +22,7 @@ function load() {
   } catch { items = [] }
 }
 function persist() {
-  try { fs.mkdirSync(path.dirname(MEM_FILE), { recursive: true }); fs.writeFileSync(MEM_FILE, JSON.stringify(items.slice(-MAX_ITEMS), null, 2), 'utf-8') } catch {}
+  try { fs.mkdirSync(path.dirname(MEM_FILE), { recursive: true }); fs.writeFileSync(MEM_FILE, JSON.stringify(items.slice(-MAX_ITEMS), null, 2), 'utf-8') } catch (e) { console.warn('[src/multi-agent/memory.js] op failed:', e?.message || e) }
 }
 
 // 记一条办公室记忆：type ∈ decision(决策) | meeting(会议) | result(结论) | fact(事实)

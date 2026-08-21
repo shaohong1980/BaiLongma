@@ -4,7 +4,6 @@
 //   npx electron src/test-rule-context.js
 
 import fs from 'fs'
-import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 

@@ -381,7 +381,7 @@ function loadStoreOnce() {
         matchStore.set(row.matchId, row)
       }
     }
-  } catch {}
+  } catch (e) { console.warn('[src/worldcup.js] op failed:', e?.message || e) }
 }
 
 function saveStore() {

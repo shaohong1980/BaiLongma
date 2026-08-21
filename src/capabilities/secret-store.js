@@ -27,7 +27,7 @@ function writeJsonFile(file, value) {
   const tmp = `${file}.tmp`
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { encoding: 'utf-8', mode: 0o600 })
-  try { fs.chmodSync(tmp, 0o600) } catch {}
+  try { fs.chmodSync(tmp, 0o600) } catch (e) { console.warn('[src/capabilities/secret-store.js] op failed:', e?.message || e) }
   fs.renameSync(tmp, file)
 }
 
@@ -68,7 +68,7 @@ function getSafeStorage() {
   try {
     const safeStorage = require('electron')?.safeStorage
     if (safeStorage?.isEncryptionAvailable?.()) return safeStorage
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/secret-store.js] op failed:', e?.message || e) }
   return null
 }
 
@@ -77,12 +77,12 @@ function readFallbackMasterKey() {
     const raw = fs.readFileSync(paths.apiCapabilitySecretKeyFile, 'utf-8').trim()
     const key = Buffer.from(raw, 'base64')
     if (key.length >= 32) return key.subarray(0, 32)
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/secret-store.js] op failed:', e?.message || e) }
 
   const key = crypto.randomBytes(32)
   fs.mkdirSync(path.dirname(paths.apiCapabilitySecretKeyFile), { recursive: true })
   fs.writeFileSync(paths.apiCapabilitySecretKeyFile, key.toString('base64'), { encoding: 'utf-8', mode: 0o600 })
-  try { fs.chmodSync(paths.apiCapabilitySecretKeyFile, 0o600) } catch {}
+  try { fs.chmodSync(paths.apiCapabilitySecretKeyFile, 0o600) } catch (e) { console.warn('[src/capabilities/secret-store.js] op failed:', e?.message || e) }
   return key
 }
 
@@ -126,7 +126,7 @@ function decryptSecret(record) {
       ]).toString('utf-8')
     }
     if (record.scheme === PLAIN_SCHEME) return String(record.value || '')
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/secret-store.js] op failed:', e?.message || e) }
   return ''
 }
 

@@ -73,7 +73,7 @@ function summarizeOutput(stdout = '', stderr = '', max = 1800) {
 
 function terminateProcessTree(child, pid = child?.pid) {
   if (!pid) {
-    try { child?.kill?.() } catch {}
+    try { child?.kill?.() } catch (e) { console.warn('[src/capabilities/tools/software-install.js] op failed:', e?.message || e) }
     return
   }
   if (IS_WIN) {
@@ -83,9 +83,9 @@ function terminateProcessTree(child, pid = child?.pid) {
         windowsHide: true,
       })
       return
-    } catch {}
+    } catch (e) { console.warn('[src/capabilities/tools/software-install.js] op failed:', e?.message || e) }
   }
-  try { child?.kill?.() } catch {}
+  try { child?.kill?.() } catch (e) { console.warn('[src/capabilities/tools/software-install.js] op failed:', e?.message || e) }
 }
 
 function runProcess(command, args = [], { timeoutSec = 120, signal } = {}) {

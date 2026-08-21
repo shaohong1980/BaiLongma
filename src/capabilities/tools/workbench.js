@@ -13,7 +13,7 @@ function formatTodo(t) {
 function emitWorkbenchEvent() {
   try {
     emitEvent('workbench_updated', { snapshot: getWorkbenchSnapshot() })
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/workbench.js] op failed:', e?.message || e) }
 }
 
 export function execManageTodo(args = {}) {

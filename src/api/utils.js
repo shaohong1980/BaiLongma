@@ -27,7 +27,7 @@ export function decodeRequestBody(buffer, contentType = '') {
     return buffer.slice(2).toString('utf16le')
   }
   if (buffer[0] === 0xfe && buffer[1] === 0xff) {
-    try { return new TextDecoder('utf-16be').decode(buffer.slice(2)) } catch {}
+    try { return new TextDecoder('utf-16be').decode(buffer.slice(2)) } catch (e) { console.warn('[src/api/utils.js] op failed:', e?.message || e) }
   }
 
   const charset = getRequestCharset(contentType)
@@ -37,7 +37,7 @@ export function decodeRequestBody(buffer, contentType = '') {
       try {
         const fallback = new TextDecoder('gbk', { fatal: true }).decode(buffer)
         if (fallback && !fallback.includes('\uFFFD')) return fallback
-      } catch {}
+      } catch (e) { console.warn('[src/api/utils.js] op failed:', e?.message || e) }
     }
     return decoded
   }
@@ -69,7 +69,7 @@ export function readRawBody(req, { maxBytes = 0 } = {}) {
         const err = new Error('request body too large')
         err.statusCode = 413
         fail(err)
-        try { req.destroy() } catch {}
+        try { req.destroy() } catch (e) { console.warn('[src/api/utils.js] op failed:', e?.message || e) }
         return
       }
       chunks.push(chunk)

@@ -71,7 +71,7 @@ function writePending(list) {
     const tmp = SEEDANCE_PENDING_FILE + '.tmp'
     fs.writeFileSync(tmp, JSON.stringify(list, null, 2), 'utf-8')
     fs.renameSync(tmp, SEEDANCE_PENDING_FILE)
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/media/video-generation.js] op failed:', e?.message || e) }
 }
 function addPending(entry) { writePending([...readPending().filter(e => e.taskId !== entry.taskId), entry]) }
 function removePending(taskId) { writePending(readPending().filter(e => e.taskId !== taskId)) }
@@ -88,7 +88,7 @@ function writeHistory(list) {
     const tmp = SEEDANCE_HISTORY_FILE + '.tmp'
     fs.writeFileSync(tmp, JSON.stringify(list, null, 2), 'utf-8')
     fs.renameSync(tmp, SEEDANCE_HISTORY_FILE)
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/media/video-generation.js] op failed:', e?.message || e) }
 }
 function addHistory(entry) {
   // 新的放最前；同 jobId 去重；最多留 SEEDANCE_VIDEO_KEEP 条（与磁盘保留数对齐）
@@ -115,9 +115,9 @@ function pruneVideoDir() {
       .map(f => ({ f, mt: fs.statSync(path.join(SEEDANCE_VIDEO_DIR, f)).mtimeMs }))
       .sort((a, b) => b.mt - a.mt)
     for (const { f } of files.slice(SEEDANCE_VIDEO_KEEP)) {
-      try { fs.rmSync(path.join(SEEDANCE_VIDEO_DIR, f), { force: true }) } catch {}
+      try { fs.rmSync(path.join(SEEDANCE_VIDEO_DIR, f), { force: true }) } catch (e) { console.warn('[src/capabilities/tools/media/video-generation.js] op failed:', e?.message || e) }
     }
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/media/video-generation.js] op failed:', e?.message || e) }
 }
 
 // 把 Ark 返回的 video_url 下载到 sandbox/videos，返回可直接播放的本地 HTTP 路径

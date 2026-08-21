@@ -30,7 +30,7 @@
 - 工具结果压缩（TokenJuice）：超过阈值的「只读/信息型」工具输出（read_file/exec/web_search…）进入模型前压成一行摘要，全文写 `data/tool-outputs/<id>.txt` 供按需取回，省 token 且不丢细节；可在设置/`config.json` 的 `toolCompression` 块调整。
 - Brain UI：提供聊天、思考流、记忆图、焦点线程、热点面板、文档面板、人物卡片、语音控制、设置页和 ACUI 卡片渲染。
 - 语音能力：支持云端语音识别和多种 TTS 服务，可在 UI 中配置语音输入、语音输出和声音参数。
-- 社交连接器：支持 Discord 与微信桥接，外部消息进入同一个主循环，回复按渠道路由返回。
+- 社交连接器：支持 Discord、Telegram、飞书与微信桥接，外部消息进入同一个主循环，回复按渠道路由返回。
 - 本地资源感知：启动时收集系统信息、桌面信息、已安装软件、本地 Agent、SSH 与 Git 资源、地理天气和热点内容。
 - 桌面集成：Electron 窗口、托盘、自动更新状态、日志落盘、单实例运行和焦点横幅。
 - **多Agent办公室（多智能体协同工作台）**：可视化办公大厅——CEO 决策者坐镇会议桌首席，独立外部 A2A Agent（Hermes / Claude Code）同桌，职能员工（文件管理/报表统计/电脑操作/应用调度/检索专员/系统体检员）在工位真实执行。能力包括：
@@ -131,6 +131,11 @@ npm run dev
 npm run start:lan
 npm run start:backend:lan
 ```
+
+> ⚠️ **局域网安全**：`start:lan` 会自动生成并持久化 `BAILONGMA_API_TOKEN` 到 `.env`（也可手动设置）。
+> 局域网内访问命令/数据接口（发消息、会议室、媒体等）必须带 token：
+> `http://<本机IP>:3721/?token=<token>`。**不要清除 token 后直接暴露到不受信网络**——
+> 否则同一局域网内任何设备都能向 Agent 下令、读媒体、控会议室。
 
 ## 配置
 
@@ -237,7 +242,7 @@ http://127.0.0.1:3721
 - 执行 Shell 命令和管理长运行进程。
 - 搜索网页、抓取网页、读取浏览器内容。
 - 搜索、召回、写入、合并和降权记忆。
-- 管理提醒和预取任务。
+- 管理提醒和预取任务（提醒支持 `conversation_ref` 会话绑定：触发时带该会话最近上下文，跨轮延续话题；迟到补跑会自动说明晚了几分钟）。
 - 展示、更新和关闭 ACUI 卡片。
 - 生成语音、控制媒体面板、管理音乐和生成视频。
 - 委托本地 Agent 执行子任务。
@@ -256,9 +261,29 @@ Brain UI 是项目的主要操作界面，前端位于 `src/ui/brain-ui/`。它�
 - **多Agent办公室**（可视化办公大厅）：CEO 与外部 A2A Agent 同桌、职能员工在工位动画执行、实时进度 SSE、状态灯、工作台账与最近完成、@点名直接派活。
 - 热点信息、文档知识、人物卡片和系统提示预览。
 - 语音面板、TTS 效果、微信二维码弹窗和设置页。
+- **文件预览面板**（`preview_file` 工具 / 导航栏 👁 按钮 / 快捷键 P）：预览沙箱内图片、PDF、Markdown、代码/文本、HTML、Diff、音视频；纯前端 + `/preview/*` 接口，零新增依赖。
+- **全局命令面板**（Ctrl+K / Ctrl+Shift+P，ZeroClaw Command Palette 思路）：搜索并跳转 8 个页面、打开预览/视频/音乐/审批等面板、一键设置/全屏。
+- **待审批横幅**：有 HITL 待审批事项时顶部滑出横幅（带数量），点击直达审批中心，8 秒自动淡出。
+- **侧栏最近会话**（QwenPaw 会话列表思路）：侧栏底部列出最近对话对象（标签+摘要+时间），点选快速回到对话页，2 分钟自动刷新。
 - ACUI 卡片，如天气、自检、唤醒、图片、视频和安全确认。
 
 前端通过 HTTP、SSE 和 WebSocket 与后端通信。Electron 预加载脚本会额外提供桌面端能力，例如窗口缩放、更新状态和外链打开。
+
+### 文件预览面板（AionUi Preview Panel 思路）
+
+- **打开方式**：导航栏 👁 按钮、快捷键 `P`、`preview_file` 工具（Agent 自动打开）、输入框直接填 sandbox 内路径。
+- **支持的格式**：图片（png/jpg/gif/svg/webp…）、PDF、Markdown、代码与文本、HTML（沙箱 iframe）、Diff（.diff/.patch）、音视频。
+- **后端**：`GET /preview/meta|raw|text|list`，路径强制落在 `sandbox/` 内且过 FileGuard 敏感路径拦截；Office 二进制格式返回友好提示。
+- 实现：`src/ui/brain-ui/preview-panel.js` + `src/api/routes/preview.js`。
+
+### 记忆 Markdown 库（ReMe 双写）
+
+把 SQLite 记忆镜像成可读、可编辑、可搜索的 Markdown 文档（`data/vault/`），双向同步：
+
+- **导出（记忆 → Markdown）**：`manage_vault sync` 或 `/vault/sync`；每条记忆带隐藏 `<!--mem:ID-->` 标记（Obsidian 中不可见）。`upsert_memory` 写入后自动防抖刷新（近实时）。
+- **回写（Markdown → 记忆）**：`manage_vault import` 或 `/vault/import`。用户在 vault 里的编辑会同步回 SQLite——改内容→更新行、删条目→软隐藏、新增 bullet→插入新记忆。跨文件去重防误删。
+- **打开**：`manage_vault open` 或 `/vault/open` 用系统默认方式打开目录（可用 Obsidian 浏览）。
+- 实现：`src/memory/vault.js`（`importVaultEdits` / `requestVaultSync`）+ `src/api/routes/vault.js`。
 
 ## 多Agent办公室
 
@@ -299,6 +324,11 @@ Brain UI 是项目的主要操作界面，前端位于 `src/ui/brain-ui/`。它�
 npm run smoke:tools
 npm run smoke:brain-ui
 npm run smoke:social
+npm run smoke:security-guards
+npm run smoke:vault
+npm run smoke:tool-receipts
+npm run smoke:reminders
+npm run smoke:ui-enhancements
 npm run test:rule-context
 npm run test:complex-task
 npm run test:relevance
@@ -336,6 +366,47 @@ npm run publish
 - 可以通过 API Token 让远程请求携带凭证访问。
 - 文件与工具能力经过执行器统一路由，部分危险操作会进入确认或策略流程。
 - Electron 桌面端启用上下文隔离，前端通过预加载桥接访问必要能力。
+
+### 安全规则引擎（移植自 QwenPaw 安全四件套）
+
+`src/capabilities/security-guards.js` 提供三层可配置防护，覆盖纯 Python 版 QwenPaw 的
+ShellEvasionGuardian / FileGuard / SkillScanner 检测逻辑：
+
+- **Shell 命令防护（ShellEvasionGuardian）**：执行命令前检测命令注入 / 路径穿越 / 反弹 Shell /
+  混淆编码（hex/base64/Unicode）/ 凭证转储 / 数据外泄；等级 `off`/`auto`/`smart`/`strict`
+  （默认 `smart`）。经 `tool-policy.js` 的 `isDangerousShellCommand` 接入所有 shell 类工具。
+- **敏感文件防护（FileGuard）**：与文件沙箱正交，阻止 Agent 读取 SSH 私钥 / `.env` / 云凭证 /
+  浏览器凭据 / SAM / 私钥证书等敏感路径；等级 `off`/`auto`/`smart`/`strict`（默认 `smart`）。
+  接入 `filesystem.js` 的读写/删除/列目录/建目录。
+- **技能包安全扫描（SkillScanner）**：技能加载时扫描 prompt injection / 硬编码密钥 / 数据外泄；
+  模式 `off`/`warn`/`block`（默认 `warn`）。结果挂在技能对象上，`list_skills` / `view_skill` 会带
+  ⚠️ 告警提示。
+
+配置项在 `config.json` 的 `security` 块（`shellGuard` / `fileGuard` / `skillScan` /
+`skillScanWhitelist` / `toolReceipts`），也可在 Brain UI 设置 → 安全沙箱 中调整。
+
+### 工具执行加密回执（移植自 ZeroClaw tool receipts）
+
+每条工具执行在 `action_logs` 落盘时附带 **HMAC-SHA256 签名回执**：
+
+- 签名绑定 `(id|tool|timestamp|status|risk|source|args_hash|result_hash|summary)`，密钥为本机
+  安装级随机密钥（`data/.tool-receipt.key`，首次生成后固定）。
+- args/result 只存哈希，不扩大敏感面；回执 JSON 存 `action_logs.receipt` 列。
+- 校验：`tool_receipt get/verify` 工具、`GET /audit/receipts/:id`、`POST /audit/receipts/verify`。
+  验签失败即说明记录被篡改或来自其他机器。
+- 开关：`config.json` → `security.toolReceipts`（默认开启）。实现 `src/capabilities/tool-receipts.js`。
+
+### LLM 故障回退链（移植自 ZeroClaw fallback chain）
+
+`config.json` 顶层数组 `llmFallbackChain`（如 `["minimax","ollama"]`）：当前 provider 在流出内容前
+失败（瞬时错误/超时/网络）时，依次切到后备 provider；命中后备并成功后持久化切换，全部失败则切回
+原 provider 保持会话稳定。模型级回退链 `fallbackChain` 也可在 `PROVIDER_CONFIG` 单 provider 上声明。
+
+### 本地模型 Provider（Ollama）
+
+新增 `ollama` provider：无需 API Key，指向本机 `http://127.0.0.1:11434/v1`，内置 Qwen2.5 /
+Qwen3 / DeepSeek-R1 / Llama / LLaVA 等常见本地模型目录（含视觉模型）。激活时自动跳过 Key 校验，
+连接失败会给出"请确认本地服务已启动且已拉取模型"的友好提示。满足"数据不出机器"的离线护城河。
 
 ## 本地优先（护城河）
 

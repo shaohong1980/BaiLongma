@@ -23,7 +23,7 @@ const RESOURCES_DIR = process.env.BAILONGMA_RESOURCES_DIR
   : REPO_ROOT
 
 function ensureDir(dir) {
-  try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+  try { fs.mkdirSync(dir, { recursive: true }) } catch (e) { console.warn('[src/paths.js] op failed:', e?.message || e) }
   return dir
 }
 

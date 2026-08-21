@@ -35,7 +35,7 @@ function parseEvalResult(content) {
   }
 }
 
-export async function runMemoryRefreshLoop({ originalQuery, baseMemories, systemPromptBase, formattedBaseMemories, signal, maxRounds = 3 }) {
+export async function runMemoryRefreshLoop({ originalQuery, baseMemories, _systemPromptBase, formattedBaseMemories, signal, maxRounds = 3 }) {
   if (!originalQuery || !originalQuery.trim()) {
     return { additionalMemories: [], round3Results: '', roundsRun: 0, skipped: true, confidence: null }
   }

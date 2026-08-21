@@ -74,7 +74,7 @@ async function scheduleNext() {
     try {
       const health = getMemoryHealth()
       if (health) console.log(`[记忆健康度] ${formatMemoryHealth(health)}`)
-    } catch {}
+    } catch (e) { console.warn('[src/memory/consolidation-loop.js] op failed:', e?.message || e) }
   } catch (err) {
     // getMemoryCount 异常不应让循环停摆：回退 30 分钟并继续
     timer = setTimeout(scheduleNext, 30 * 60 * 1000)

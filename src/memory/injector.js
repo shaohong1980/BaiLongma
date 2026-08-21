@@ -293,7 +293,7 @@ export async function runInjector({ message, state, hint = '', currentChannel = 
       latency_ms: Date.now() - injectorStartedAt,
       source: 'runInjector',
     })
-  } catch {}
+  } catch (e) { console.warn('[src/memory/injector.js] op failed:', e?.message || e) }
 
   return {
     memories,

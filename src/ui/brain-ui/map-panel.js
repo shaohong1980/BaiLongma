@@ -12,7 +12,7 @@ let active = false
 
 function clearMarkers(map) {
   if (!map) return
-  for (const m of markers) { try { map.remove(m) } catch {} }
+  for (const m of markers) { try { map.remove(m) } catch (e) { console.warn('[src/ui/brain-ui/map-panel.js] op failed:', e?.message || e) } }
   markers = []
 }
 
@@ -100,9 +100,9 @@ async function openMap({ location = '', title = '', zoom, markers: markerNames =
       amapHandle = await createMap(canvasEl, { center: [116.397, 39.909], zoom: 12, controls: true })
     }
     const { AMap, map } = amapHandle
-    try { map.resize() } catch {}
+    try { map.resize() } catch (e) { console.warn('[src/ui/brain-ui/map-panel.js] op failed:', e?.message || e) }
     await new Promise(r => requestAnimationFrame(r))
-    try { map.resize() } catch {}
+    try { map.resize() } catch (e) { console.warn('[src/ui/brain-ui/map-panel.js] op failed:', e?.message || e) }
 
     // 先把地图立起来（默认视野），定位/标点在后台做，失败不影响地图显示。
     const fallbackCenter = map.getCenter()
@@ -124,7 +124,7 @@ async function openMap({ location = '', title = '', zoom, markers: markerNames =
       ? Number(zoom)
       : (targetCount > 1 ? 13 : (location ? 13 : 4))
 
-    try { map.setZoomAndCenter(zoomTarget, useCenter, false, 300) } catch {}
+    try { map.setZoomAndCenter(zoomTarget, useCenter, false, 300) } catch (e) { console.warn('[src/ui/brain-ui/map-panel.js] op failed:', e?.message || e) }
 
     // 主标记
     if (centerInfo?.lnglat) {
@@ -161,10 +161,10 @@ async function openMap({ location = '', title = '', zoom, markers: markerNames =
         content: '<div class="map-pin">📍</div>',
       }))
     }
-    for (const m of markers) { try { map.add(m) } catch {} }
+    for (const m of markers) { try { map.add(m) } catch (e) { console.warn('[src/ui/brain-ui/map-panel.js] op failed:', e?.message || e) } }
 
     if (markers.length > 1) {
-      try { map.setFitView(markers, false, [80, 80, 80, 80]) } catch {}
+      try { map.setFitView(markers, false, [80, 80, 80, 80]) } catch (e) { console.warn('[src/ui/brain-ui/map-panel.js] op failed:', e?.message || e) }
     }
 
     const parts = []

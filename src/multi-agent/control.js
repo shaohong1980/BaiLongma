@@ -2,9 +2,9 @@
 //   open/close 打开关闭面板；edict 派活走 CEO 拆解→分派→执行→汇总；ask 指派/提问；status 看板；task_control/review 干预。
 import { emitEvent } from '../events.js'
 import { runEdictTask, listTasks, controlTask, reviewTask } from './task-flow.js'
-import { bossSpeak, assignTask } from './room.js'
+import { bossSpeak, assignTask, runCrew } from './room.js'
 import { getAgentConfig } from './config.js'
-import { runFlow, WORKFLOWS } from './workflow.js'
+import { runFlow, runGraphFlow, resumeGraphFlow, WORKFLOWS } from './workflow.js'
 import { discoverAgent } from './config.js'
 
 function toolJson(obj) { return JSON.stringify(obj, null, 2) }
@@ -75,6 +75,7 @@ export async function execJunjichu(args = {}) {
   }
 
   // 可编程编排（P2-7）：运行 JSON 定义的流程，或预设流程
+  // 流程带 graph:true 时走状态图引擎（学 LangGraph：并行/循环/人工审批/断点续跑/回放）
   if (action === 'workflow' || action === 'flow') {
     if (!content) return toolJson({ ok: false, tool: 'junjichu', action, error: 'workflow 需要内容（content）' })
     const name = String(args.flow || args.name || '').trim()
@@ -82,16 +83,57 @@ export async function execJunjichu(args = {}) {
     if (!flow && Array.isArray(args.flow_def)) flow = { name: name || 'custom', steps: args.flow_def }
     if (!flow) return toolJson({ ok: false, tool: 'junjichu', action, error: `未知流程 '${name}'，可用：${Object.keys(WORKFLOWS).join(', ')}；也可传 flow_def JSON` })
     emitEvent('junjichu_mode', { active: true, source: 'agent_tool' })
-    const r = await runFlow(flow, content)
+    const r = flow.graph
+      ? await runGraphFlow(flow, content)
+      : await runFlow(flow, content)
+    if (r.interrupted) {
+      return toolJson({
+        ok: true, tool: 'junjichu', action, flow: r.flow_name, graph: true,
+        thread_id: r.threadId, waiting_node: r.waitingNode,
+        steps: (r.results || []).map(x => ({ stage: x.stage, ms: x.ms, reply: String(x.merged || x.reply || '').slice(0, 400) })),
+        hint: `流程「${r.flow_name}」停在「${r.waitingNode}」等待人工审批。用 workflow_resume thread_id=... approved=true/false 继续或驳回。`,
+      })
+    }
     return toolJson({
-      ok: true, tool: 'junjichu', action, flow: r.flow_name,
+      ok: true, tool: 'junjichu', action, flow: r.flow_name, graph: !!r.graph, thread_id: r.threadId,
       steps: r.results.map(x => ({
         stage: x.stage,
         agent: x.name || (x.parallel || []).map(p => p.name).join('、') || x.summary || '',
         ms: x.ms,
         reply: String(x.merged || x.reply || '').slice(0, 800),
       })),
+      audit: (r.audit || []).map(a => `${a.node}[${a.ms}ms]`).join(' → '),
       hint: `流程「${r.flow_name}」执行完成，详见步骤结果。`,
+    })
+  }
+
+  // 学 CrewAI：声明式角色团队（顺序/层级）
+  if (action === 'crew' || action === 'team') {
+    if (!content) return toolJson({ ok: false, tool: 'junjichu', action, error: 'crew 需要 objective（content）' })
+    emitEvent('junjichu_mode', { active: true, source: 'agent_tool' })
+    const r = await runCrew(args.crew || args.spec || {}, content)
+    return toolJson({
+      ok: true, tool: 'junjichu', action, process: r.process,
+      results: (r.results || []).map(x => ({
+        agent: x.agentName || x.agentId,
+        role: x.role || '',
+        reply: String(x.reply || x.error || '').slice(0, 600),
+      })),
+      hint: `角色团队（${r.process}）执行完成，共 ${(r.results || []).length} 步。`,
+    })
+  }
+
+  // 状态图流程：人工审批 / 断点续跑（workflow_resume）
+  if (action === 'workflow_resume' || action === 'flow_resume') {
+    const threadId = String(args.thread_id || args.thread || '')
+    if (!threadId) return toolJson({ ok: false, tool: 'junjichu', action, error: '需要 thread_id' })
+    const approved = args.approved !== false && String(args.control || '').toLowerCase() !== 'reject'
+    const r = await resumeGraphFlow(threadId, { approved, note: args.note })
+    return toolJson({
+      ok: true, tool: 'junjichu', action, thread_id: threadId,
+      resumed: !!r.resumed, rejected: !!r.rejected, note: r.note || '',
+      audit: (r.audit || []).map(a => `${a.node}${a.note ? '(' + a.note + ')' : ''}`).join(' → '),
+      hint: r.rejected ? '已驳回，流程停在审批点。' : (r.resumed ? '已批准，流程继续执行完成。' : '该线程无待审批任务。'),
     })
   }
 

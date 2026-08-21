@@ -35,7 +35,7 @@ export function cancelBackfill() {
 
 // force=true：全量重算所有可见记忆的 embedding（用于切换嵌入模型后，把旧维度向量刷成新维度）。
 // force=false（默认）：只补 embedding IS NULL 的存量记忆。
-export async function runBackfill({ batchSize = 20, throttleMs = 100, force = false, signal, onProgress } = {}) {
+export async function runBackfill({ _batchSize = 20, throttleMs = 100, force = false, signal, onProgress } = {}) {
   // 防并发：已在跑就直接返回
   if (state.running) {
     return { skipped: true, reason: 'already running' }
@@ -104,7 +104,7 @@ export async function runBackfill({ batchSize = 20, throttleMs = 100, force = fa
         state.lastError = err.message
         state.failed++
         // 继续下一条
-        try { onProgress?.({ done: state.processed + state.failed, total: state.total, currentMemId: m.mem_id }) } catch {}
+        try { onProgress?.({ done: state.processed + state.failed, total: state.total, currentMemId: m.mem_id }) } catch (e) { console.warn('[src/memory/embedding-backfill.js] op failed:', e?.message || e) }
         if (throttleMs > 0) await new Promise(r => setTimeout(r, throttleMs))
         continue
       }
@@ -122,7 +122,7 @@ export async function runBackfill({ batchSize = 20, throttleMs = 100, force = fa
         state.failed++
       }
 
-      try { onProgress?.({ done: state.processed + state.failed, total: state.total, currentMemId: m.mem_id }) } catch {}
+      try { onProgress?.({ done: state.processed + state.failed, total: state.total, currentMemId: m.mem_id }) } catch (e) { console.warn('[src/memory/embedding-backfill.js] op failed:', e?.message || e) }
 
       if (throttleMs > 0) await new Promise(r => setTimeout(r, throttleMs))
     }

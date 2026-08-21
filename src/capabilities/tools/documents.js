@@ -71,7 +71,7 @@ export async function execReadDocument(args = {}, context = {}) {
   }
   if (ext === '.json') {
     let valid = false
-    try { JSON.parse(content); valid = true } catch {}
+    try { JSON.parse(content); valid = true } catch (e) { console.warn('[src/capabilities/tools/documents.js] op failed:', e?.message || e) }
     return toolJson({ ok: true, tool: 'read_document', path: filePath, format: 'json', valid, size: stat.size, chars: content.length, content: content.slice(0, Number(args.max_chars) || 30000) })
   }
   return toolJson({

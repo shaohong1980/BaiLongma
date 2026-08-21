@@ -126,7 +126,7 @@ function summarizeToolEntry(entry) {
   const status = entry.ok === false ? 'failed' : 'ok'
 
   let parsed = null
-  try { parsed = JSON.parse(rawResult) } catch {}
+  try { parsed = JSON.parse(rawResult) } catch (e) { console.warn('[src/memory/recognizer.js] op failed:', e?.message || e) }
 
   const fields = TOOL_SCHEMAS[entry.name]?.recognizer_highlights || []
   const highlights = []
@@ -258,7 +258,7 @@ export async function runRecognizerBatch(turns) {
         skipped: true,
         skip_reason: `llm_error: ${(err.message || 'unknown').slice(0, 120)}`,
       })
-    } catch {}
+    } catch (e) { console.warn('[src/memory/recognizer.js] op failed:', e?.message || e) }
     return []
   }
 
@@ -276,13 +276,13 @@ export async function runRecognizerBatch(turns) {
         try {
           const { getEmbeddingCredentials } = await import('../config.js')
           model = getEmbeddingCredentials()?.model || null
-        } catch {}
+        } catch (e) { console.warn('[src/memory/recognizer.js] op failed:', e?.message || e) }
         await Promise.allSettled(writtenMemories.map(async (m) => {
           const text = [m.title, m.content].filter(Boolean).join(' ')
           if (!text || text.length < 2) return
           const emb = await computeEmbedding(text)
           if (emb) {
-            try { updateMemoryEmbedding(m.mem_id, emb, model) } catch {}
+            try { updateMemoryEmbedding(m.mem_id, emb, model) } catch (e) { console.warn('[src/memory/recognizer.js] op failed:', e?.message || e) }
           }
         }))
       } catch {
@@ -321,7 +321,7 @@ export async function runRecognizerBatch(turns) {
         ? (skipped ? 'explicit_skip' : 'silent_no_output')
         : null,
     })
-  } catch {}
+  } catch (e) { console.warn('[src/memory/recognizer.js] op failed:', e?.message || e) }
 
   return writtenMemories
 }

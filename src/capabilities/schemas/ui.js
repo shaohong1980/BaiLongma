@@ -127,6 +127,30 @@ export const uiSchemas = {
     }
   },
 
+  preview_file: {
+    type: 'function',
+    function: {
+      name: 'preview_file',
+      description: 'Open the file preview panel in Brain UI to show a file in the sandbox (images, PDF, Markdown, code, text, HTML, diff, audio, video). Use it when the user asks "看一下 / 预览 / 打开这个文件 / 展示图片" and the file lives in the sandbox workspace. Only sandbox files are allowed; sensitive system files are blocked.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['open', 'close'],
+            description: 'open opens the preview panel and loads the file; close closes the panel.'
+          },
+          path: {
+            type: 'string',
+            description: 'Sandbox-relative or sandbox-internal absolute path of the file to preview (e.g. reports/summary.md, sandbox/map.png). Required when action=open.'
+          },
+          reason: { type: 'string', description: 'Optional short reason.' },
+        },
+        required: ['action']
+      }
+    }
+  },
+
   person_card_mode: {
     type: 'function',
     function: {

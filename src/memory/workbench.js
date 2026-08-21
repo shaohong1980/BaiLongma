@@ -21,7 +21,7 @@ function parseTags(value) {
     try {
       const arr = JSON.parse(value)
       if (Array.isArray(arr)) return JSON.stringify(arr.map(String).slice(0, 12))
-    } catch {}
+    } catch (e) { console.warn('[src/memory/workbench.js] op failed:', e?.message || e) }
   }
   return '[]'
 }

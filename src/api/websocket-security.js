@@ -96,7 +96,7 @@ export function authorizeWebSocketUpgrade(req, {
 
 export function rejectWebSocketUpgrade(socket, status = 403) {
   const label = status === 404 ? 'Not Found' : 'Forbidden'
-  try { socket.write(`HTTP/1.1 ${status} ${label}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`) } catch {}
+  try { socket.write(`HTTP/1.1 ${status} ${label}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`) } catch (e) { console.warn('[src/api/websocket-security.js] op failed:', e?.message || e) }
   socket.destroy()
 }
 
@@ -105,8 +105,8 @@ export function attachWebSocketIdleTimeout(ws, timeoutMs, onTimeout = () => {}) 
   const arm = () => {
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => {
-      try { onTimeout() } catch {}
-      try { ws.terminate() } catch {}
+      try { onTimeout() } catch (e) { console.warn('[src/api/websocket-security.js] op failed:', e?.message || e) }
+      try { ws.terminate() } catch (e) { console.warn('[src/api/websocket-security.js] op failed:', e?.message || e) }
     }, timeoutMs)
     timer.unref?.()
   }

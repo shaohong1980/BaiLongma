@@ -89,7 +89,7 @@ async function fetchViaDirect(url, signal, { expectJson = false } = {}) {
     const looksJson = (expectJson || /json/i.test(contentType)) && /^\s*[\[{]/.test(raw)
     if (looksJson) {
       let body = raw.trim()
-      try { body = JSON.stringify(JSON.parse(raw), null, 2) } catch {}
+      try { body = JSON.stringify(JSON.parse(raw), null, 2) } catch (e) { console.warn('[src/capabilities/tools/web/fetch.js] op failed:', e?.message || e) }
       return { ok: true, status: res.status, title: '', body, is_json: true }
     }
     const text = htmlToText(raw)

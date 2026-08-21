@@ -16,14 +16,14 @@ function clampZoomFactor(factor) {
 function saveUiZoom(factor) {
   try {
     localStorage.setItem(UI_ZOOM_STORAGE_KEY, String(factor));
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/ui-zoom.js] op failed:', e?.message || e) }
 }
 
 function loadSavedUiZoom() {
   try {
     const raw = Number(localStorage.getItem(UI_ZOOM_STORAGE_KEY));
     if (Number.isFinite(raw)) return clampZoomFactor(raw);
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/ui-zoom.js] op failed:', e?.message || e) }
   return DEFAULT_UI_ZOOM;
 }
 
@@ -58,7 +58,7 @@ function initUiZoom() {
       if (typeof bridgeZoom === "number" && Number.isFinite(bridgeZoom)) {
         currentUiZoom = clampZoomFactor(bridgeZoom);
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/ui-zoom.js] op failed:', e?.message || e) }
     applyUiZoom(initialZoom, { persist: false });
   }
 

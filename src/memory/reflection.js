@@ -30,7 +30,7 @@ export function recordReflection({ content, task = '', tags = [], eventType = 'k
 }
 
 // 从工具结果/错误构造一条反思文本
-export function buildReflectionFromFailure({ task = '', tool = '', reason = '', lesson = '' }) {
+export function buildReflectionFromFailure({ _task = '', tool = '', reason = '', lesson = '' }) {
   const parts = []
   if (tool) parts.push(`工具 ${tool} 失败`)
   if (reason) parts.push(`原因: ${reason}`)

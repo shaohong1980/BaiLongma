@@ -11,6 +11,7 @@ import { emitEvent } from '../../events.js'
 import { extractKeywords } from '../../memory/keywords.js'
 import { computeEmbedding } from '../../embedding.js'
 import { findFactContradiction, applyDialecticCorrection } from '../../memory/profile-dialectic.js'
+import { requestVaultSync, exportVault, importVaultEdits, getVaultStatus, openVault } from '../../memory/vault.js'
 
 // search_memory：批量按关键词检索记忆。
 // 优先走 keywords 数组；为兼容旧调用方，单字符串 keyword 也接受（自动转数组）。
@@ -55,14 +56,14 @@ export async function execAskMemory(args = {}) {
 
   // 1. 关键词检索
   let kwHits = []
-  try { kwHits = searchMemories(query, limit) } catch {}
+  try { kwHits = searchMemories(query, limit) } catch (e) { console.warn('[src/capabilities/tools/memory.js] op failed:', e?.message || e) }
 
   // 2. 语义检索（若嵌入模型可用）
   let vecHits = []
   try {
     const buffer = await computeEmbedding(query, { isQuery: true })
     if (buffer) vecHits = searchByEmbedding(buffer, limit)
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/memory.js] op failed:', e?.message || e) }
 
   // 3. 合并去重（语义优先在前）
   const seen = new Set()
@@ -108,7 +109,7 @@ export async function execUpsertMemory(args = {}, context = {}) {
     list = args.memories
   } else if (typeof args.memories === 'string') {
     // XML tool call parser passes all parameter values as strings — try to parse JSON
-    try { const parsed = JSON.parse(args.memories); if (Array.isArray(parsed)) list = parsed } catch {}
+    try { const parsed = JSON.parse(args.memories); if (Array.isArray(parsed)) list = parsed } catch { /* 非 JSON 字符串按单项处理，预期高频，无需告警 */ }
   }
 
   // LLM forgot the memories[] wrapper and put fields at top level — auto-wrap
@@ -201,6 +202,10 @@ export async function execUpsertMemory(args = {}, context = {}) {
   const failed = results.filter(r => r.action === 'error').length
   const out = { ok: failed === 0, inserted, updated, failed, results }
   if (dialecticWarnings.length) out.dialectic = dialecticWarnings
+  // ReMe 双写：有实际写入就请求近实时 Markdown 同步（防抖，合并回合内多次 upsert）
+  if (inserted + updated > 0) {
+    try { requestVaultSync() } catch (e) { console.warn('[src/capabilities/tools/memory.js] op failed:', e?.message || e) }
+  }
   return JSON.stringify(out, null, 2)
 }
 
@@ -213,7 +218,7 @@ export async function execSkipRecognition({ reason } = {}) {
 // keep 被 PATCH 更新；drops 不再硬删除，改为软隐藏（visibility=0, merged_into=keep_mem_id）。
 // 软隐藏的记忆 search/get* 不会再返回，但行、FTS5 索引、embedding 完整保留。
 // 第 3 步专注帧机制可凭 mem_id 复活；merged_into 字段也保证可追溯合并去向。
-export async function execMergeMemories(args = {}, context = {}) {
+export async function execMergeMemories(args = {}, _context = {}) {
   const { keep_mem_id, drop_mem_ids, merged_content, merged_salience, reason } = args
   if (!keep_mem_id || !Array.isArray(drop_mem_ids) || drop_mem_ids.length === 0 || !merged_content) {
     return JSON.stringify({ ok: false, error: 'missing keep_mem_id / drop_mem_ids[] / merged_content' })
@@ -223,7 +228,7 @@ export async function execMergeMemories(args = {}, context = {}) {
   if (!keep) return JSON.stringify({ ok: false, error: `keep_mem_id not found: ${keep_mem_id}` })
 
   let mergedEntities = []
-  try { mergedEntities = JSON.parse(keep.entities || '[]') } catch {}
+  try { mergedEntities = JSON.parse(keep.entities || '[]') } catch (e) { console.warn('[src/capabilities/tools/memory.js] op failed:', e?.message || e) }
   let maxSalience = keep.salience || 3
   const drops = []
   for (const dmid of drop_mem_ids) {
@@ -234,7 +239,7 @@ export async function execMergeMemories(args = {}, context = {}) {
     try {
       const de = JSON.parse(d.entities || '[]')
       mergedEntities = [...mergedEntities, ...de]
-    } catch {}
+    } catch (e) { console.warn('[src/capabilities/tools/memory.js] op failed:', e?.message || e) }
     if ((d.salience || 3) > maxSalience) maxSalience = d.salience || 3
   }
   mergedEntities = [...new Set(mergedEntities)]
@@ -315,7 +320,7 @@ export async function execProbeMemory(args = {}) {
     if (kws.length > 0) {
       keywordHits = searchMemoriesByKeywords(kws, { limitPerKeyword: 3 })
     }
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/memory.js] op failed:', e?.message || e) }
 
   const seen = new Set()
   const merged = []
@@ -357,4 +362,36 @@ export async function execRecallMemory({ query }, context) {
     `[${m.timestamp.slice(0, 10)}] ${m.event_type || m.type || ''}: ${m.content}\n  ${(m.detail || '').slice(0, 100)}`
   ).join('\n\n')
   return `已找到 ${rows.length} 条相关记忆（下轮将持续注入此主题）：\n\n${results}`
+}
+
+// manage_vault：ReMe 双写的 Markdown 记忆库管理（sync 导出 / import 回写 / open 打开 / status 状态）
+export async function execManageVault({ action } = {}) {
+  const act = String(action || 'status').trim().toLowerCase()
+  if (act === 'status') {
+    const s = getVaultStatus()
+    return JSON.stringify({
+      ok: true,
+      tool: 'manage_vault',
+      action: 'status',
+      path: s.path,
+      exists: s.exists,
+      files: s.files,
+      updatedAt: s.updatedAt,
+      hint: '用 manage_vault sync 导出/刷新 Markdown；编辑后 manage_vault import 回写。',
+    }, null, 2)
+  }
+  if (act === 'sync') {
+    const r = exportVault()
+    return JSON.stringify({ ok: true, tool: 'manage_vault', action: 'sync', ...r,
+      hint: '已导出到 Markdown（可用 manage_vault open 打开编辑；编辑完 manage_vault import 回写）' }, null, 2)
+  }
+  if (act === 'import') {
+    const r = importVaultEdits()
+    return JSON.stringify({ ok: r.ok, tool: 'manage_vault', action: 'import', ...r }, null, 2)
+  }
+  if (act === 'open') {
+    const r = await openVault()
+    return JSON.stringify({ ok: r.ok, tool: 'manage_vault', action: 'open', path: r.path, error: r.error || null }, null, 2)
+  }
+  return JSON.stringify({ ok: false, tool: 'manage_vault', error: `不支持的 action: ${action}`, hint: '支持 sync / import / open / status' })
 }

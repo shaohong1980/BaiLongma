@@ -22,17 +22,17 @@ import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { tracer } from '../observability/index.js'
-import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
+import { execCopyFile, execDeleteFile, execFindFile, execListDir, execMakeDir, execMoveFile, execReadFile, execRenameFile, execWriteFile } from './tools/filesystem.js'
 import { execReadDocument } from './tools/documents.js'
 import { execKnowledgeIngest, execKnowledgeSearch, execKnowledgeList, execKnowledgeDelete, execKnowledgeStats } from './tools/knowledge.js'
 import { execRunPython, execPythonPackages } from './tools/python-sandbox.js'
-import { execCostStats, execTraceList, execTraceDetail, execObservabilityDashboard } from './tools/observability.js'
+import { execCostStats, execTraceList, execTraceDetail, execObservabilityDashboard, execToolReceipt } from './tools/observability.js'
 import { execRequestApproval as execHitlRequest, execListApprovals as execHitlList } from './tools/hitl.js'
 import { execWorkflowRun, execWorkflowList, execWorkflowSave, execWorkflowDelete, execProposeWorkflow } from './tools/workflow.js'
 import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execRunNodeScript, execTaskCommand } from './tools/shell.js'
 import { execInstallSoftware, listSoftwareInstallJobs } from './tools/software-install.js'
 import { execBrowserRead, execBrowserAct, execDeepResearch, execFetchUrl, execWebSearch } from './tools/web.js'
-import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory, execAskMemory } from './tools/memory.js'
+import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory, execAskMemory, execManageVault } from './tools/memory.js'
 import { execManageReminder } from './tools/reminders.js'
 import { execSetGoal, execListGoals, execUpdateGoal, execShowBriefing } from './tools/goals.js'
 import { execDeleteSkill, execImproveSkill, execLearnSkill, execListSkills, execViewSkill } from './tools/skills.js'
@@ -42,11 +42,11 @@ import { execAdoptRole } from './tools/roles.js'
 import { execCaptureScreen } from './tools/capture.js'
 import { execSpawnSubagents } from './tools/spawn.js'
 import { execJunjichu } from '../multi-agent/control.js'
-import { execHotspotMode, execWorldcupMode, execTyphoonMode, execBaguaMode, execMapMode, execOpenDocPanel, execPersonCardMode } from "./tools/panels.js"
+import { execHotspotMode, execWorldcupMode, execTyphoonMode, execBaguaMode, execMapMode, execOpenDocPanel, execPreviewFile, execPersonCardMode } from "./tools/panels.js"
 import { runTask as runA2ATask } from '../agents/a2a-client.js'
 import { recordReflection, buildReflectionFromFailure } from '../memory/reflection.js'
 import { deliveryVerifyNoticeFromLogs } from '../runtime/delivery-verify.js'
-import { backupLocalData, getBackupStatus } from '../runtime/backup.js'
+import { backupLocalData } from '../runtime/backup.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
 import { execAnalyzeImage, execManageApiCapability, execRunApiCapability } from './tools/api-capability.js'
 import { execManageRule } from './tools/rules.js'
@@ -69,7 +69,7 @@ function inferFileWritePreviewOutcome(result = '') {
       const verified = parsed.verified ?? (ok === undefined ? true : ok !== false)
       return { bytes, verified }
     }
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/executor.js] op failed:', e?.message || e) }
   return { verified: true }
 }
 
@@ -106,7 +106,7 @@ function addComparablePath(out, filePath = '') {
   out.add(normalizeComparablePath(filePath))
   try {
     if (fs.existsSync(filePath)) out.add(normalizeComparablePath(fs.realpathSync.native(filePath)))
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/executor.js] op failed:', e?.message || e) }
 }
 
 function resolveShellCwd(args = {}) {
@@ -198,7 +198,7 @@ function maybeCloseWriteFilePreviewAfterLocalOpen(args = {}, result = '') {
       source: 'local_file_open',
       artifact_path: snapshot.artifact_path,
     })
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/executor.js] op failed:', e?.message || e) }
   recordTerminalStreamEvent({ action: 'close', stream_id: 'write_file', force: true })
   return {
     stream_id: 'write_file',
@@ -261,6 +261,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execTraceDetail(args)
       case 'observability_dashboard':
         return execObservabilityDashboard(args)
+      case 'tool_receipt':
+        return execToolReceipt(args)
       case 'hitl_request':
         return await execHitlRequest(args, context)
       case 'hitl_list':
@@ -281,6 +283,14 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execDeleteFile(args, context)
       case 'make_dir':
         return await execMakeDir(args, context)
+      case 'rename_file':
+        return await execRenameFile(args, context)
+      case 'copy_file':
+        return await execCopyFile(args, context)
+      case 'move_file':
+        return await execMoveFile(args, context)
+      case 'find_file':
+        return await execFindFile(args, context)
       case 'install_software':
         return await execInstallSoftware(args, context)
       case 'exec_command':
@@ -347,6 +357,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execMapMode(args)
       case 'open_doc_panel':
         return execOpenDocPanel(args)
+      case 'preview_file':
+        return execPreviewFile(args)
       case 'person_card_mode':
         return execPersonCardMode(args)
       case 'music':
@@ -424,6 +436,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execReviewVerdict(args)
       case 'recall_memory':
         return await execRecallMemory(args, context)
+      case 'manage_vault':
+        return await execManageVault(args)
       case 'ask_memory':
         return await execAskMemory(args)
       case 'install_tool':
@@ -801,7 +815,7 @@ function execCompleteTask({ summary = '' }, context) {
         tags: ['task_failed'],
       })
     }
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/executor.js] op failed:', e?.message || e) }
   const suggestion = context.onCompleteTask(String(summary || '').trim()) || ''
   const lines = [`任务已完成${summary ? '：' + summary : ''}`]
   if (suggestion) lines.push(suggestion)

@@ -144,7 +144,7 @@ function extractCliResponse(out) {
         const o = JSON.parse(line)
         if (o.type === 'assistant_text_delta' && o.text) joined += o.text
         else if (o.type === 'assistant_turn' && o.text) joined += o.text
-      } catch {}
+      } catch (e) { console.warn('[src/multi-agent/engines.js] op failed:', e?.message || e) }
     }
     if (joined.trim()) return joined.trim().slice(0, 8000)
   }
@@ -183,7 +183,7 @@ async function runCli(agent, roomHistory, bossMessage, isTask) {
       child = spawn(fullCmd, { shell: true, cwd, windowsHide: true })
     } catch (err) { reject(err); return }
     let stdout = '', stderr = ''
-    const timer = setTimeout(() => { try { child.kill() } catch {} }, timeoutMs)
+    const timer = setTimeout(() => { try { child.kill() } catch (e) { console.warn('[src/multi-agent/engines.js] op failed:', e?.message || e) } }, timeoutMs)
     child.stdout?.on('data', d => { stdout += Buffer.from(d).toString('utf-8') })
     child.stderr?.on('data', d => { stderr += Buffer.from(d).toString('utf-8') })
     child.on('error', (err) => { clearTimeout(timer); reject(err) })
@@ -257,7 +257,7 @@ async function runA2A(agent, roomHistory, bossMessage, isTask) {
     const reply = extractA2AText(task)
     return reply || '(该外部 Agent 未输出)'
   } catch (err) {
-    if (err?.name === 'AbortError') throw new Error(`外部 Agent ${agent.name} 响应超时（${Math.round(timeoutMs / 1000)}s）`)
+    if (err?.name === 'AbortError') throw new Error(`外部 Agent ${agent.name} 响应超时（${Math.round(timeoutMs / 1000)}s）`, { cause: err })
     throw err
   } finally {
     clearTimeout(timer)

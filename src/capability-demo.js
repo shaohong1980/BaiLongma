@@ -296,11 +296,11 @@ function closeCmdWindow() {
         windowsHide: true,
       })
       killer.unref()
-    } catch {}
+    } catch (e) { console.warn('[src/capability-demo.js] op failed:', e?.message || e) }
   } else if (activeCmdProcess) {
     try {
       if (!activeCmdProcess.killed) activeCmdProcess.kill()
-    } catch {}
+    } catch (e) { console.warn('[src/capability-demo.js] op failed:', e?.message || e) }
   }
   activeCmdProcess = null
   activeCmdWindowTitle = null

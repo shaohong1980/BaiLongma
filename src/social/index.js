@@ -1,6 +1,7 @@
 import { startDiscordConnector } from './discord.js'
 import { startClawbotConnector } from './wechat-clawbot.js'
 import { startFeishuConnector } from './feishu-ws.js'
+import { startTelegramConnector } from './telegram.js'
 
 const running = new Map() // platform → connector
 
@@ -9,6 +10,7 @@ export async function startSocialConnectors({ pushMessage, emitEvent } = {}) {
     { platform: 'discord', start: () => startDiscordConnector({ pushMessage, emitEvent }) },
     { platform: 'wechat-clawbot', start: () => startClawbotConnector({ pushMessage, emitEvent }) },
     { platform: 'feishu', start: () => startFeishuConnector({ pushMessage, emitEvent }) },
+    { platform: 'telegram', start: () => startTelegramConnector({ pushMessage, emitEvent }) },
   ]
 
   for (const { platform, start } of starters) {
@@ -31,7 +33,7 @@ export async function startSocialConnectors({ pushMessage, emitEvent } = {}) {
 export async function restartConnector(platform, { pushMessage, emitEvent } = {}) {
   const existing = running.get(platform)
   if (existing) {
-    try { existing.stop() } catch {}
+    try { existing.stop() } catch (e) { console.warn('[src/social/index.js] op failed:', e?.message || e) }
     running.delete(platform)
   }
 
@@ -39,6 +41,7 @@ export async function restartConnector(platform, { pushMessage, emitEvent } = {}
     discord: () => startDiscordConnector({ pushMessage, emitEvent }),
     'wechat-clawbot': () => startClawbotConnector({ pushMessage, emitEvent }),
     feishu: () => startFeishuConnector({ pushMessage, emitEvent }),
+    telegram: () => startTelegramConnector({ pushMessage, emitEvent }),
   }
 
   const start = starters[platform]

@@ -11,6 +11,9 @@ import { runAgentEngine } from './engines.js'
 import { getRoomHistory } from './room.js'
 import { getAgentConfig } from './config.js'
 import { remember } from './memory.js'
+import { StateGraph } from './state-graph.js'
+import { paths } from '../paths.js'
+import path from 'path'
 
 function fill(tpl, content, prev) {
   return String(tpl || '')
@@ -127,6 +130,95 @@ export async function runFlow(flow, content) {
   return { ok: true, flow_name: flow?.name || 'custom', results }
 }
 
+// ── 状态图流程（学 LangGraph）──────────────────────────────────────────
+// 把现有线性 steps（含 parallel/loop/summary/retries/fallback）编译成状态图，
+// 旧配置零改动即可获得：checkpoint 断点续跑、approval 人工审批、audit 回放。
+const GRAPH_CP_DIR = () => path.join(paths.dataDir, 'graph-checkpoints')
+const graphRuns = new Map()   // threadId -> compiled app（供 resume）
+
+// 单步执行器：按步骤形态运行，返回该步结果对象（与 runFlow 的 rec 同构）
+async function runStepAsNode(step, i, state, ctx) {
+  const rec = { stage: step.stage || step.name || ('步骤' + (i + 1)), ts: new Date().toISOString() }
+  const prompt = fill(step.prompt, state.content, state.prev)
+  try {
+    if (step.loop && step.loop.agent) {
+      const lr = await runLoopStep(step, state.content, ctx)
+      Object.assign(rec, lr)
+    } else if (Array.isArray(step.parallel) && step.parallel.length) {
+      const agents = step.parallel.filter(id => getAgentConfig(id))
+      const replies = await Promise.allSettled(agents.map(id =>
+        runAgentEngine(id, ctx, prompt, true).catch(e => `（失败：${e.message}）`)))
+      rec.parallel = agents.map((id, j) => ({
+        agent: id, name: getAgentConfig(id)?.name || id,
+        reply: replies[j].status === 'fulfilled' ? String(replies[j].value || '') : String(replies[j].reason || ''),
+      }))
+      rec.merged = rec.parallel.map(r => `【${r.name}】${r.reply}`).join('\n\n')
+    } else {
+      const id = step.agent || step.summary
+      if (!id) { rec.ok = false; rec.error = 'step 需提供 agent / parallel / summary / loop 之一'; return rec }
+      const sr = await runSingle(id, prompt, ctx, step)
+      Object.assign(rec, sr)
+    }
+    if (rec.ok === undefined) rec.ok = true
+  } catch (err) {
+    rec.ok = false
+    rec.error = err.message
+  }
+  return rec
+}
+
+// 把线性 steps 编译为状态图（线性链；approvals 指定的 stage 成为人工审批点）
+export function compileFlowToGraph(flow, content, opts = {}) {
+  const steps = Array.isArray(flow) ? flow : (flow?.steps || [])
+  const ctx = getRoomHistory(40)
+  const g = new StateGraph({ checkpointDir: opts.checkpointDir || GRAPH_CP_DIR() })
+  steps.forEach((step, i) => {
+    const name = 'step_' + i
+    const approval = Array.isArray(opts.approvals) && opts.approvals.includes(step.stage || step.name)
+    g.addNode(name, async (state) => {
+      const t0 = Date.now()
+      const rec = await runStepAsNode(step, i, state, ctx)
+      rec.ms = Date.now() - t0
+      const upd = { ['r' + i]: rec }
+      if (rec.merged) upd.prev = rec.merged
+      return upd
+    }, { approval })
+    if (i === 0) g.setEntry(name)
+    else g.addEdge('step_' + (i - 1), name)
+  })
+  return g
+}
+
+// 运行状态图流程；支持 checkpoint/审批/回放。返回 { threadId, results, audit, interrupted, waitingNode }
+export async function runGraphFlow(flow, content, opts = {}) {
+  const steps = Array.isArray(flow) ? flow : (flow?.steps || [])
+  if (opts.approvals === undefined && flow?.approvals) opts = { ...opts, approvals: flow.approvals }
+  const g = compileFlowToGraph(flow, content, opts)
+  const app = g.compile()
+  const threadId = opts.threadId || ('flow-' + Date.now().toString(36))
+  graphRuns.set(threadId, { app, flow })
+  const initial = { content: String(content || ''), prev: '' }
+  const r = await app.invoke(initial, { threadId, onStep: opts.onStep })
+  const results = steps.map((_, i) => (r.state || {})['r' + i] || { stage: '步骤' + (i + 1) })
+  const last = results[results.length - 1]
+  if (!r.interrupted && last && last.merged && !/失败/.test(last.merged)) {
+    await remember({ type: 'result', agent: flow?.name || '流程', content: `${String(content || '').slice(0, 80)} → ${String(last.merged).slice(0, 300)}` })
+  }
+  return {
+    ok: !r.interrupted, graph: true, flow_name: flow?.name || 'custom',
+    threadId, results, audit: r.audit || [],
+    interrupted: !!r.interrupted, waitingNode: r.waitingNode || null, state: r.state || {},
+  }
+}
+
+// 人工审批/断点续跑：同意则继续，驳回则停在原地
+export async function resumeGraphFlow(threadId, { approved = true, note = '' } = {}) {
+  const entry = graphRuns.get(threadId)
+  if (!entry) throw new Error(`未知流程线程: ${threadId}（请先 runGraphFlow）`)
+  const r = await entry.app.resume(threadId, { approved, note })
+  return { ok: true, threadId, resumed: !!r.resumed, rejected: !!r.rejected, state: r.state || {}, audit: r.audit || [], note }
+}
+
 // 预设流程
 export const WORKFLOWS = {
   consult: {
@@ -152,6 +244,21 @@ export const WORKFLOWS = {
           prompt: '请产出完整可交付成果（代码/文档/方案）：{content}',
           reviewPrompt: '请评审以下交付是否合格，用"通过"或"驳回"开头并给出具体修改意见（这是关键，要让执行人能针对性返工）：\n\n交付内容：\n{prev}' } },
       { stage: '汇总结案', summary: 'gm', prompt: '汇总结案：交付是否通过、最终产出、遗留问题。\n\n最终交付：\n{prev}' },
+    ],
+  },
+  // 状态图版本（学 LangGraph）：并行 + 评审返工循环 + 人工审批 + checkpoint 断点续跑
+  production: {
+    graph: true,
+    name: '企业生产流程（状态图）',
+    approvals: ['人工审批'],   // 该阶段执行前暂停，等人工审批（可断点续跑）
+    steps: [
+      { stage: '任务拆解', agent: 'gm', prompt: '拆解该任务，给出执行要点与验收标准（300字内）：{content}' },
+      { stage: '并行执行', parallel: ['claudecode', 'hermesagent'], prompt: '分别从技术/管理视角产出方案，控制在400字内：{content}\n\n背景：{prev}' },
+      { stage: '评审返工', loop: { max: 2, agent: 'claudecode', reviewAgent: 'gm',
+          prompt: '基于评审意见产出终稿，控制在500字内：{content}\n\n现有方案：{prev}',
+          reviewPrompt: '评审该交付是否合格，用"通过"或"驳回"开头并给出具体可执行的修改意见：\n\n交付内容：\n{prev}' } },
+      { stage: '人工审批', summary: 'gm', prompt: '汇总最终交付与审计要点，供人工审批确认：{content}\n\n交付：{prev}' },
+      { stage: '汇总结案', summary: 'gm', prompt: '汇总结案：最终交付、待确认事项。\n\n交付：{prev}' },
     ],
   },
 }

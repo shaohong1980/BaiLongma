@@ -106,7 +106,7 @@ async function findPersonImage(name = '') {
       const data = await res.json();
       const image = data?.thumbnail?.source || data?.originalimage?.source || '';
       if (image) return image;
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/person-card.js] op failed:', e?.message || e) }
   }
   return '';
 }

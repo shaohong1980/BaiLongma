@@ -1,4 +1,5 @@
 // 文件系统工具 schema：read_file / list_dir / write_file / delete_file / make_dir
+//                         rename_file / copy_file / move_file / find_file
 export const filesystemSchemas = {
   read_file: {
     type: 'function',
@@ -96,6 +97,72 @@ export const filesystemSchemas = {
           path: { type: 'string', description: 'Directory path to create.' }
         },
         required: ['path']
+      }
+    }
+  },
+
+  rename_file: {
+    type: 'function',
+    function: {
+      name: 'rename_file',
+      description: 'Rename a file or directory. Prefer this over shelling out through exec_command (Rename-Item / mv). Pass `path` plus either `new_name` (a bare name, kept in the same directory) or `new_path` (a relative/absolute path, which can move it across directories). Refuses to overwrite an existing destination. Accepts a relative path (inside the sandbox) or an absolute path when the file sandbox is disabled.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Source file or directory path.' },
+          new_name: { type: 'string', description: 'New name in the same directory (e.g. report_v2.md).' },
+          new_path: { type: 'string', description: 'New relative or absolute path (renames across directories, like a move).' }
+        },
+        required: ['path']
+      }
+    }
+  },
+
+  copy_file: {
+    type: 'function',
+    function: {
+      name: 'copy_file',
+      description: 'Copy a file or directory to a destination path. Directories are copied recursively. Use for backups, duplicating templates, or staging files before editing. Prefer this over shelling out through exec_command (Copy-Item / cp). Accepts relative paths (inside the sandbox) or absolute paths when the file sandbox is disabled.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Source file or directory path.' },
+          dest: { type: 'string', description: 'Destination path (file or directory).' }
+        },
+        required: ['path', 'dest']
+      }
+    }
+  },
+
+  move_file: {
+    type: 'function',
+    function: {
+      name: 'move_file',
+      description: 'Move a file or directory to a destination path (same as rename across directories). Use to reorganize the file tree. Refuses to overwrite an existing destination. Prefer this over shelling out through exec_command (Move-Item / mv). Accepts relative paths (inside the sandbox) or absolute paths when the file sandbox is disabled.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Source file or directory path.' },
+          dest: { type: 'string', description: 'Destination path.' }
+        },
+        required: ['path', 'dest']
+      }
+    }
+  },
+
+  find_file: {
+    type: 'function',
+    function: {
+      name: 'find_file',
+      description: 'Recursively search for files and directories by name pattern (supports * and ? wildcards) under a directory. Use when you need to locate a file but do not know its exact folder, or to inventory files by type/name across subdirectories. Accepts a relative path (inside the sandbox) or an absolute path when the file sandbox is disabled.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Directory to search, defaults to the current directory.' },
+          pattern: { type: 'string', description: 'Name pattern, e.g. *.md, report?, data_*.json.' },
+          max_results: { type: 'number', description: 'Optional result cap (default 50).' }
+        },
+        required: ['pattern']
       }
     }
   },

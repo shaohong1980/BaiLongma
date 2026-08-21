@@ -12,7 +12,7 @@ function classForSide(side) {
 export function initPanelCollapse() {
   function setPanel(side, collapsed) {
     document.body.classList.toggle(classForSide(side), collapsed);
-    try { localStorage.setItem(storageKeyForSide(side), collapsed ? "1" : "0"); } catch {}
+    try { localStorage.setItem(storageKeyForSide(side), collapsed ? "1" : "0"); } catch (e) { console.warn('[src/ui/brain-ui/panel-collapse.js] op failed:', e?.message || e) }
   }
 
   function togglePanel(side) {
@@ -23,7 +23,7 @@ export function initPanelCollapse() {
   try {
     if (localStorage.getItem(STORAGE_L1) === "1") document.body.classList.add("l1-collapsed");
     if (localStorage.getItem(STORAGE_L2) === "1") document.body.classList.add("l2-collapsed");
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/panel-collapse.js] op failed:', e?.message || e) }
 
   document.getElementById("panel-l1-tab")?.addEventListener("click", () => togglePanel("l1"));
   document.getElementById("panel-l2-tab")?.addEventListener("click", () => togglePanel("l2"));

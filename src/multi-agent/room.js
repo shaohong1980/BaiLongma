@@ -3,13 +3,13 @@
 // 未点名时按话题/能力推断最相关的一位响应；都不确定则无人响应（皇上可再点名）。
 import fs from 'fs'
 import path from 'path'
-import { AGENTS } from './agents.js'
 import { getAgentConfig, getAllAgentConfigs } from './config.js'
 import { runAgentEngine } from './engines.js'
 import { remember, setSummary } from './memory.js'
 import { recordActivity } from './ledger.js'
 import { paths } from '../paths.js'
 import { emitEvent } from '../events.js'
+import { StateGraph } from './state-graph.js'
 
 const ROOM_FILE = path.join(paths.dataDir, 'room-conversation.json')
 const MAX_HISTORY = 60
@@ -24,7 +24,7 @@ function maybeNewSession() {
   if (!last || !last.ts) return
   try {
     if (Date.now() - new Date(last.ts).getTime() > SESSION_IDLE_MS) round = 0
-  } catch {}
+  } catch (e) { console.warn('[src/multi-agent/room.js] op failed:', e?.message || e) }
 }
 
 // 军机处室消息：{ role: 'boss'|'agent', agentId?, agentName?, avatar?, content, ts }
@@ -41,7 +41,7 @@ function load() {
   } catch { history = [] }
 }
 function persist() {
-  try { fs.mkdirSync(path.dirname(ROOM_FILE), { recursive: true }); fs.writeFileSync(ROOM_FILE, JSON.stringify({ messages: history, round }), 'utf-8') } catch {}
+  try { fs.mkdirSync(path.dirname(ROOM_FILE), { recursive: true }); fs.writeFileSync(ROOM_FILE, JSON.stringify({ messages: history, round }), 'utf-8') } catch (e) { console.warn('[src/multi-agent/room.js] op failed:', e?.message || e) }
 }
 function push(msg) {
   history.push(msg)
@@ -240,9 +240,11 @@ async function verifyDelivery(workerName, taskText, reply) {
 }
 
 // 多Agent办公室工作流：上级发指令 → CEO 决策者拆解 → 分派相关职能员工执行 → CEO 汇总
-export async function officeCommand(content) {
+export async function officeCommand(content, opts = {}) {
   const text = String(content || '').trim()
   if (!text) throw new Error('指令不能为空')
+  // F2：图模式（opts.graph）→ 用状态图引擎跑办公室流程，支持 checkpoint/审批/回放
+  if (opts.graph) return runOfficeGraph(text, opts)
   const tStart = Date.now()   // 记录整个指令周期耗时（B：CEO 台账）
   // 新会话自动重置轮次（避免跨会话卡死）
   maybeNewSession()
@@ -255,7 +257,7 @@ export async function officeCommand(content) {
   const ceo = getAgentConfig('gm')
 
   // 1. CEO 拆解（要求末尾输出 JSON workers，作为分派依据，修掉"想派的≠实际派的"）
-  let ceoReply = ''
+  let ceoReply
   emitEvent('office_progress', { agentId: 'gm', status: 'thinking', stage: 'ceo', text: `拆解：${text}` })
   try {
     const ceoOptions = getAllAgentConfigs().filter(a => a.id !== 'gm').map(a => `${a.id}(${a.name})`).join('、')
@@ -304,7 +306,7 @@ export async function officeCommand(content) {
   }
 
   // 3. CEO 汇总
-  let ceoSummary = ''
+  let ceoSummary
   try {
     emitEvent('office_progress', { agentId: 'gm', status: 'thinking', stage: 'summary', text: '汇总结果…' })
     if (workerReplies.length) {
@@ -329,6 +331,121 @@ export async function officeCommand(content) {
   return { ok: true, round, ceoReply, workerReplies, ceoSummary, workers }
 }
 
+// ── F2：办公室流程图模式 ───────────────────────────────────────────────
+// 用状态图引擎（state-graph.js）跑「CEO 拆解 → 工人执行 → CEO 汇总」：
+//   · checkpoint：每节点落盘 data/office-graph-checkpoints/<threadId>.json，可断点续跑
+//   · approval：opts.approval 时，CEO 汇总前暂停等人工审批（resumeOfficeGraph 继续/驳回）
+//   · audit：invoke 返回审计轨迹
+// 说明：threadId 注册表在内存，跨进程重启后如需续跑需再传 threadId 重跑（图定义未持久化）。
+const OFFICE_GRAPH_CP_DIR = () => path.join(paths.dataDir, 'office-graph-checkpoints')
+const officeGraphs = new Map()   // threadId -> { app, text }
+
+function finalizeOfficeGraph(text, state, threadId) {
+  const ceoReply = state.ceoReply || ''
+  const workerReplies = state.workerReplies || []
+  const ceoSummary = state.ceoSummary || ceoReply || ''
+  const workers = state.workers || []
+  const workerName = state.workerName || ''
+  if (ceoSummary && !/响应失败|失败/.test(ceoSummary)) {
+    remember({ type: 'decision', agent: 'CEO', content: `指令「${text}」→ 分派 ${workerName} → 结论：${String(ceoSummary).slice(0, 500)}` }).catch(() => {})
+  }
+  recordActivity({ agentId: 'gm', agentName: getAgentConfig('gm')?.name || 'CEO', task: `【CEO】${text.slice(0, 100)}`, result: String(ceoSummary || ceoReply || '').slice(0, 300), ms: 0 })
+  return { ok: true, graph: true, threadId, round: getMeetingRound(), ceoReply, workerReplies, ceoSummary, workers }
+}
+
+async function runOfficeGraph(text, opts = {}) {
+  maybeNewSession()
+  if (round >= MAX_ROUNDS) {
+    return { ok: true, graph: true, forced_end: true, hint: `办公室已达 ${MAX_ROUNDS} 轮上限，本轮强制结束。可重置后重新派单。`, ceoReply: '', workerReplies: [], ceoSummary: '' }
+  }
+  round += 1
+  push({ role: 'boss', content: `【上级指令】${text}`, ts: new Date().toISOString() })
+
+  const g = new StateGraph({ checkpointDir: opts.checkpointDir || OFFICE_GRAPH_CP_DIR() })
+  const ceo = getAgentConfig('gm')
+
+  g.addNode('ceo_breakdown', async (_state) => {
+    emitEvent('office_progress', { agentId: 'gm', status: 'thinking', stage: 'ceo', text: `拆解：${text}` })
+    const ceoOptions = getAllAgentConfigs().filter(a => a.id !== 'gm').map(a => `${a.id}(${a.name})`).join('、')
+    const reply = await runAgentEngine('gm', getRoomHistory(MAX_HISTORY),
+      `收到上级指令：「${text}」。请你作为 CEO 决策者先拆解任务并点名参与的职能员工。
+1) 用文字说明任务拆解与分工。
+2) 在回复最末尾单独输出一行 JSON（只这一行，不要放进代码块）：{"workers":["员工id",...]}
+   最多 3 个，只列真正需要的人；无需任何人可输出 {"workers":[]}。
+可选员工 id：${ceoOptions}。`, false).catch(e => '（CEO 拆解失败：' + e.message + '）')
+    push({ role: 'agent', agentId: 'gm', agentName: ceo.name, avatar: ceo.avatar, content: reply, ts: new Date().toISOString() })
+    emitEvent('office_progress', { agentId: 'gm', status: 'reporting', stage: 'ceo_done', text: '拆解完成，分派中…' })
+    let workers = extractCeoWorkers(reply)
+    if (!workers.length) workers = inferOfficeWorkers(text)
+    const workerName = workers.map(id => getAgentConfig(id)?.name || id).join('、')
+    emitEvent('office_progress', { agentId: 'gm', status: 'reporting', stage: 'dispatch', text: `分派给：${workerName || '（无）'}` })
+    return { ceoReply: reply, workers, workerName }
+  })
+
+  g.addNode('worker_execute', async (state) => {
+    const workerReplies = []
+    for (const wid of (state.workers || [])) {
+      const worker = getAgentConfig(wid)
+      if (!worker) continue
+      emitEvent('office_progress', { agentId: wid, status: 'working', stage: 'executing', text, bubble: '⚙️ 收到任务，开始处理…' })
+      const t0 = Date.now()
+      try {
+        const reply = await runAgentEngine(wid, getRoomHistory(MAX_HISTORY),
+          `上级指令：「${text}」。CEO 已把属于你职责的部分交给你，请直接产出可执行交付。`, true)
+        push({ role: 'agent', agentId: wid, agentName: worker.name, avatar: worker.avatar, content: reply, ts: new Date().toISOString() })
+        if (worker.voice?.enabled) emitEvent('agent_tts', { agentId: wid, text: reply.slice(0, 300), voiceId: worker.voice?.voiceId || '' })
+        emitEvent('office_progress', { agentId: wid, status: 'reporting', stage: 'done', text: '交付完成' })
+        const verified = await verifyDelivery(worker.name, text, reply)
+        workerReplies.push({ agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply, verified })
+        recordActivity({ agentId: wid, agentName: worker.name, task: text, result: reply.slice(0, 300), ms: Date.now() - t0 })
+      } catch (err) {
+        const ms = Date.now() - t0
+        workerReplies.push({ agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply: '（执行失败：' + err.message + '）', error: true, verified: { verified: true, pass: false, verdict: '执行异常，无法验证交付' } })
+        recordActivity({ agentId: wid, agentName: worker.name, task: text, result: '（执行失败）' + err.message, ms })
+      }
+      emitEvent('office_progress', { agentId: wid, status: 'idle', stage: 'idle', text: '—' })
+    }
+    return { workerReplies }
+  })
+
+  g.addNode('ceo_summary', async (state) => {
+    const workerReplies = state.workerReplies || []
+    emitEvent('office_progress', { agentId: 'gm', status: 'thinking', stage: 'summary', text: '汇总结果…' })
+    let summary = state.ceoReply || ''
+    if (workerReplies.length) {
+      summary = await runAgentEngine('gm', getRoomHistory(MAX_HISTORY),
+        `上级指令：「${text}」。各成员交付如下：\n${workerReplies.map(r => `【${r.agentName}】${r.reply}`).join('\n\n')}\n请汇总结果并向用户汇报（总结要点、指出待确认事项）。`, true).catch(e => '（CEO 汇总失败：' + e.message + '）')
+    }
+    push({ role: 'agent', agentId: 'gm', agentName: ceo.name, avatar: ceo.avatar, content: summary, ts: new Date().toISOString() })
+    emitEvent('office_progress', { agentId: 'gm', status: 'idle', stage: 'complete', text: '—' })
+    return { ceoSummary: summary }
+  }, { approval: !!opts.approval })
+
+  g.setEntry('ceo_breakdown')
+  g.addEdge('ceo_breakdown', 'worker_execute')
+  g.addEdge('worker_execute', 'ceo_summary')
+
+  const app = g.compile()
+  const threadId = opts.threadId || ('office-' + Date.now().toString(36))
+  officeGraphs.set(threadId, { app, text })
+  const r = await app.invoke({ content: text }, { threadId, onStep: opts.onStep })
+
+  if (r.interrupted) {
+    return { ok: true, graph: true, interrupted: true, threadId, waitingNode: r.waitingNode, state: r.state || {} }
+  }
+  return finalizeOfficeGraph(text, r.state || {}, threadId)
+}
+
+// 人工审批 / 断点续跑：同意则继续跑完，驳回则停在该节点
+export async function resumeOfficeGraph(threadId, { approved = true, note = '' } = {}) {
+  const entry = officeGraphs.get(threadId)
+  if (!entry) throw new Error(`未知办公室图线程: ${threadId}（请先以 graph:true 发起）`)
+  const r = await entry.app.resume(threadId, { approved, note })
+  if (r.rejected) return { ok: true, graph: true, rejected: true, threadId, state: r.state || {}, note }
+  if (r.resumed) return finalizeOfficeGraph(entry.text, r.state || {}, threadId)
+  return { ok: true, graph: true, threadId, state: r.state || {}, note: '该线程无待审批任务' }
+}
+
 // 给某 Agent 布置任务
 export async function assignTask(agentId, task) {
   const agent = getAgentConfig(agentId)
@@ -344,4 +461,77 @@ export async function assignTask(agentId, task) {
   return { agentId, agentName: agent.name, avatar: agent.avatar, role: agent.role, reply }
 }
 
+// ── 学 CrewAI：通用角色团队（runCrew）────────────────────────────────────
+// 声明一个临时角色团队，复用现有 Agent，支持顺序（sequential）/ 层级（hierarchical）两种流程。
+// spec:
+//   roles: [{ agentId, prompt, expectedOutput? }]      团队角色与各自任务
+//   process: 'sequential' | 'hierarchical'             顺序 / 层级
+//   manager: 'gm'                                      层级流程的管理者（拆解+汇总）
+//   inputs: { key: value }                             模板额外变量
+// 模板占位：{objective}=总目标，{prev}=上一步输出，{...inputs}=自定义变量
+function fillTemplate(tpl, vars) {
+  let out = String(tpl || '')
+  for (const [k, v] of Object.entries(vars || {})) out = out.replace(new RegExp('\\{' + k + '\\}', 'g'), String(v ?? ''))
+  return out
+}
+
+export async function runCrew(spec = {}, content) {
+  const objective = String(content || '').trim()
+  if (!objective) throw new Error('objective 不能为空')
+  const roles = Array.isArray(spec.roles) ? spec.roles : []
+  if (!roles.length) throw new Error('roles 不能为空（至少一个角色）')
+  const process = spec.process === 'hierarchical' ? 'hierarchical' : 'sequential'
+  const managerId = String(spec.manager || 'gm')
+  const ctx = getRoomHistory(MAX_HISTORY)
+  const vars = { objective, prev: '', ...(spec.inputs || {}) }
+  const results = []
+
+  if (process === 'hierarchical') {
+    // 1) 管理者拆解分工（要求输出 JSON assignments）
+    const mgrCfg = getAgentConfig(managerId)
+    const roster = roles.map(r => `${r.agentId}(${getAgentConfig(r.agentId)?.name || r.agentId})`).join('、')
+    const decompose = await runAgentEngine(managerId, ctx,
+      `你是团队管理者。针对目标「${objective}」，拆解任务并分派给团队成员（成员：${roster}）。` +
+      '用文字说明分工，并在回复末尾单独输出一行 JSON：{"assignments":{"成员id":"给该成员的具体任务"}}，只列真正需要的成员；无需任何人则输出 {"assignments":{}}。', false)
+    let assignments = {}
+    try {
+      const m = String(decompose).match(/\{[\s\S]*?"assignments"[\s\S]*?\}/)
+      if (m) assignments = JSON.parse(m[0]).assignments || {}
+    } catch (e) { console.warn('[src/multi-agent/room.js] op failed:', e?.message || e) }
+    results.push({ agentId: managerId, agentName: mgrCfg?.name || managerId, role: '管理者·拆解', reply: decompose, assignments })
+    // 2) 成员执行分派到的任务（没被点名的也按其 prompt 执行兜底）
+    for (const r of roles) {
+      const assigned = assignments[r.agentId]
+      const taskText = assigned || fillTemplate(r.prompt || '完成：{objective}', vars)
+      const t0 = Date.now()
+      const reply = await runAgentEngine(r.agentId, ctx, taskText, true).catch(e => '（执行失败：' + e.message + '）')
+      results.push({ agentId: r.agentId, agentName: getAgentConfig(r.agentId)?.name || r.agentId, role: r.expectedOutput || '成员', task: taskText, reply, ms: Date.now() - t0 })
+      push({ role: 'agent', agentId: r.agentId, agentName: getAgentConfig(r.agentId)?.name || r.agentId, avatar: getAgentConfig(r.agentId)?.avatar || '', content: reply, ts: new Date().toISOString() })
+      recordActivity({ agentId: r.agentId, agentName: getAgentConfig(r.agentId)?.name || r.agentId, task: taskText, result: reply.slice(0, 300), ms: Date.now() - t0 })
+    }
+    // 3) 管理者汇总
+    const body = results.filter(x => x.reply && x.role !== '管理者·拆解').map(x => `【${x.agentName}】${x.reply}`).join('\n\n')
+    const summary = await runAgentEngine(managerId, ctx, `汇总成员交付并汇报（要点+待确认项）：\n${body || '（无成员交付）'}`, true)
+    results.push({ agentId: managerId, agentName: mgrCfg?.name || managerId, role: '管理者·汇总', reply: summary })
+    push({ role: 'agent', agentId: managerId, agentName: mgrCfg?.name || managerId, avatar: mgrCfg?.avatar || '', content: summary, ts: new Date().toISOString() })
+    recordActivity({ agentId: managerId, agentName: mgrCfg?.name || managerId, task: `【汇总】${objective.slice(0, 100)}`, result: summary.slice(0, 300), ms: 0 })
+    return { ok: true, process, manager: managerId, objective, results }
+  }
+
+  // sequential：按序执行每个角色，前一步输出作为 {prev} 注入下一步
+  for (const r of roles) {
+    const cfg = getAgentConfig(r.agentId)
+    if (!cfg) { results.push({ agentId: r.agentId, error: '未知 Agent', ok: false }); continue }
+    vars.prev = results[results.length - 1]?.reply || ''
+    const prompt = fillTemplate(r.prompt || '完成：{objective}', vars)
+    const t0 = Date.now()
+    const reply = await runAgentEngine(r.agentId, ctx, prompt, true).catch(e => '（执行失败：' + e.message + '）')
+    results.push({ agentId: r.agentId, agentName: cfg.name, role: r.expectedOutput || cfg.role, prompt, reply, ms: Date.now() - t0, ok: true })
+    push({ role: 'agent', agentId: r.agentId, agentName: cfg.name, avatar: cfg.avatar, content: reply, ts: new Date().toISOString() })
+    recordActivity({ agentId: r.agentId, agentName: cfg.name, task: objective, result: reply.slice(0, 300), ms: Date.now() - t0 })
+  }
+  return { ok: true, process, objective, results }
+}
+
 load()
+

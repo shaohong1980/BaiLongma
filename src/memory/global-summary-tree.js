@@ -134,7 +134,7 @@ async function loadRowsAndLabels() {
   const labelMap = {}
   try {
     for (const e of getKnownEntities()) labelMap[String(e.id).trim().toLowerCase()] = e.label || e.id
-  } catch {}
+  } catch (e) { console.warn('[src/memory/global-summary-tree.js] op failed:', e?.message || e) }
   return { rows, labelMap }
 }
 
@@ -165,7 +165,7 @@ export async function getGlobalSummaryTreeText({ maxChars = MAX_CHARS } = {}) {
         _cache = { text, builtAt: st.mtimeMs }
         return clampChars(text, maxChars)
       }
-    } catch {}
+    } catch (e) { console.warn('[src/memory/global-summary-tree.js] op failed:', e?.message || e) }
 
     // 3) 失效：重建
     const tree = await buildGlobalSummaryTree({ dataDir, file })

@@ -1,7 +1,8 @@
-import { insertActionLog } from '../db.js'
+import { insertActionLog, updateActionLogReceipt } from '../db.js'
 import { emitEvent } from '../events.js'
 import { classifyTool } from './tool-policy.js'
 import { previewValue, safeJsonStringify } from './tool-utils.js'
+import { toolReceiptsEnabled, buildReceiptForLogRow } from './tool-receipts.js'
 
 function getExecutionSource(context = {}) {
   return context.source || context.trigger || (context.autonomous ? 'autonomous' : 'llm')
@@ -59,7 +60,7 @@ export function inferToolStatus(result) {
   try {
     const parsed = JSON.parse(text)
     return parsed?.ok === false ? 'error' : 'ok'
-  } catch {}
+  } catch { /* 工具结果多数非 JSON，探测失败是预期高频，无需告警 */ }
   return /^(错误|请求失败|执行失败|命令超时|命令执行失败|閿欒|璇锋眰澶辫触|鎵ц澶辫触|鍛戒护瓒呮椂|鍛戒护鎵ц澶辫触)/.test(text) ? 'error' : 'ok'
 }
 
@@ -74,7 +75,7 @@ export function writeToolAuditLog({ name, args, context, policy, status, result 
   if (resultPreview) detailParts.push(`result=${resultPreview}`)
 
   try {
-    insertActionLog({
+    const logId = insertActionLog({
       timestamp: new Date(startedAt).toISOString(),
       tool: name,
       summary: summarizeToolExecution(name, auditArgs),
@@ -87,6 +88,27 @@ export function writeToolAuditLog({ name, args, context, policy, status, result 
       durationMs,
       source: getExecutionSource(context),
     })
+    // ZeroClaw 工具回执移植：action_log 落盘后生成可验证签名回执写回 receipt 列。
+    // 回执绑定 (id|tool|time|status|risk|source|args_hash|result_hash|summary)，本地密钥 HMAC。
+    if (toolReceiptsEnabled()) {
+      try {
+        const receipt = buildReceiptForLogRow({
+          id: logId,
+          tool: name,
+          timestamp: new Date(startedAt).toISOString(),
+          status,
+          risk: policy?.risk || classifyTool(name),
+          source: getExecutionSource(context),
+          summary: summarizeToolExecution(name, auditArgs),
+          args_json: safeJsonStringify(auditArgs),
+          result_preview: resultPreview,
+          error,
+        })
+        if (receipt) updateActionLogReceipt(logId, JSON.stringify(receipt))
+      } catch (receiptErr) {
+        console.warn(`[audit] failed to attach tool receipt: ${receiptErr.message}`)
+      }
+    }
   } catch (err) {
     console.warn(`[audit] failed to persist tool audit log: ${err.message}`)
   }

@@ -110,7 +110,7 @@ export function setWorldcupMode(visible, { source = 'brain-ui' } = {}) {
     // （卸载停掉 iframe 内的轮询，避免 viewed 状态被无限续期）
     const frameLoaded = !!(frame && frame.src && !frame.src.includes('about:blank'));
     if (frameLoaded) {
-      try { frame.contentWindow?.postMessage({ type: 'worldcup-exit' }, '*'); } catch {}
+      try { frame.contentWindow?.postMessage({ type: 'worldcup-exit' }, '*'); } catch (e) { console.warn('[src/ui/brain-ui/worldcup.js] op failed:', e?.message || e) }
     }
     const finishClose = () => {
       closeTimer = null;
@@ -148,7 +148,7 @@ export async function initWorldcup() {
     if (event?.data?.type !== 'worldcup-ptt' || !worldcupActive) return;
     const { phase } = event.data;
     if (phase === 'down') {
-      try { window.stopTTS?.(); } catch {}   // 与 app.js PTT 同语义：按下即打断播报
+      try { window.stopTTS?.(); } catch (e) { console.warn('[src/ui/brain-ui/worldcup.js] op failed:', e?.message || e) }   // 与 app.js PTT 同语义：按下即打断播报
       window.bailongmaVoice?.pttStart?.();
       expandConsole();                        // 说话时展开看实时识别文字
     } else if (phase === 'up') {

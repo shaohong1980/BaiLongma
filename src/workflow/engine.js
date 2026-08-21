@@ -18,7 +18,7 @@ function nowIso() {
   return new Date().toISOString()
 }
 
-export function createWorkflowEngine({ executeTool, executeLLM, signal = null } = {}) {
+export function createWorkflowEngine({ executeTool, executeLLM, executeRoom, allowCode = false, signal = null } = {}) {
   // 执行单个节点 + 应用「命名输出绑定」（Coze 数据流）：
   //   node.outputs = [{ name:'answer', source:'output' }] → context[node.id].answer = 本节点主输出
   //   下游节点可用 {{node_id.output_name}} 引用。
@@ -332,10 +332,35 @@ export function createWorkflowEngine({ executeTool, executeLLM, signal = null } 
         }
 
         case 'code': {
+          // S3：code 节点执行任意 JS。默认禁用（allowCode=false），由 createWorkflowEngine 显式开启——
+          // 开启方（如 workflow_run 工具）须已具备 Agent 级代码执行能力，否则是越权入口。
+          if (!allowCode) {
+            context[node.id] = { result: { ok: false, error: 'code 节点被禁用（createWorkflowEngine 需 allowCode:true）' } }
+            return finishNode(nodeResult, startedAt, { output: { ok: false, error: 'code 节点被禁用' }, nextNodeId: node.next, metadata: { codeDisabled: true } })
+          }
           const code = renderTemplate(node.config?.code || '', context)
           const result = safeEvalCode(code, context)
           context[node.id] = { result }
           return finishNode(nodeResult, startedAt, { output: result, nextNodeId: node.next })
+        }
+
+        case 'room': {
+          // 会议室节点（F1 收敛）：把「多Agent办公室」作为主引擎的一等节点。
+          // config: { mode: 'office'|'crew'|'speak', content, roles?, process?, manager?, ... }
+          const roomArgs = {
+            mode: node.config?.mode || 'office',
+            content: renderTemplate(node.config?.content || '', context),
+            roles: node.config?.roles,
+            process: node.config?.process,
+            manager: node.config?.manager,
+          }
+          const roomResult = executeRoom
+            ? await executeRoom(roomArgs)
+            : { ok: false, error: '会议室执行器未配置（executeRoom）' }
+          context[node.id] = { result: roomResult, args: roomArgs }
+          const output = typeof roomResult === 'string' ? roomResult
+            : (roomResult?.summary || roomResult?.ceoSummary || roomResult?.reply || roomResult?.error || roomResult)
+          return finishNode(nodeResult, startedAt, { output, nextNodeId: node.next, metadata: { room: roomArgs.mode, ok: roomResult?.ok } })
         }
 
         default:

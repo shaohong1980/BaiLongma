@@ -101,5 +101,5 @@ export function getToolSchemas(toolNames, { toolPromptHints = null } = {}) {
     })
     .filter(Boolean)
     // 剥离识别器专用元数据，避免发给 LLM API
-    .map(({ recognizer_highlights, ...rest }) => rest)
+    .map(({ _recognizer_highlights, ...rest }) => rest)
 }

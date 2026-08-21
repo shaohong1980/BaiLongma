@@ -120,8 +120,8 @@ function parseTags(row) {
   const raw = row?.tags
   if (Array.isArray(raw)) return raw
   if (typeof raw === 'string' && raw.trim()) {
-    try { const p = JSON.parse(raw); if (Array.isArray(p)) return p } catch {}
-    try { const p = JSON.parse(`[${raw}]`); if (Array.isArray(p)) return p } catch {}
+    try { const p = JSON.parse(raw); if (Array.isArray(p)) return p } catch (e) { console.warn('[src/memory/profile-dialectic.js] op failed:', e?.message || e) }
+    try { const p = JSON.parse(`[${raw}]`); if (Array.isArray(p)) return p } catch (e) { console.warn('[src/memory/profile-dialectic.js] op failed:', e?.message || e) }
   }
   return []
 }

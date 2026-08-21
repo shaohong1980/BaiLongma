@@ -1,27 +1,61 @@
+// ── 迁移框架（A2）───────────────────────────────────────────────────────
+// 用 SQLite `PRAGMA user_version` 记录 schema 基线版本（SCHEMA_VERSION）。
+// 当前所有迁移都是幂等的：addColumn 按列存在性判断（区分"已加过"与"真失败"），
+// 每次启动都跑一遍用于"愈合"半完成状态；失败会告警，不再静默吞掉。
+// 未来若引入"只跑一次"的非幂等迁移，在末尾 setSchemaVersion 前按 user_version 判断即可。
+const SCHEMA_VERSION = 1
+
+// 写入基线版本。未来做非幂等迁移时，可先读 PRAGMA user_version 判断是否已执行。
+function setSchemaVersion(db, v) {
+  try { db.pragma(`user_version = ${v}`) } catch (err) { console.warn(`[DB] set user_version=${v} failed: ${err.message}`) }
+}
+
+function tableExists(db, table) {
+  try { return !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`).get(table) } catch { return false }
+}
+
+// 幂等加列：表还没建（后续才 CREATE）则跳过；列已存在则 no-op；真失败则告警（不再静默吞掉）。
+function addColumn(db, table, column, ddl) {
+  if (!tableExists(db, table)) return
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all()
+    if (!cols.some(c => c.name === column)) db.exec(ddl)
+  } catch (err) {
+    console.warn(`[DB] addColumn ${table}.${column} failed: ${err.message}`)
+  }
+}
+
+// 幂等执行（用于 CREATE INDEX IF NOT EXISTS 等）：失败告警，不静默。
+function safeExec(db, ddl, label) {
+  try { db.exec(ddl) } catch (err) {
+    console.warn(`[DB] ${label || 'exec'} failed: ${err.message}`)
+  }
+}
+
 export function initializeSchema(db) {
   // 迁移：添加 parent_id 字段（已存在时跳过）
-  try { db.exec(`ALTER TABLE memories ADD COLUMN parent_id INTEGER REFERENCES memories(id)`) } catch {}
-  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_memories_parent_id ON memories(parent_id)`) } catch {}
+  addColumn(db, 'memories', 'parent_id', `ALTER TABLE memories ADD COLUMN parent_id INTEGER REFERENCES memories(id)`)
+  safeExec(db, `CREATE INDEX IF NOT EXISTS idx_memories_parent_id ON memories(parent_id)`, 'index')
   // 迁移：新增 title / mem_id / links 字段
-  try { db.exec(`ALTER TABLE memories ADD COLUMN title TEXT DEFAULT ''`) } catch {}
-  try { db.exec(`ALTER TABLE memories ADD COLUMN mem_id TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE memories ADD COLUMN links TEXT DEFAULT '[]'`) } catch {}
-  try { db.exec(`ALTER TABLE memories ADD COLUMN salience INTEGER DEFAULT 3`) } catch {}
-  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_mem_id ON memories(mem_id) WHERE mem_id IS NOT NULL`) } catch {}
+  addColumn(db, 'memories', 'title', `ALTER TABLE memories ADD COLUMN title TEXT DEFAULT ''`)
+  addColumn(db, 'memories', 'mem_id', `ALTER TABLE memories ADD COLUMN mem_id TEXT`)
+  addColumn(db, 'memories', 'links', `ALTER TABLE memories ADD COLUMN links TEXT DEFAULT '[]'`)
+  addColumn(db, 'memories', 'salience', `ALTER TABLE memories ADD COLUMN salience INTEGER DEFAULT 3`)
+  safeExec(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_mem_id ON memories(mem_id) WHERE mem_id IS NOT NULL`, 'index')
   // 迁移：visibility 软隐藏三件套（动态上下文记忆池：剔除=软隐藏，不硬删除）
   //   visibility  : 1=可见、0=软隐藏。所有读路径默认 WHERE visibility = 1。
   //   hidden_at   : 软隐藏时间戳（ISO 8601），便于回溯与第3步专注帧恢复路径。
   //   merged_into : 因 merge_memories 被隐藏时，记录 keep 的 mem_id，形成可追踪链路。
   // FTS5 索引不动：所有 SELECT 已 JOIN memories 过滤 visibility=1，无需 trigger 改动。
   // 已存在行 visibility 默认取 1（向后兼容，无需 backfill）。
-  try { db.exec(`ALTER TABLE memories ADD COLUMN visibility INTEGER NOT NULL DEFAULT 1`) } catch {}
-  try { db.exec(`ALTER TABLE memories ADD COLUMN hidden_at TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE memories ADD COLUMN merged_into TEXT`) } catch {}
-  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_memories_visibility ON memories(visibility)`) } catch {}
+  addColumn(db, 'memories', 'visibility', `ALTER TABLE memories ADD COLUMN visibility INTEGER NOT NULL DEFAULT 1`)
+  addColumn(db, 'memories', 'hidden_at', `ALTER TABLE memories ADD COLUMN hidden_at TEXT`)
+  addColumn(db, 'memories', 'merged_into', `ALTER TABLE memories ADD COLUMN merged_into TEXT`)
+  safeExec(db, `CREATE INDEX IF NOT EXISTS idx_memories_visibility ON memories(visibility)`, 'index')
   // 迁移：conversations 加 channel 列
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN channel TEXT DEFAULT ''`) } catch {}
+  addColumn(db, 'conversations', 'channel', `ALTER TABLE conversations ADD COLUMN channel TEXT DEFAULT ''`)
   // 迁移：conversations 加 external_party_id 列（保留外部渠道原始 ID，供回送投递）
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN external_party_id TEXT DEFAULT ''`) } catch {}
+  addColumn(db, 'conversations', 'external_party_id', `ALTER TABLE conversations ADD COLUMN external_party_id TEXT DEFAULT ''`)
 
   // 迁移：FTS5 tokenizer 从默认 unicode61 升级到 trigram。
   // 默认 tokenizer 把中文整段当成一个 token（"咖啡偏好"被存为一个整体），
@@ -76,16 +110,16 @@ export function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_conv_timestamp ON conversations(timestamp);
     CREATE INDEX IF NOT EXISTS idx_conv_from_id   ON conversations(from_id);
   `)
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN channel TEXT DEFAULT ''`) } catch {}
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN external_party_id TEXT DEFAULT ''`) } catch {}
+  addColumn(db, 'conversations', 'channel', `ALTER TABLE conversations ADD COLUMN channel TEXT DEFAULT ''`)
+  addColumn(db, 'conversations', 'external_party_id', `ALTER TABLE conversations ADD COLUMN external_party_id TEXT DEFAULT ''`)
   // 迁移：focus_absorbed 标记（动态上下文记忆池 3.5 「主线深化时剔除残留噪声」）。
   //   focus_absorbed=1 表示这条对话所属的专注帧已被压缩回填吸收（focus_conclusion 已写入仓库），
   //   下一轮主线注入对话窗口时默认 WHERE focus_absorbed=0 把它隐去。
   // 关键：absorbed != deleted。对话物理仍在 conversations 表，admin 端点 / 显式 includeAbsorbed=true
   //   仍可拿到；这跟 memories.visibility 是平行的「软隐藏」概念。
   // 已存在行默认 0（向后兼容，无需 backfill）。
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN focus_absorbed INTEGER NOT NULL DEFAULT 0`) } catch {}
-  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_conv_focus_absorbed ON conversations(focus_absorbed)`) } catch {}
+  addColumn(db, 'conversations', 'focus_absorbed', `ALTER TABLE conversations ADD COLUMN focus_absorbed INTEGER NOT NULL DEFAULT 0`)
+  safeExec(db, `CREATE INDEX IF NOT EXISTS idx_conv_focus_absorbed ON conversations(focus_absorbed)`, 'index')
 
   // 迁移：P0-1 给每条对话打上"当时的焦点话题"标签。
   //   conversationWindow 注入 LLM 时，每条 user/jarvis 消息的 marker 里带上这个 topic，
@@ -93,20 +127,20 @@ export function initializeSchema(db) {
   //   写入时机：insertConversation 自动读 db 内部 currentFocusTopic 变量；
   //   index.js 在 updateFocusFrame 之后 setCurrentFocusTopic(栈顶 topic)，
   //   并对本轮触发判定的 user 消息做一次 UPDATE 回填（push 时 focus 尚未算）。
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN focus_topic TEXT DEFAULT ''`) } catch {}
+  addColumn(db, 'conversations', 'focus_topic', `ALTER TABLE conversations ADD COLUMN focus_topic TEXT DEFAULT ''`)
 
   // 迁移：线索模型（DynamicMemoryPool.md 第 8 章）——写时归属。
   //   每条对话在写入时由行动者声明归属到哪条线索（thread_id）。这是"episode 是因果链
   //   不是时间段"的落地：减法（读时选择）按 thread_id 算，不再按时间区间圈地。
   //   focus_topic 列保留（话题边界标注仍有用），thread_id 是归属、focus_topic 是标注。
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN thread_id TEXT DEFAULT ''`) } catch {}
-  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_conv_thread_id ON conversations(thread_id)`) } catch {}
+  addColumn(db, 'conversations', 'thread_id', `ALTER TABLE conversations ADD COLUMN thread_id TEXT DEFAULT ''`)
+  safeExec(db, `CREATE INDEX IF NOT EXISTS idx_conv_thread_id ON conversations(thread_id)`, 'index')
 
   // 迁移：P0-2 标记 agent 自己留下的"未答悬念"（follow-up question）。
   //   open_question=1 表示这条 jarvis 消息末尾留了一个非澄清型问号悬念。
   //   conversationWindow 渲染时：若该悬念在 N 轮内未被用户接茬 / 话题已切换，
   //   在 conversation_metadata 中标记 expired_open_question，避免模糊代词被钩到这里。
-  try { db.exec(`ALTER TABLE conversations ADD COLUMN open_question INTEGER NOT NULL DEFAULT 0`) } catch {}
+  addColumn(db, 'conversations', 'open_question', `ALTER TABLE conversations ADD COLUMN open_question INTEGER NOT NULL DEFAULT 0`)
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (
@@ -184,17 +218,13 @@ export function initializeSchema(db) {
   `)
 
   // 迁移：memories 表添加 embedding BLOB 列（向量语义召回用，与 FTS5 双路融合）。
-  // 用 PRAGMA table_info 检查，保证幂等：已有 embedding 列时彻底 no-op。
-  try {
-    const cols = db.prepare(`PRAGMA table_info(memories)`).all()
-    const have = new Set(cols.map(c => c.name))
-    if (!have.has('embedding')) db.exec(`ALTER TABLE memories ADD COLUMN embedding BLOB`)
-    // embedding_dim：向量维度（=BLOB 字节数/4）。切换嵌入模型后维度会变（如云端 1536/2048 →
-    // 本地 bge-large 1024），召回时只比同维度向量，避免旧维度向量静默失效或拖累。
-    // embedding_model：来源模型名，便于排查 / 决定哪些行需要 force 重算。
-    if (!have.has('embedding_dim'))   db.exec(`ALTER TABLE memories ADD COLUMN embedding_dim INTEGER`)
-    if (!have.has('embedding_model')) db.exec(`ALTER TABLE memories ADD COLUMN embedding_model TEXT`)
-  } catch {}
+  // addColumn 按列存在性判断，保证幂等；失败告警（不再静默）。
+  // embedding_dim：向量维度（=BLOB 字节数/4）。切换嵌入模型后维度会变（如云端 1536/2048 →
+  // 本地 bge-large 1024），召回时只比同维度向量，避免旧维度向量静默失效或拖累。
+  // embedding_model：来源模型名，便于排查 / 决定哪些行需要 force 重算。
+  addColumn(db, 'memories', 'embedding', `ALTER TABLE memories ADD COLUMN embedding BLOB`)
+  addColumn(db, 'memories', 'embedding_dim', `ALTER TABLE memories ADD COLUMN embedding_dim INTEGER`)
+  addColumn(db, 'memories', 'embedding_model', `ALTER TABLE memories ADD COLUMN embedding_model TEXT`)
 
   // 迁移（兜底）：visibility / hidden_at / merged_into 三件套。
   // 上文 line ~51 已经尝试过这三个 ALTER，但顺序在 CREATE TABLE memories 之前——
@@ -223,15 +253,17 @@ export function initializeSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp ON action_logs(timestamp);
   `)
-  try { db.exec(`ALTER TABLE action_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'`) } catch {}
-  try { db.exec(`ALTER TABLE action_logs ADD COLUMN risk TEXT NOT NULL DEFAULT 'medium'`) } catch {}
-  try { db.exec(`ALTER TABLE action_logs ADD COLUMN args_json TEXT NOT NULL DEFAULT '{}'`) } catch {}
-  try { db.exec(`ALTER TABLE action_logs ADD COLUMN result_preview TEXT NOT NULL DEFAULT ''`) } catch {}
-  try { db.exec(`ALTER TABLE action_logs ADD COLUMN error TEXT NOT NULL DEFAULT ''`) } catch {}
-  try { db.exec(`ALTER TABLE action_logs ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`) } catch {}
-  try { db.exec(`ALTER TABLE action_logs ADD COLUMN source TEXT NOT NULL DEFAULT ''`) } catch {}
-  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_action_logs_status ON action_logs(status)`) } catch {}
-  try { db.exec(`CREATE INDEX IF NOT EXISTS idx_action_logs_risk ON action_logs(risk)`) } catch {}
+  addColumn(db, 'action_logs', 'status', `ALTER TABLE action_logs ADD COLUMN status TEXT NOT NULL DEFAULT 'ok'`)
+  addColumn(db, 'action_logs', 'risk', `ALTER TABLE action_logs ADD COLUMN risk TEXT NOT NULL DEFAULT 'medium'`)
+  addColumn(db, 'action_logs', 'args_json', `ALTER TABLE action_logs ADD COLUMN args_json TEXT NOT NULL DEFAULT '{}'`)
+  addColumn(db, 'action_logs', 'result_preview', `ALTER TABLE action_logs ADD COLUMN result_preview TEXT NOT NULL DEFAULT ''`)
+  addColumn(db, 'action_logs', 'error', `ALTER TABLE action_logs ADD COLUMN error TEXT NOT NULL DEFAULT ''`)
+  addColumn(db, 'action_logs', 'duration_ms', `ALTER TABLE action_logs ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`)
+  addColumn(db, 'action_logs', 'source', `ALTER TABLE action_logs ADD COLUMN source TEXT NOT NULL DEFAULT ''`)
+  // ZeroClaw 工具回执移植：每条 action_log 附带可验证的加密回执（HMAC-SHA256 签名）
+  addColumn(db, 'action_logs', 'receipt', `ALTER TABLE action_logs ADD COLUMN receipt TEXT NOT NULL DEFAULT ''`)
+  safeExec(db, `CREATE INDEX IF NOT EXISTS idx_action_logs_status ON action_logs(status)`, 'index')
+  safeExec(db, `CREATE INDEX IF NOT EXISTS idx_action_logs_risk ON action_logs(risk)`, 'index')
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS reminders (
@@ -251,8 +283,10 @@ export function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_reminders_due_at ON reminders(status, due_at);
   `)
   // 迁移：老库补上周期提醒字段
-  try { db.exec(`ALTER TABLE reminders ADD COLUMN recurrence_type TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE reminders ADD COLUMN recurrence_config TEXT`) } catch {}
+  addColumn(db, 'reminders', 'recurrence_type', `ALTER TABLE reminders ADD COLUMN recurrence_type TEXT`)
+  addColumn(db, 'reminders', 'recurrence_config', `ALTER TABLE reminders ADD COLUMN recurrence_config TEXT`)
+  // AionUi Cron 思路：提醒绑定会话（conversation_ref）——触发时带该会话上下文，跨轮延续话题
+  addColumn(db, 'reminders', 'conversation_ref', `ALTER TABLE reminders ADD COLUMN conversation_ref TEXT`)
 
   // 长期目标（Goals）：目标推进 + 晨间简报的数据基础
   db.exec(`
@@ -365,7 +399,7 @@ export function initializeSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_media_history_played_at ON media_history(played_at);
   `)
-  try { db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_media_history_url ON media_history(url)`) } catch {}
+  safeExec(db, `CREATE UNIQUE INDEX IF NOT EXISTS idx_media_history_url ON media_history(url)`, 'index')
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS music_library (
@@ -404,8 +438,8 @@ export function initializeSchema(db) {
     );
   `)
   // 老库迁移：补上文档字段
-  try { db.exec(`ALTER TABLE known_agents ADD COLUMN docs_url TEXT`) } catch {}
-  try { db.exec(`ALTER TABLE known_agents ADD COLUMN docs_search_query TEXT`) } catch {}
+  addColumn(db, 'known_agents', 'docs_url', `ALTER TABLE known_agents ADD COLUMN docs_url TEXT`)
+  addColumn(db, 'known_agents', 'docs_search_query', `ALTER TABLE known_agents ADD COLUMN docs_search_query TEXT`)
 
   // user_identities 表：渠道外部 ID → canonical 用户 ID 的绑定（多用户阶段使用，单用户阶段保留为空）
   db.exec(`
@@ -586,13 +620,8 @@ export function initializeSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_usage_events_created_at ON usage_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_usage_events_source     ON usage_events(source);
   `)
-  // 延迟记录（P1：延迟分位报告用）——老库迁移补列，幂等
-  try {
-    const cols = db.prepare(`PRAGMA table_info(usage_events)`).all()
-    if (!cols.some(c => c.name === 'duration_ms')) {
-      db.exec(`ALTER TABLE usage_events ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`)
-    }
-  } catch {}
+  // 延迟记录（P1：延迟分位报告用）——老库迁移补列，幂等（addColumn 失败告警）
+  addColumn(db, 'usage_events', 'duration_ms', `ALTER TABLE usage_events ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0`)
 
   // 重建 FTS 索引（覆盖已有数据，确保历史记忆也被索引）
   db.exec(`INSERT INTO memories_fts(memories_fts) VALUES('rebuild')`)
@@ -733,5 +762,8 @@ export function initializeSchema(db) {
   } catch (err) {
     console.warn('[DB migration] workflow init failed:', err.message)
   }
+
+  // 基线完成标记：记录当前 schema 版本。未来非幂等迁移用 migrate(db, N, ...) 递增。
+  setSchemaVersion(db, SCHEMA_VERSION)
 }
 

@@ -116,11 +116,11 @@ function killShell() {
   current = null
   busy = false
   if (cur) { clearTimeout(cur.timer); cur.resolve(null) }
-  try { c.stdin?.end() } catch {}
+  try { c.stdin?.end() } catch (e) { console.warn('[src/capabilities/tools/persistent-shell.js] op failed:', e?.message || e) }
   try {
     if (c.pid) spawnSync('taskkill.exe', ['/PID', String(c.pid), '/T', '/F'], { windowsHide: true })
     else c.kill()
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/persistent-shell.js] op failed:', e?.message || e) }
 }
 
 /**
@@ -184,4 +184,4 @@ export function shutdownPersistentShell() {
 }
 
 // 兜底：主进程退出时同步杀掉子 powershell（exit handler 内只能用同步调用，故用 kill 而非 taskkill）
-process.once('exit', () => { try { child?.kill() } catch {} })
+process.once('exit', () => { try { child?.kill() } catch (e) { console.warn('[src/capabilities/tools/persistent-shell.js] op failed:', e?.message || e) } })

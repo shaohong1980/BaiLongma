@@ -191,4 +191,23 @@ export const memorySchemas = {
       }
     }
   },
+
+  manage_vault: {
+    type: 'function',
+    function: {
+      name: 'manage_vault',
+      description: 'Manage the Markdown memory vault (ReMe dual-write). sync exports current memories into editable Markdown files under data/vault; import reads the user\'s edits in those Markdown files and writes them back into the memory database (updated items, removed items get hidden, newly added bullets become new memories); open opens the vault folder. Use sync after the user wants to read/edit memories in Markdown (e.g. Obsidian), and import when the user says they finished editing the vault.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['sync', 'import', 'open', 'status'],
+            description: 'sync exports memories to Markdown; import writes Markdown edits back into memory; open opens the vault folder; status reports current vault state.'
+          },
+        },
+        required: ['action']
+      }
+    }
+  },
 }

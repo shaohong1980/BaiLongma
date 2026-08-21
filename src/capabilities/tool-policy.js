@@ -1,4 +1,5 @@
 import { config } from '../config.js'
+import { guardShellCommand, DEFAULT_SHELL_GUARD } from './security-guards.js'
 
 const TOOL_RISK = {
   read_file: 'low',
@@ -22,6 +23,7 @@ const TOOL_RISK = {
   weekly_review: 'low',
   adopt_role: 'low',
   ask_memory: 'low',
+  manage_vault: 'low',
   capture_screen: 'low',
   spawn_subagents: 'medium',
   junjichu: 'medium',
@@ -36,6 +38,7 @@ const TOOL_RISK = {
   bagua_mode: 'low',
   map_mode: 'low',
   open_doc_panel: 'low',
+  preview_file: 'low',
   person_card_mode: 'low',
   music: 'low',
   delegate_to_agent: 'high',
@@ -91,6 +94,7 @@ const TOOL_RISK = {
   trace_list: 'low',
   trace_detail: 'low',
   observability_dashboard: 'low',
+  tool_receipt: 'low',
   // HITL 审批
   hitl_request: 'medium',
   hitl_list: 'low',
@@ -144,18 +148,21 @@ export function classifyTool(name) {
 
 export function isDangerousShellCommand(command) {
   const text = String(command || '').trim()
-  const reasons = []
-  if (config.security?.execSandbox !== false) {
-    if (/(^|[\s"'`])\.\.([\\/]|$)/.test(text)) reasons.push('command references a parent directory')
-    if (/(^|[\s"'`])[a-z]:[\\/]/i.test(text) || /(^|[\s"'`])[\\/]{2}[^\\/]/.test(text)) reasons.push('command references an absolute filesystem path')
-    if (/(^|[\s"'`])~([\\/]|$)/.test(text) || /\$(home|env:userprofile)\b/i.test(text) || /%userprofile%/i.test(text)) reasons.push('command references the user home directory')
-    if (/\bgit\s+reset\s+--hard\b/i.test(text) || /\bgit\s+clean\b/i.test(text)) reasons.push('command can destructively rewrite the worktree')
-    if (/\b(format|diskpart|shutdown)\b/i.test(text)) reasons.push('command is system-level destructive or disruptive')
-    if (/Remove-Item\b.*-Recurse|-Recurse\b.*Remove-Item/i.test(text)) reasons.push('recursive delete (Remove-Item -Recurse) detected')
-    if (/\brd\s+\/s\b/i.test(text)) reasons.push('recursive directory delete (rd /s) detected')
-    if (/\bInvoke-Expression\b|\biex\s/i.test(text)) reasons.push('dynamic code execution via Invoke-Expression detected')
-  }
-  return reasons
+  if (config.security?.execSandbox === false) return []
+  // QwenPaw ShellEvasionGuardian 移植：config.security.shellGuard 控制等级
+  // （off/auto/smart/strict，默认 smart）。自动模式下额外做一条兼容保底：
+  // smart 级以下若命中旧版规则（绝对路径/家目录等）也照常拦截，保证升级不弱化原防线。
+  const mode = config.security?.shellGuard || DEFAULT_SHELL_GUARD
+  const result = guardShellCommand(text, { mode })
+  const reasons = [...result.reasons]
+
+  if (mode === 'off') return []
+  // 保底：auto 模式也覆盖旧版基础规则（父目录 / 绝对路径 / 家目录 / git 破坏性命令）
+  if (/(^|[\s"'`])\.\.([\\/]|$)/.test(text)) reasons.push('command references a parent directory')
+  if (/(^|[\s"'`])[a-z]:[\\/]/i.test(text) || /(^|[\s"'`])[\\/]{2}[^\\/]/.test(text)) reasons.push('command references an absolute filesystem path')
+  if (/(^|[\s"'`])~([\\/]|$)/.test(text) || /\$(home|env:userprofile)\b/i.test(text) || /%userprofile%/i.test(text)) reasons.push('command references the user home directory')
+  if (/\bgit\s+reset\s+--hard\b/i.test(text) || /\bgit\s+clean\b/i.test(text)) reasons.push('command can destructively rewrite the worktree')
+  return [...new Set(reasons)]
 }
 
 export function evaluateToolPolicy(name, args = {}, context = {}) {

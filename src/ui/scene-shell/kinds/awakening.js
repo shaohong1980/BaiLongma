@@ -36,7 +36,7 @@ export const awakening = {
   exit() {},
 
   // morph:标题/发现/计数原地更新,进度点重算(发现是离散更替,逐项重建)。
-  morph(el_, prev = {}, next = {}) {
+  morph(el_, _prev = {}, next = {}) {
     const { index = 1, total = 2, title = '探索中', finding = '', emoji = '🔍' } = next
     const emojiEl = el_.querySelector('.aw-emoji')
     const titleEl = el_.querySelector('.aw-title')

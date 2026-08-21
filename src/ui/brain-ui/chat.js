@@ -110,7 +110,7 @@ export function initChat({
       clearTimeout(warmupTimer);
       warmupTimer = null;
     }
-    try { sessionStorage.removeItem(activationWarmupKey); } catch {}
+    try { sessionStorage.removeItem(activationWarmupKey); } catch (e) { console.warn('[src/ui/brain-ui/chat.js] op failed:', e?.message || e) }
     setComposerLocked(false);
   }
 
@@ -118,7 +118,7 @@ export function initChat({
     let until = 0;
     try {
       until = Number(sessionStorage.getItem(activationWarmupKey) || 0);
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/chat.js] op failed:', e?.message || e) }
 
     const remaining = until - Date.now();
     if (remaining <= 0) {
@@ -361,7 +361,7 @@ export function initChat({
         event.preventDefault();
         pendingPastedImages.splice(index, 1);
         renderPastedImages();
-        try { msgInput.focus(); } catch {}
+        try { msgInput.focus(); } catch (e) { console.warn('[src/ui/brain-ui/chat.js] op failed:', e?.message || e) }
       });
       shell.appendChild(remove);
 
@@ -476,7 +476,7 @@ export function initChat({
         try {
           const body = await resp.json();
           message = body.error || body.message || message;
-        } catch {}
+        } catch (e) { console.warn('[src/ui/brain-ui/chat.js] op failed:', e?.message || e) }
         throw new Error(message);
       }
     } catch (error) {
@@ -701,7 +701,7 @@ export function initChat({
     msgInput.value = "我想配置视频生成（火山方舟 Seedance），请告诉我怎么申请 API Key 以及如何填入";
     openChat();
     autoGrowInput();
-    try { msgInput.focus(); } catch {}
+    try { msgInput.focus(); } catch (e) { console.warn('[src/ui/brain-ui/chat.js] op failed:', e?.message || e) }
   }
 
   function showSlashHelp() {

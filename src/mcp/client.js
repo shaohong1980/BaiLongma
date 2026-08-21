@@ -90,7 +90,7 @@ async function ensureConnection(name) {
   conn.stdin = proc.stdin
   pool.set(name, conn)
   attachStdoutParser(conn)
-  proc.stderr.on('data', (d) => { /* 保留但不外抛，诊断时可启用 */ })
+  proc.stderr.on('data', (_d) => { /* 保留但不外抛，诊断时可启用 */ })
   proc.on('error', (err) => { if (pool.get(name) === conn) { conn.lastError = err.message; shutdown(conn) } })
   proc.on('exit', () => { if (pool.get(name) === conn) shutdown(conn) })
 

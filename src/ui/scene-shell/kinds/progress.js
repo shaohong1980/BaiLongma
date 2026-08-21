@@ -73,7 +73,7 @@ export const progress = {
 
   // morph:value 变 → 进度条 width 平滑过渡(CSS transition)+ 百分比翻动;
   //         status 变 → 重设状态 class 换色;note 增删/原地更新;不定量切换。
-  morph(el_, prev = {}, next = {}) {
+  morph(el_, _prev = {}, next = {}) {
     const root = el_.querySelector('.k-progress')
     if (!root) return
     const pct = percentOf(next)

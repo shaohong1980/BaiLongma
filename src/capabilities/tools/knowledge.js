@@ -8,7 +8,7 @@ function toolJson(payload) {
 }
 
 // knowledge_ingest：导入文档（文件或文本）
-export async function execKnowledgeIngest(args = {}, context = {}) {
+export async function execKnowledgeIngest(args = {}, _context = {}) {
   const source = String(args.source || '').trim()
   if (!source) return toolJson({ ok: false, tool: 'knowledge_ingest', error: '缺少 source（文件路径或文本内容）' })
 

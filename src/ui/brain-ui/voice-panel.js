@@ -21,8 +21,8 @@ import { createWakeFlow } from './voice-wake.js';
 // 助手配色：每次启动随机换色（主窗口启动时生成，见 launch-color.js）
 
 export function initVoicePanel({
-  btnId, panelId, canvasId, statusId, transcriptId,
-  getChatInput, getSendBtn, getSendMessage, getLang, getAutoSend, getAutoMic,
+  btnId, panelId, canvasId, _statusId, transcriptId,
+  getChatInput, _getSendBtn, getSendMessage, getLang, getAutoSend, getAutoMic,
 }) {
   const btn        = document.getElementById(btnId);
   const panel      = document.getElementById(panelId);

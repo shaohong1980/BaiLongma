@@ -42,7 +42,7 @@ export function setTyphoonMode(visible, { source = 'brain-ui' } = {}) {
     const voice = $('voice-panel')
     if (voice && voice.parentElement === $('chat-area')) restoreVoicePanel()
     const loaded = !!(frame && frame.src && !frame.src.includes('about:blank'))
-    if (loaded) { try { frame.contentWindow?.postMessage({ type: 'typhoon-exit' }, '*') } catch {} }
+    if (loaded) { try { frame.contentWindow?.postMessage({ type: 'typhoon-exit' }, '*') } catch (e) { console.warn('[src/ui/brain-ui/typhoon.js] op failed:', e?.message || e) } }
     const finish = () => { closeTimer = null; if (frame) frame.src = 'about:blank'; document.body.classList.remove('typhoon-mode') }
     if (loaded) closeTimer = setTimeout(finish, EXIT_ANIMATION_MS); else finish()
   }
@@ -78,7 +78,7 @@ export function initTyphoon() {
     if (event?.data?.type !== 'typhoon-ptt' || !active) return
     const { phase } = event.data
     if (phase === 'down') {
-      try { window.stopTTS?.() } catch {}
+      try { window.stopTTS?.() } catch (e) { console.warn('[src/ui/brain-ui/typhoon.js] op failed:', e?.message || e) }
       window.bailongmaVoice?.pttStart?.()
       expandConsole()
     } else if (phase === 'up') {

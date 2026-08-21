@@ -17,7 +17,7 @@ export function reportStartupProgress(id, status, detail, message) {
   try {
     const reporter = globalThis.bailongmaStartupProgress
     if (typeof reporter === 'function') reporter({ id, status, detail, message })
-  } catch {}
+  } catch (e) { console.warn('[src/runtime/startup.js] op failed:', e?.message || e) }
 }
 
 // 启动期"自感知"采集（地理/天气/热点/本机 agent/已装工具）是可选的、依赖网络或子进程的步骤，
@@ -104,6 +104,6 @@ export function warmupLocalEmbeddingAsync() {
         const { warmupLocalEmbedding } = await import('../embedding-local.js')
         warmupLocalEmbedding(cred.model).catch(() => {})
       }
-    } catch {}
+    } catch (e) { console.warn('[src/runtime/startup.js] op failed:', e?.message || e) }
   })().catch(() => {})
 }

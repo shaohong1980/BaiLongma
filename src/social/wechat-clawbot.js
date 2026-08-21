@@ -331,7 +331,7 @@ export async function handleClawbotInboundMessage(msg, {
   if (msg.message_type != null && Number(msg.message_type) !== MessageType.USER) return null
 
   if (msg?.context_token && msg?.from_user_id) {
-    try { upsertClawbotToken(msg.from_user_id, msg.context_token) } catch {}
+    try { upsertClawbotToken(msg.from_user_id, msg.context_token) } catch (e) { console.warn('[src/social/wechat-clawbot.js] op failed:', e?.message || e) }
   }
 
   const userId = String(msg.from_user_id || '').trim()
@@ -504,7 +504,7 @@ export function logoutClawbot() {
   clearClawbotCredentials()
   clawbotStatus = 'idle'
   currentQrUrl = null
-  try { client?.stop?.() } catch {}
+  try { client?.stop?.() } catch (e) { console.warn('[src/social/wechat-clawbot.js] op failed:', e?.message || e) }
   client = null
 }
 
@@ -528,7 +528,7 @@ export function startClawbotConnector({ pushMessage, emitEvent } = {}) {
         const rawText = await rawApiFetch(params)
         if (params?.endpoint === 'ilink/bot/sendmessage') {
           let body = null
-          try { body = JSON.parse(rawText) } catch {}
+          try { body = JSON.parse(rawText) } catch (e) { console.warn('[src/social/wechat-clawbot.js] op failed:', e?.message || e) }
           if (body && typeof body === 'object') {
             const ret = body.ret ?? body.code ?? body.errcode
             if (ret != null && ret !== 0) {
@@ -646,7 +646,7 @@ export function startClawbotConnector({ pushMessage, emitEvent } = {}) {
     platform: 'wechat-clawbot',
     stop() {
       clawbotStatus = 'idle'
-      try { client?.stop?.() } catch {}
+      try { client?.stop?.() } catch (e) { console.warn('[src/social/wechat-clawbot.js] op failed:', e?.message || e) }
     },
   }
 }

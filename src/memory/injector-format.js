@@ -12,7 +12,7 @@ function summarizeUISignals(signals = []) {
   const lines = signals.map(s => {
     const age = Math.max(0, Math.round((now - s.ts) / 1000))
     let payload = {}
-    try { payload = JSON.parse(s.payload || '{}') } catch {}
+    try { payload = JSON.parse(s.payload || '{}') } catch (e) { console.warn('[src/memory/injector-format.js] op failed:', e?.message || e) }
     const target = s.target ? ` (${s.target})` : ''
     let desc = s.type
     if (s.type === 'card.mounted')        desc = `Card finished mounting${target}`

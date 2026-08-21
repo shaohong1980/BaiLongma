@@ -223,7 +223,7 @@ export function getTrace(id) {
 
 export function clearTraces() {
   traces = []
-  try { fs.existsSync(TRACE_FILE) && fs.unlinkSync(TRACE_FILE) } catch {}
+  try { fs.existsSync(TRACE_FILE) && fs.unlinkSync(TRACE_FILE) } catch (e) { console.warn('[src/runtime/turn-trace.js] op failed:', e?.message || e) }
   return { ok: true }
 }
 

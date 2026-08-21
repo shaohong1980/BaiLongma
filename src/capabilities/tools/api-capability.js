@@ -205,7 +205,7 @@ function runCapabilityProgram(slot, args = {}, context = {}, { apiKey = '' } = {
     const timer = setTimeout(() => {
       if (settled) return
       settled = true
-      try { child.kill() } catch {}
+      try { child.kill() } catch (e) { console.warn('[src/capabilities/tools/api-capability.js] op failed:', e?.message || e) }
       reject(new Error(`capability program timed out after ${timeoutMs}ms`))
     }, timeoutMs)
 
@@ -218,12 +218,12 @@ function runCapabilityProgram(slot, args = {}, context = {}, { apiKey = '' } = {
 
     if (context.signal) {
       if (context.signal.aborted) {
-        try { child.kill() } catch {}
+        try { child.kill() } catch (e) { console.warn('[src/capabilities/tools/api-capability.js] op failed:', e?.message || e) }
         finish(reject, new Error('aborted'))
         return
       }
       context.signal.addEventListener('abort', () => {
-        try { child.kill() } catch {}
+        try { child.kill() } catch (e) { console.warn('[src/capabilities/tools/api-capability.js] op failed:', e?.message || e) }
         finish(reject, new Error('aborted'))
       }, { once: true })
     }
@@ -309,7 +309,7 @@ async function callOpenAICompatibleVision(slot, { imageUrl, prompt, detail = 'au
   })
   const text = await res.text()
   let data = null
-  try { data = text ? JSON.parse(text) : null } catch {}
+  try { data = text ? JSON.parse(text) : null } catch (e) { console.warn('[src/capabilities/tools/api-capability.js] op failed:', e?.message || e) }
   if (!res.ok) {
     const message = data?.error?.message || data?.message || text || `HTTP ${res.status}`
     throw new Error(message.slice(0, 1000))

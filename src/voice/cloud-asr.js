@@ -53,7 +53,7 @@ function createAliyunSession(apiKey, lang, onTranscript, onError, onClose, onEve
     }))
     ready = true
     for (const buf of pending) {
-      try { ws.send(buf) } catch {}
+      try { ws.send(buf) } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
     }
     pending.length = 0
   })
@@ -79,10 +79,10 @@ function createAliyunSession(apiKey, lang, onTranscript, onError, onClose, onEve
         // Aliyun 在我们没主动 finish 的情况下自己结束了任务（疑似超长单任务上限）→
         // 关掉这条连接，触发前端重连续上（重连会保住前文 + 缓冲音频，识别接着走）。
         if (event === 'task-finished' && !finishing) {
-          try { ws.close() } catch {}
+          try { ws.close() } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
         }
       }
-    } catch {}
+    } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
   })
 
   ws.on('error', (err) => { pending.length = 0; onError(err.message) })
@@ -104,7 +104,7 @@ function createAliyunSession(apiKey, lang, onTranscript, onError, onClose, onEve
         payload: { input: {} },
       }))
     },
-    close() { try { ws.close() } catch {} },
+    close() { try { ws.close() } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) } },
   }
 }
 
@@ -146,7 +146,7 @@ function createTencentSession(secretId, secretKey, appId, lang, onTranscript, on
   ws.on('open', () => {
     ready = true
     for (const buf of pending) {
-      try { ws.send(buf) } catch {}
+      try { ws.send(buf) } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
     }
     pending.length = 0
   })
@@ -161,7 +161,7 @@ function createTencentSession(secretId, secretKey, appId, lang, onTranscript, on
         const seg = result.index != null ? `t${result.index}` : null
         onTranscript(result.voice_text_str, isFinal, seg)
       }
-    } catch {}
+    } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
   })
 
   ws.on('error', (err) => { pending.length = 0; onError(err.message) })
@@ -177,9 +177,9 @@ function createTencentSession(secretId, secretKey, appId, lang, onTranscript, on
     },
     flush() {
       // 腾讯 ASR 通过关闭连接来结束会话
-      try { ws.close() } catch {}
+      try { ws.close() } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
     },
-    close() { try { ws.close() } catch {} },
+    close() { try { ws.close() } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) } },
   }
 }
 
@@ -201,7 +201,7 @@ function createXunfeiSession(appId, apiKey, lang, onTranscript, onError, onClose
   ws.on('open', () => {
     ready = true
     for (const buf of pending) {
-      try { ws.send(buf) } catch {}
+      try { ws.send(buf) } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
     }
     pending.length = 0
   })
@@ -236,7 +236,7 @@ function createXunfeiSession(appId, apiKey, lang, onTranscript, onError, onClose
         // 段内多帧（含 type=0 的增量帧）都用同一 seg 就地替换，避免重复追加。
         onTranscript(text, true, `x${xunfeiSegIdx}`)
       }
-    } catch {}
+    } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
   })
 
   ws.on('error', (err) => { pending.length = 0; onError(err.message) })
@@ -256,7 +256,7 @@ function createXunfeiSession(appId, apiKey, lang, onTranscript, onError, onClose
       // 旧代码发的是文本 JSON 帧，讯飞不认作结束标识 → 会话挂到超时、final 结果不吐出。
       ws.send(Buffer.from(JSON.stringify({ end: true })))
     },
-    close() { try { ws.close() } catch {} },
+    close() { try { ws.close() } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) } },
   }
 }
 
@@ -425,14 +425,14 @@ function createVolcengineSession(config, onTranscript, onError, onClose, onEvent
 
     socket.on('open', () => {
       if (ws !== socket || closed) return
-      try { socket.send(makeVolcFullClientRequest()) } catch {}
+      try { socket.send(makeVolcFullClientRequest()) } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
       ready = true
       for (const buf of pending) {
-        try { socket.send(makeVolcAudioFrame(buf)) } catch {}
+        try { socket.send(makeVolcAudioFrame(buf)) } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
       }
       pending.length = 0
       if (flushRequested && socket.readyState === WebSocket.OPEN) {
-        try { socket.send(makeVolcAudioFrame(Buffer.alloc(0), true)) } catch {}
+        try { socket.send(makeVolcAudioFrame(Buffer.alloc(0), true)) } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) }
       }
     })
 
@@ -485,7 +485,7 @@ function createVolcengineSession(config, onTranscript, onError, onClose, onEvent
       if (ws?.readyState !== WebSocket.OPEN) return
       ws.send(makeVolcAudioFrame(Buffer.alloc(0), true))
     },
-    close() { try { closed = true; ws?.close() } catch {} },
+    close() { try { closed = true; ws?.close() } catch (e) { console.warn('[src/voice/cloud-asr.js] op failed:', e?.message || e) } },
   }
 }
 

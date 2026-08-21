@@ -24,7 +24,7 @@ let lastHitAt = 0
 
 function appendLog(msg) {
   if (!logFile) return
-  try { fs.appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`) } catch {}
+  try { fs.appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`) } catch (e) { console.warn('[electron/kws-process.cjs] op failed:', e?.message || e) }
 }
 
 // 加载 sherpa-onnx 并用 kws-model 目录下的 transducer 模型 + keywords.txt 构建 KeywordSpotter。

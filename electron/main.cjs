@@ -42,7 +42,7 @@ const PORTABLE_ROOT = resolvePortableRoot()
 const PORTABLE_USER_DIR = PORTABLE_ROOT ? path.join(PORTABLE_ROOT, 'data') : null
 const IS_PORTABLE = Boolean(PORTABLE_USER_DIR)
 if (PORTABLE_USER_DIR) {
-  try { fs.mkdirSync(PORTABLE_USER_DIR, { recursive: true }) } catch {}
+  try { fs.mkdirSync(PORTABLE_USER_DIR, { recursive: true }) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
   app.setPath('userData', PORTABLE_USER_DIR)
   process.env.BAILONGMA_USER_DIR ||= PORTABLE_USER_DIR
 } else {
@@ -54,7 +54,7 @@ if (PORTABLE_USER_DIR) {
       app.setPath('userData', LEGACY_USER_DIR)
       process.env.BAILONGMA_USER_DIR ||= LEGACY_USER_DIR
     }
-  } catch {}
+  } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
 }
 
 const USER_DIR = app.getPath('userData')
@@ -169,12 +169,12 @@ function addExistingDir(out, dir) {
   try {
     const resolved = path.resolve(dir)
     if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) out.add(resolved)
-  } catch {}
+  } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
 }
 
 function collectSystemScreenshotDirs() {
   const dirs = new Set()
-  try { addExistingDir(dirs, path.join(app.getPath('pictures'), 'Screenshots')) } catch {}
+  try { addExistingDir(dirs, path.join(app.getPath('pictures'), 'Screenshots')) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
 
   const home = process.env.USERPROFILE || process.env.HOME || ''
   addExistingDir(dirs, path.join(home, 'Pictures', 'Screenshots'))
@@ -195,7 +195,7 @@ function collectSystemScreenshotDirs() {
       addExistingDir(dirs, base)
       addExistingDir(dirs, path.join(base, 'ScreenClip'))
     }
-  } catch {}
+  } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
 
   return [...dirs]
 }
@@ -215,7 +215,7 @@ function collectImageFiles(dir, { depth = 0 } = {}) {
     try {
       const stat = fs.statSync(full)
       files.push({ path: full, mtimeMs: stat.mtimeMs, size: stat.size })
-    } catch {}
+    } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
   }
   return files
 }
@@ -246,15 +246,15 @@ const LOG_DIR = path.join(USER_DIR, 'logs')
 const LOG_FILE = path.join(LOG_DIR, 'bailongma.log')
 const LOG_FILE_OLD = path.join(LOG_DIR, 'bailongma.old.log')
 const LOG_MAX_BYTES = 5 * 1024 * 1024
-try { fs.mkdirSync(LOG_DIR, { recursive: true }) } catch {}
+try { fs.mkdirSync(LOG_DIR, { recursive: true }) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
 function rotateLogIfNeeded() {
   try {
     const stat = fs.statSync(LOG_FILE)
     if (stat.size > LOG_MAX_BYTES) {
-      try { fs.rmSync(LOG_FILE_OLD, { force: true }) } catch {}
-      try { fs.renameSync(LOG_FILE, LOG_FILE_OLD) } catch {}
+      try { fs.rmSync(LOG_FILE_OLD, { force: true }) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
+      try { fs.renameSync(LOG_FILE, LOG_FILE_OLD) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
     }
-  } catch {}
+  } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
 }
 function writeLog(level, args) {
   let line
@@ -267,7 +267,7 @@ function writeLog(level, args) {
   } catch { line = '[log-serialize-failed]' }
   const ts = new Date().toISOString()
   const out = `${ts} [${level}] ${line}\n`
-  try { fs.appendFileSync(LOG_FILE, out) } catch {}
+  try { fs.appendFileSync(LOG_FILE, out) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
 }
 // Hijack 一次就够；后端 import 在同一进程，console.* 引用的是同一个 console 对象。
 // 把原始方法存起来，appendFile 失败时仍能输出到 stdout/stderr（开发模式可见）。
@@ -276,11 +276,11 @@ function writeLog(level, args) {
   for (const level of levels) {
     const original = console[level]?.bind(console) || (() => {})
     console[level] = (...args) => {
-      try { original(...args) } catch {}
+      try { original(...args) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
       try {
         rotateLogIfNeeded()
         writeLog(level, args)
-      } catch {}
+      } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
     }
   }
 })()
@@ -311,13 +311,13 @@ function applyGpuPreference() {
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(USER_DIR, 'config.json'), 'utf-8'))
     if (['discrete', 'integrated', 'system'].includes(cfg?.gpuPreference)) pref = cfg.gpuPreference
-  } catch {}
+  } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
   const KEY = 'HKCU\\Software\\Microsoft\\DirectX\\UserGpuPreferences'
   const { execFileSync } = require('child_process')
   try {
     if (pref === 'system') {
       // 交还系统默认。条目本不存在时 reg 会报错——吞掉即可（结果一样）
-      try { execFileSync('reg.exe', ['delete', KEY, '/v', process.execPath, '/f'], { stdio: 'ignore', windowsHide: true }) } catch {}
+      try { execFileSync('reg.exe', ['delete', KEY, '/v', process.execPath, '/f'], { stdio: 'ignore', windowsHide: true }) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
     } else {
       const value = pref === 'integrated' ? 'GpuPreference=1;' : 'GpuPreference=2;'
       execFileSync('reg.exe', ['add', KEY, '/v', process.execPath, '/t', 'REG_SZ', '/d', value, '/f'], { stdio: 'ignore', windowsHide: true })
@@ -438,7 +438,7 @@ async function findFreePort(preferred = 3721) {
         })
       })
       return actual
-    } catch {}
+    } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
   }
   throw new Error('Unable to find a free local port')
 }
@@ -684,7 +684,7 @@ ipcMain.on('focus-banner:close', () => {
   }
 })
 
-ipcMain.on('focus-banner:set-expanded', (_e, { expanded }) => {
+ipcMain.on('focus-banner:set-expanded', (_e, { _expanded }) => {
   if (!focusBannerWindow || focusBannerWindow.isDestroyed()) return
   setTimeout(() => autoResizeBannerWindow(), 50)
 })
@@ -693,7 +693,7 @@ ipcMain.on('focus-banner:request-resize', () => {
   setTimeout(() => autoResizeBannerWindow(), 30)
 })
 
-ipcMain.on('focus-banner:toggle-task', (_e, { idx, done }) => {
+ipcMain.on('focus-banner:toggle-task', (_e, { _idx, _done }) => {
   // 任务勾选状态更改，横幅已在前端自行更新，无需额外操作
 })
 
@@ -744,7 +744,7 @@ function getDisplayForTerminalWindow(payload = {}) {
 function windowSnapshot(win) {
   if (!win || win.isDestroyed()) return null
   let bounds = null
-  try { bounds = win.getBounds() } catch {}
+  try { bounds = win.getBounds() } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
   if (!bounds) return null
   const isTerminalStream = win === terminalStreamWindow
   const isMain = win === mainWindow
@@ -824,7 +824,7 @@ function maybeArrangeMainAndTerminalSidecar(workArea, desired) {
 
   const changed = ['x', 'y', 'width', 'height'].some(key => Math.abs(nextMain[key] - currentMain[key]) > 2)
   if (changed) {
-    try { mainWindow.setBounds(nextMain, false) } catch {}
+    try { mainWindow.setBounds(nextMain, false) } catch (e) { console.warn('[electron/main.cjs] op failed:', e?.message || e) }
   }
   return terminalBounds
 }

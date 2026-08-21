@@ -14,12 +14,12 @@ export class BaseProvider {
   }
 
   // 是否支持某项能力
-  canDo(capability) {
+  canDo(_capability) {
     throw new Error(`${this.name}.canDo() not implemented`)
   }
 
   // 调用某项能力
-  async call(capability, params) {
+  async call(_capability, _params) {
     throw new Error(`${this.name}.call() not implemented`)
   }
 

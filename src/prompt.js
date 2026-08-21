@@ -243,9 +243,9 @@ export function buildSystemPrompt({
   agentName = '爻台',
   persona = '',
   birthTime = '',
-  existenceDesc = 'just awakened',
+  _existenceDesc = 'just awakened',
   security: _security = null,
-  systemEnv = '',
+  _systemEnv = '',
   userMessage = '',
   // Wave 2 新增：场景规则段按需注入用的"信号位"。任何字段未传 / 缺失 → gate 视为未命中，
   // 保持向后兼容。

@@ -30,7 +30,7 @@ async function fetchLrcFromNet(title, artist) {
       const lrc = data.syncedLyrics || data.plainLyrics || null
       if (lrc) return lrc
     }
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/media/music.js] op failed:', e?.message || e) }
   // 策略2：仅 title 关键词搜索，取第一条结果
   try {
     const params = new URLSearchParams({ q: title })
@@ -44,7 +44,7 @@ async function fetchLrcFromNet(title, artist) {
         return hit.syncedLyrics || hit.plainLyrics || null
       }
     }
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/media/music.js] op failed:', e?.message || e) }
   return null
 }
 
@@ -95,7 +95,7 @@ function runProcess(file, args = [], cwd, options = {}) {
     }
 
     timer = setTimeout(() => {
-      try { child.kill() } catch {}
+      try { child.kill() } catch (e) { console.warn('[src/capabilities/tools/media/music.js] op failed:', e?.message || e) }
       finish({
         code: -1,
         stdout: decodeProcessOutput(stdoutChunks),
@@ -173,10 +173,10 @@ async function downloadLocalYtDlp() {
       const tmp = `${YTDLP_LOCAL}.download`
       fs.writeFileSync(tmp, buf)
       fs.renameSync(tmp, YTDLP_LOCAL)
-      try { fs.chmodSync(YTDLP_LOCAL, 0o755) } catch {}
+      try { fs.chmodSync(YTDLP_LOCAL, 0o755) } catch (e) { console.warn('[src/capabilities/tools/media/music.js] op failed:', e?.message || e) }
       const local = await probeYtDlpCommand({ file: YTDLP_LOCAL, label: 'local yt-dlp.exe', local: true })
       if (local) return local
-    } catch {}
+    } catch (e) { console.warn('[src/capabilities/tools/media/music.js] op failed:', e?.message || e) }
   }
   return null
 }

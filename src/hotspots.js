@@ -66,7 +66,7 @@ function readHotspotConfig() {
   let stored = {}
   try {
     stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.hotspots || {}
-  } catch {}
+  } catch (e) { console.warn('[src/hotspots.js] op failed:', e?.message || e) }
 
   const refreshMinutes = Math.max(
     5,

@@ -30,7 +30,7 @@ function toolJson(payload) {
 }
 
 function ensureDir(dir) {
-  try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+  try { fs.mkdirSync(dir, { recursive: true }) } catch (e) { console.warn('[src/capabilities/tools/python-sandbox.js] op failed:', e?.message || e) }
 }
 
 // 检测可用的 Python 可执行文件
@@ -157,10 +157,10 @@ export async function execRunPython(args = {}, context = {}) {
 
     const timer = setTimeout(() => {
       timedOut = true
-      try { child.kill('SIGKILL') } catch {}
+      try { child.kill('SIGKILL') } catch (e) { console.warn('[src/capabilities/tools/python-sandbox.js] op failed:', e?.message || e) }
       // Windows 下 kill 可能不杀子进程，用 taskkill 兜底
       if (process.platform === 'win32') {
-        try { spawn('taskkill', ['/pid', String(child.pid), '/f', '/t']) } catch {}
+        try { spawn('taskkill', ['/pid', String(child.pid), '/f', '/t']) } catch (e) { console.warn('[src/capabilities/tools/python-sandbox.js] op failed:', e?.message || e) }
       }
     }, timeoutMs)
 

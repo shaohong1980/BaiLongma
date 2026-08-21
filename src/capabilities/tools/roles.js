@@ -45,7 +45,7 @@ export function listRoles() {
       const role = loadRoleFile(path.join(ROLES_DIR, entry.name))
       if (role) ROLE_CACHE.set(role.name, role)
     }
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/tools/roles.js] op failed:', e?.message || e) }
   rolesLoadedAt = now
   return [...ROLE_CACHE.values()]
 }

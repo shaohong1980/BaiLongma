@@ -456,7 +456,7 @@ function ensureEarth() {
   earthInitPromise = earth.init().then(() => earth).catch((err) => {
     console.warn('[HotspotEarth] 初始化失败，可能是网络问题:', err);
     // 初始化失败（多半是 three.js CDN 拉不下来）→ 复位，下次打开面板重试
-    try { earth?.dispose(); } catch {}
+    try { earth?.dispose(); } catch (e) { console.warn('[src/ui/brain-ui/hotspot.js] op failed:', e?.message || e) }
     earth = null;
     earthInitPromise = null;
     return null;

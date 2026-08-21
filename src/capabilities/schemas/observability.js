@@ -59,4 +59,24 @@ export const observabilitySchemas = {
       },
     },
   },
+
+  tool_receipt: {
+    type: 'function',
+    function: {
+      name: 'tool_receipt',
+      description: '获取或校验一条工具执行记录的加密回执（ZeroClaw 风格）。每条 action_log 附带 HMAC-SHA256 签名回执，绑定工具名/时间/状态/参数哈希/结果哈希。get 返回某条 action_log 的回执；verify 当场验签判断该记录是否被篡改或来自本机。适合用户质疑"你真的执行过某操作吗"时出示可验证证据。',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['get', 'verify', 'status'],
+            description: 'get 取回执（需 id）；verify 取回执并验签（需 id）；status 查看回执功能开关。'
+          },
+          id: { type: 'number', description: 'action_log 的 id（从 /audit/stats 或对话上下文可得）。' },
+        },
+        required: ['action']
+      }
+    }
+  },
 }

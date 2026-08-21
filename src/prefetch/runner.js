@@ -1,7 +1,7 @@
 import { savePrefetchCache, clearExpiredPrefetchCache, getEnabledPrefetchTasks, isPrefetchCacheFresh } from '../db.js'
 
 // 解析 wttr.in JSON，提取完整天气信息
-function parseWttrJson(data, cityName) {
+function parseWttrJson(data, _cityName) {
   const cur = data.current_condition?.[0]
   if (!cur) return '天气数据解析失败'
 

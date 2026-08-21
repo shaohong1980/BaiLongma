@@ -2,7 +2,7 @@
 // 可视化办公大厅：CEO 决策者坐镇会议桌首席，各职能员工在工位（显示器+椅子）。
 // 工作流：上级发指令 → CEO 拆解 → 分派相关员工 → 员工执行并到会议桌汇报 → CEO 汇总。
 // 也支持 @点名某员工直接交给他（后端 /room/message）。
-import { API } from './api-client.js'
+import { API, apiSseUrl } from './api-client.js'
 
 const $ = (id) => document.getElementById(id)
 let agents = []
@@ -48,7 +48,9 @@ async function loadAgents() {
 function deskPos(a, i) {
   if (a.ceo) return { x: 50, y: 27 }          // 会议桌首席
   if (a.table) {                                // 独立外部 Agent：坐会议桌
-    const TABLE_SEATS = [{ x: 39, y: 49 }, { x: 61, y: 49 }]
+    // 3 个外部 A2A 座位（Hermes / ClaudeCode / OpenHuman），按 tIdx 取模错开，
+    // 避免第 3 个成员与第 1 个重叠在同一座位。
+    const TABLE_SEATS = [{ x: 37, y: 48 }, { x: 63, y: 48 }, { x: 50, y: 58 }]
     const tIdx = agents.filter(x => x.table).findIndex(x => x.id === a.id)
     return TABLE_SEATS[Math.max(0, tIdx) % TABLE_SEATS.length]
   }
@@ -154,17 +156,17 @@ function renderLedger() {
 // 前端 SSE 收到后立即更新角色状态，让"眼睛动"跟真实执行同步（不再等整个流程返回）。
 let officeSSE = null
 function connectOfficeSSE() {
-  try { if (officeSSE) officeSSE.close() } catch {}
+  try { if (officeSSE) officeSSE.close() } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }
   try {
-    officeSSE = new EventSource(API + '/events')
+    officeSSE = new EventSource(apiSseUrl('/events'))
     officeSSE.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data)
         if (msg.type === 'office_progress') handleOfficeProgress(msg.data || {})
-      } catch {}
+      } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }
     }
-    officeSSE.onerror = () => { try { officeSSE && officeSSE.close() } catch {}; officeSSE = null; setTimeout(connectOfficeSSE, 5000) }
-  } catch {}
+    officeSSE.onerror = () => { try { officeSSE && officeSSE.close() } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }; officeSSE = null; setTimeout(connectOfficeSSE, 5000) }
+  } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }
 }
 function handleOfficeProgress(d = {}) {
   const id = d.agentId

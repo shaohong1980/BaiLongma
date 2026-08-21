@@ -18,7 +18,7 @@ export const text = {
   exit() {},
 
   // morph:同一元素数据变化 —— 逐行原地交叉淡化,而非整块重建,体现"还是这张卡"。
-  morph(el_, prev = {}, next = {}) {
+  morph(el_, _prev = {}, next = {}) {
     let title = el_.querySelector('.s-title')
     const body = el_.querySelector('.s-body')
     let foot = el_.querySelector('.s-foot')

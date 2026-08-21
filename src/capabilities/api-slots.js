@@ -32,12 +32,14 @@ function nowIso() {
 
 function readSlotFile() {
   try {
+    // 首次运行没有 slots 文件是预期行为（返回空表），无需告警
+    if (!fs.existsSync(paths.apiCapabilitySlotsFile)) return { version: SLOT_FILE_VERSION, slots: [] }
     const parsed = JSON.parse(fs.readFileSync(paths.apiCapabilitySlotsFile, 'utf-8'))
     const file = Array.isArray(parsed)
       ? { version: 1, slots: parsed }
       : (parsed && typeof parsed === 'object' && Array.isArray(parsed.slots) ? parsed : null)
     if (file) return migrateSlotFileSecrets(file)
-  } catch {}
+  } catch (e) { console.warn('[src/capabilities/api-slots.js] op failed:', e?.message || e) }
   return { version: SLOT_FILE_VERSION, slots: [] }
 }
 

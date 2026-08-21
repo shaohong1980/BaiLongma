@@ -35,7 +35,27 @@ function buildEngine(context = {}) {
         return { content: `[LLM 调用失败: ${err.message}]` }
       }
     },
+    // F1 收敛：主工作流引擎可直接驱动「多Agent办公室」（会议桌/角色团队）。
+    executeRoom: async ({ mode, content, roles, process, manager }) => {
+      try {
+        const { officeCommand, runCrew, bossSpeak } = await import('../../multi-agent/room.js')
+        if (mode === 'crew') {
+          return await runCrew({ roles, process, manager }, content || '')
+        }
+        if (mode === 'speak') {
+          const r = await bossSpeak(content || '')
+          return { ok: true, summary: (r.responses || []).map(x => `【${x.agentName}】${x.reply}`).join('\n'), responses: r.responses }
+        }
+        // 默认 office：CEO 拆解→分派→执行→汇总
+        return await officeCommand(content || '')
+      } catch (err) {
+        return { ok: false, error: err.message }
+      }
+    },
     signal: context.signal,
+    // S3：workflow_run 由 Agent 调用（Agent 本身已有 exec_command/run_python 代码执行能力），
+    // 允许 code 节点与既有能力一致；其它调用方默认禁用。
+    allowCode: true,
   })
 }
 
@@ -163,7 +183,7 @@ export function execWorkflowDelete(args = {}) {
 }
 
 // propose_workflow：Agent 从自然语言自主设计工作流 → 校验 → 提案待用户审阅（openhuman 移植）
-export async function execProposeWorkflow(args = {}, context = {}) {
+export async function execProposeWorkflow(args = {}, _context = {}) {
   const name = String(args.name || '').trim()
   const task = String(args.task || '').trim()
   const description = String(args.description || '').trim()
@@ -174,7 +194,7 @@ export async function execProposeWorkflow(args = {}, context = {}) {
     const r = await proposeWorkflow({ name, task, description })
     if (!r.ok) return toolJson({ ok: false, tool: 'propose_workflow', error: r.error })
     // 通知前端：有待审的工作流提案（工作流编辑器显示「接受提案」卡片）
-    try { emitEvent('workflow_proposal', { proposal: r.proposal }) } catch {}
+    try { emitEvent('workflow_proposal', { proposal: r.proposal }) } catch (e) { console.warn('[src/capabilities/tools/workflow.js] op failed:', e?.message || e) }
     return toolJson({
       ok: true,
       tool: 'propose_workflow',

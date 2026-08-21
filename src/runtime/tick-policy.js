@@ -6,7 +6,7 @@
 // choices.
 
 export function buildAutonomousTickDirections({
-  startupSelfCheckActive = false,
+  _startupSelfCheckActive = false,
   awakeningTicks = 0,
   delegationDiscovery = '',
   tickerStatus = null,

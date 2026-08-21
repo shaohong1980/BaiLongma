@@ -44,7 +44,25 @@ async function getPipeline(model) {
     // 后端：transformers.js 的 Node 构建只支持 'cpu'(onnxruntime-node) / 'dml'，没有 'wasm'
     //（wasm 仅浏览器构建）。用 'cpu' 走 onnxruntime-node 原生推理；它发预编译二进制(N-API,
     // ABI 稳定)，无需 @electron/rebuild，但原生 .node/.dll 必须进 asarUnpack 才能被 dlopen。
-    return pipeline('feature-extraction', model, { dtype: 'q8', device: 'cpu' })
+    const pipe = await pipeline('feature-extraction', model, { dtype: 'q8', device: 'cpu' })
+    // 超长输入截断：transformers.js 的 FeatureExtractionPipeline._call 只透传
+    // pooling/normalize/quantize/precision，会把 max_length 直接丢弃；tokenizer 用
+    // truncation:true 截到它自己的 model_max_length（bge-large-zh-v1.5 配置里很大）。
+    // 这里把 tokenizer 的 model_max_length 钳到模型 max_position_embeddings（512），
+    // 否则超长 query（整段会议/长回复）会让 onnxruntime 报广播维度错误而整次嵌入失败。
+    // v4 起 model_max_length 是 getter（读 _tokenizerConfig.model_max_length），需写后备字段。
+    try {
+      const maxPos = pipe?.model?.config?.max_position_embeddings
+      if (maxPos && Number(maxPos) > 0 && pipe?.tokenizer) {
+        const tok = pipe.tokenizer
+        if (tok._tokenizerConfig && typeof tok._tokenizerConfig === 'object') {
+          tok._tokenizerConfig.model_max_length = Number(maxPos)
+        } else {
+          tok.model_max_length = Number(maxPos)
+        }
+      }
+    } catch (e) { console.warn('[src/embedding-local.js] op failed:', e?.message || e) }
+    return pipe
   })()
 
   // 失败时清空单例，让下次调用重试（不要把 rejected 的 Promise 永久缓存）
@@ -74,6 +92,8 @@ export async function computeLocalEmbedding(text, { model, isQuery = false } = {
     // 仅 bge 系模型套用中文检索指令前缀；其他本地模型不加，避免污染语义。
     const prepared = isQuery && /bge/i.test(model) ? BGE_QUERY_PREFIX + input : input
     // bge 官方用 CLS pooling + L2 normalize。
+    // 截断在 getPipeline 里通过钳 tokenizer.model_max_length 实现（见下），
+    // 这里无需再传 max_length——transformers.js v3 的 FeatureExtractionPipeline 会把它丢弃。
     const output = await extractor(prepared, { pooling: 'cls', normalize: true })
     const data = output?.data
     if (!data || data.length === 0) return null

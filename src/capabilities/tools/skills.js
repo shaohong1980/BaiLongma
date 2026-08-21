@@ -16,9 +16,23 @@ function slugify(name) {
     .slice(0, 64)
 }
 
+// SkillScanner 告警摘要：技能有 injection/exfiltration 高风险告警时在列表/查看里提醒。
+// secret 类告警不展示具体内容（避免把疑似硬编码密钥再打回上下文），只提示类别。
+function scanWarningLine(skill) {
+  const scan = skill?.scan
+  if (!scan || scan.verdict === 'ok') return ''
+  const high = (scan.findings || []).filter(f => f.category !== 'secret')
+  const secretCount = (scan.findings || []).filter(f => f.category === 'secret').length
+  const parts = []
+  for (const f of high) parts.push(f.label)
+  if (secretCount) parts.push(`${secretCount} 处疑似硬编码密钥`)
+  if (!parts.length) return ''
+  return ` ⚠️ [安全扫描: ${parts.join('; ')}]`
+}
+
 function describeSkill(skill, usage) {
   const state = usage ? ` [${usage.state}·${usage.use_count}次]` : ''
-  return `- ${skill.name} (id: ${skill.id})${state}: ${skill.description}`
+  return `- ${skill.name} (id: ${skill.id})${state}: ${skill.description}${scanWarningLine(skill)}`
 }
 
 // ── list_skills ──
@@ -30,7 +44,7 @@ export function execListSkills(args = {}) {
   const visible = skills
     .filter(s => s.source !== 'bundled' || args.include_archived || true)
     .map(s => ({ s, u: usageById.get(s.id) || null }))
-    .filter(({ s, u }) => {
+    .filter(({ _s, u }) => {
       if (args.include_archived) return true
       return !(u && u.state === 'archived')
     })
@@ -58,7 +72,8 @@ export function execViewSkill(args = {}) {
     return `找不到技能「${args.skill}」。${hint}`
   }
   bumpSkillUsage(skill.id)
-  return skill.raw
+  const warning = scanWarningLine(skill)
+  return warning ? `${warning}\n\n${skill.raw}` : skill.raw
 }
 
 // ── learn_skill：把"刚做的事 / 文档 / 目录 / 工作流"沉淀成 SKILL.md ──

@@ -11,7 +11,7 @@ export const BROWSER_VIEWPORT = { width: 1365, height: 900 }
 export async function getSharedBrowser() {
   const now = Date.now()
   if (_sharedBrowser && now - _sharedBrowserLastUsed > BROWSER_IDLE_TIMEOUT_MS) {
-    try { await _sharedBrowser.close() } catch {}
+    try { await _sharedBrowser.close() } catch (e) { console.warn('[src/capabilities/tools/web/browser.js] op failed:', e?.message || e) }
     _sharedBrowser = null
   }
   if (!_sharedBrowser) {
@@ -34,7 +34,7 @@ async function launchReadableBrowser() {
     for (const channel of ['msedge', 'chrome']) {
       try {
         return await chromium.launch({ ...launchOptions, channel })
-      } catch {}
+      } catch (e) { console.warn('[src/capabilities/tools/web/browser.js] op failed:', e?.message || e) }
     }
     throw firstError
   }

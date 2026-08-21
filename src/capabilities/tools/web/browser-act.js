@@ -44,8 +44,8 @@ export async function closeSession() {
   if (!session) return
   const s = session
   session = null
-  try { await s.page?.close() } catch {}
-  try { await s.context?.close() } catch {}
+  try { await s.page?.close() } catch (e) { console.warn('[src/capabilities/tools/web/browser-act.js] op failed:', e?.message || e) }
+  try { await s.context?.close() } catch (e) { console.warn('[src/capabilities/tools/web/browser-act.js] op failed:', e?.message || e) }
   // 复用单例浏览器，不关
 }
 

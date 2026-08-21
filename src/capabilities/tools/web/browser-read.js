@@ -106,7 +106,7 @@ export async function execBrowserRead(args, context = {}) {
     })
   } finally {
     // 关 context（含页面），不关 browser（单例复用）
-    try { await page?.close() } catch {}
-    try { await browserContext?.close() } catch {}
+    try { await page?.close() } catch (e) { console.warn('[src/capabilities/tools/web/browser-read.js] op failed:', e?.message || e) }
+    try { await browserContext?.close() } catch (e) { console.warn('[src/capabilities/tools/web/browser-read.js] op failed:', e?.message || e) }
   }
 }

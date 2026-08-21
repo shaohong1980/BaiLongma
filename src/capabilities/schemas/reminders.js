@@ -49,6 +49,10 @@ export const remindersSchemas = {
           id: {
             type: 'integer',
             description: 'For cancel only: reminder id to cancel, obtained from list.'
+          },
+          conversation_ref: {
+            type: 'string',
+            description: 'For create only: optional conversation/party ID to bind this reminder to. When the reminder fires, its system message carries that conversation\'s recent context so the task continues with the earlier discussion in mind (e.g. "ID:000001" or a channel party id).'
           }
         },
         required: ['action']

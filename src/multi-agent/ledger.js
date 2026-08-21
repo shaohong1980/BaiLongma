@@ -19,7 +19,7 @@ function load() {
   } catch { entries = [] }
 }
 function persist() {
-  try { fs.mkdirSync(path.dirname(LEDGER_FILE), { recursive: true }); fs.writeFileSync(LEDGER_FILE, JSON.stringify(entries, null, 2), 'utf-8') } catch {}
+  try { fs.mkdirSync(path.dirname(LEDGER_FILE), { recursive: true }); fs.writeFileSync(LEDGER_FILE, JSON.stringify(entries, null, 2), 'utf-8') } catch (e) { console.warn('[src/multi-agent/ledger.js] op failed:', e?.message || e) }
 }
 
 // 记录一次 agent 活动

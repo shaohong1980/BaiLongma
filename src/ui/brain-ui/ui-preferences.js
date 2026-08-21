@@ -30,13 +30,13 @@ export function readPhysicsSettings() {
       if (typeof parsed.repulsion === "number") physicsSettings.repulsion = parsed.repulsion;
       if (typeof parsed.nodeSize === "number") physicsSettings.nodeSize = parsed.nodeSize;
     }
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/ui-preferences.js] op failed:', e?.message || e) }
 }
 
 export function savePhysicsSettings() {
   try {
     localStorage.setItem(PHYSICS_STORAGE_KEY, JSON.stringify(physicsSettings));
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/ui-preferences.js] op failed:', e?.message || e) }
 }
 
 export function refreshThemeColors() {

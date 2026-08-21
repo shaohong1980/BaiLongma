@@ -5,7 +5,6 @@
 import fs from 'fs'
 import path from 'path'
 import { paths } from '../paths.js'
-import { getDB } from '../db.js'
 
 export function backupLocalData({ target_dir = 'backups' } = {}) {
   const target = path.resolve(paths.sandboxDir, String(target_dir || 'backups'))
@@ -43,7 +42,7 @@ export function backupLocalData({ target_dir = 'backups' } = {}) {
       fs.copyFileSync(paths.configFile, dest)
       written.push({ file: 'config.json', bytes: fs.statSync(dest).size, source: 'config' })
     }
-  } catch {}
+  } catch (e) { console.warn('[src/runtime/backup.js] op failed:', e?.message || e) }
 
   // 沙箱工作文件（顶层，不含备份目录本身）
   try {
@@ -55,7 +54,7 @@ export function backupLocalData({ target_dir = 'backups' } = {}) {
       fs.copyFileSync(src, path.join(backupDir, f))
       written.push({ file: f, bytes: st.size, source: 'sandbox' })
     }
-  } catch {}
+  } catch (e) { console.warn('[src/runtime/backup.js] op failed:', e?.message || e) }
 
   return { ok: true, backup_dir: backupDir, files: written }
 }

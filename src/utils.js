@@ -10,7 +10,7 @@ export function extractJSON(raw, type = 'object') {
   if (codeBlockMatch) {
     try {
       return JSON.parse(codeBlockMatch[1].trim())
-    } catch {}
+    } catch (e) { console.warn('[src/utils.js] op failed:', e?.message || e) }
   }
 
   // 直接匹配 JSON 数组或对象
@@ -19,7 +19,7 @@ export function extractJSON(raw, type = 'object') {
   if (match) {
     try {
       return JSON.parse(match[0])
-    } catch {}
+    } catch (e) { console.warn('[src/utils.js] op failed:', e?.message || e) }
   }
 
   return null

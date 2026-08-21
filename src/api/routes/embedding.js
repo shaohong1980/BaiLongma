@@ -50,7 +50,7 @@ export async function handleEmbeddingRoutes(req, res, url) {
       try {
         const body = await readJsonBody(req)
         force = !!body.force
-      } catch {}
+      } catch (e) { console.warn('[src/api/routes/embedding.js] op failed:', e?.message || e) }
       runBackfill({ batchSize: 20, throttleMs: 200, force }).catch(() => {})
       jsonResponse(res, 200, { ok: true, started: true, force, status: getBackfillStatus() })
     } catch (err) {

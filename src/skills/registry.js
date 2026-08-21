@@ -2,6 +2,8 @@ import fs from 'fs'
 import path from 'path'
 import { paths } from '../paths.js'
 import { extractKeywords } from '../memory/keywords.js'
+import { scanSkillContent } from '../capabilities/security-guards.js'
+import { config } from '../config.js'
 
 const SKILL_FILE = 'SKILL.md'
 const MAX_ACTIVE_SKILLS = 3
@@ -136,16 +138,25 @@ function readSkill(filePath, sourceRoot) {
       if (entry.name === 'node_modules' || entry.name === '.git') continue
       resources.push(`${entry.isDirectory() ? 'dir' : 'file'}:${entry.name}`)
     }
-  } catch {}
+  } catch (e) { console.warn('[src/skills/registry.js] op failed:', e?.message || e) }
 
   const source = sourceRoot === paths.bundledSkillsDir
     ? 'bundled'
     : (sourceRoot === paths.sandboxSkillsDir ? 'sandbox' : 'user')
 
+  // QwenPaw SkillScanner 移植：技能加载时跑一遍安全扫描（prompt injection / 硬编码密钥 / 数据外泄）。
+  // 结果挂在 skill.scan 上，供 list_skills / view_skill 展示告警。mode 来自 config.security.skillScan。
+  const scan = scanSkillContent(text, {
+    mode: config.security?.skillScan || 'warn',
+    whitelist: config.security?.skillScanWhitelist || [],
+    id,
+  })
+
   return {
     id,
     name,
     description,
+    scan,
     tags: Array.isArray(meta.tags) ? meta.tags.map(String) : [],
     aliases: Array.isArray(meta.aliases) ? meta.aliases.map(String) : [],
     triggers: Array.isArray(meta.triggers) ? meta.triggers.map(String) : [],

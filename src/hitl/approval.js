@@ -28,10 +28,6 @@ const STATUS = {
 // 内存中的等待回调 Map：approval_id → { resolve, reject, timer }
 const pendingCallbacks = new Map()
 
-function toolJson(payload) {
-  return JSON.stringify(payload, null, 2)
-}
-
 function generateId() {
   return 'apr_' + crypto.randomBytes(6).toString('hex')
 }

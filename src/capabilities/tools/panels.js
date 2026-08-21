@@ -8,6 +8,8 @@ import { setBaguaPanelState, getBaguaPanelState } from "../../bagua.js"
 import { setPersonCardPanelState, getPersonCardPanelState, getPersonCard } from "../../person-cards.js"
 import { setDocPanelState } from "../../docs.js"
 import { getMapServiceSettings } from "../../map-service.js"
+import path from 'path'
+import { SANDBOX_ROOT, isPathInside } from '../sandbox.js'
 
 function toolJson(payload) {
   return JSON.stringify(payload, null, 2)
@@ -190,6 +192,37 @@ export function execOpenDocPanel(args = {}) {
   })
 
   return JSON.stringify({ ok: true, tool: 'open_doc_panel', topic: effectiveTopic, state })
+}
+
+export function execPreviewFile(args = {}) {
+  const action = String(args.action || 'open').trim().toLowerCase()
+  const nextActive = action !== 'close'
+
+  let relPath = ''
+  if (nextActive) {
+    const raw = String(args.path || '').trim()
+    if (!raw) return toolJson({ ok: false, tool: 'preview_file', error: '打开预览需要 path（sandbox 内相对或绝对路径）' })
+    // 归一化：相对路径基于 sandbox；绝对路径必须在 sandbox 内
+    const candidate = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(SANDBOX_ROOT, raw)
+    if (!isPathInside(SANDBOX_ROOT, candidate)) {
+      return toolJson({ ok: false, tool: 'preview_file', error: '只能预览 sandbox 目录内的文件', hint: `sandbox: ${SANDBOX_ROOT}` })
+    }
+    relPath = path.relative(SANDBOX_ROOT, candidate).replace(/\\/g, '/')
+  }
+
+  emitEvent('preview_file_mode', {
+    action: nextActive ? 'open' : 'close',
+    active: nextActive,
+    path: relPath,
+    reason: typeof args.reason === 'string' ? args.reason : '',
+  })
+  emitEvent('action', {
+    tool: 'preview_file',
+    summary: nextActive ? `预览文件（${relPath}）` : '关闭文件预览',
+    detail: args.reason || '',
+  })
+
+  return toolJson({ ok: true, tool: 'preview_file', active: nextActive, path: relPath || null })
 }
 
 export function execPersonCardMode(args = {}) {

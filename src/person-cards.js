@@ -315,34 +315,6 @@ Current person-card panel: ${status}. ${current}${ttl}.
 Use the person_card_mode tool to open, update, or close a person card only when the user explicitly says they do not know someone, asks who someone is, or a demo requires it. Do not open it proactively just to show off.`
 }
 
-function persistMentionedPerson(card, message = '') {
-  if (!card?.name) return null
-  const timestamp = nowTimestamp()
-  const memId = `known_person_${personCardId(card.name).replace(/^person_card_/, '')}`
-  const detail = [
-    `Identity: ${card.title || 'unknown'}`,
-    `Summary: ${card.summary || ''}`,
-    card.knownFor?.length ? `Known for: ${card.knownFor.join(', ')}` : '',
-    card.tags?.length ? `Tags: ${card.tags.join(', ')}` : '',
-    `Source: ${card.source || 'person_card'}`,
-    `Trigger message excerpt: ${String(message || '').slice(0, 120)}`,
-    'This is an automatically archived person-identification fact. If more accurate information appears later, update the same mem_id with upsert_memory.',
-  ].filter(Boolean).join('\n')
-
-  return upsertMemoryByMemId({
-    mem_id: memId,
-    type: 'person_card',
-    title: `Person card: ${card.name}`,
-    content: `The user asked about or mentioned this person: ${card.name}`,
-    detail,
-    entities: ['SYSTEM'],
-    concepts: [card.name, ...(card.aliases || []), ...(card.tags || [])].filter(Boolean).slice(0, 16),
-    tags: ['person_card', 'public_figure', `source:${card.source || 'unknown'}`],
-    source_ref: 'person_card_context',
-    timestamp,
-  })
-}
-
 export function buildPersonCardRuntimeContext() {
   const state = getPersonCardPanelState()
   const card = state.contextActive ? state.card : null

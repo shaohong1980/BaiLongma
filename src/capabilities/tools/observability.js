@@ -1,5 +1,7 @@
 // tools/observability.js —— 可观测性工具执行器（P1）
 import { getCostBreakdown, getTraces, getTraceDetail, getDashboardData } from '../../observability/index.js'
+import { getActionLog } from '../../db.js'
+import { toolReceiptsEnabled, buildReceiptForLogRow, verifyToolReceiptSafe } from '../tool-receipts.js'
 
 function toolJson(payload) {
   return JSON.stringify(payload, null, 2)
@@ -102,4 +104,54 @@ export function execObservabilityDashboard(args = {}) {
   } catch (err) {
     return toolJson({ ok: false, tool: 'observability_dashboard', error: err.message })
   }
+}
+
+// tool_receipt：工具执行加密回执（get / verify / status）
+export function execToolReceipt(args = {}) {
+  const action = String(args.action || 'status').trim().toLowerCase()
+  const id = Number(args.id) || 0
+  if (action === 'status') {
+    return toolJson({
+      ok: true,
+      tool: 'tool_receipt',
+      action: 'status',
+      enabled: toolReceiptsEnabled(),
+      hint: 'tool_receipt get id=.. 取回执；tool_receipt verify id=.. 验签。',
+    })
+  }
+  if (!id) return toolJson({ ok: false, tool: 'tool_receipt', error: '需要 id（action_log 编号）' })
+  const row = getActionLog(id)
+  if (!row) return toolJson({ ok: false, tool: 'tool_receipt', error: `action_log ${id} 不存在` })
+  let receipt = null
+  if (row.receipt) {
+    try { receipt = JSON.parse(row.receipt) } catch (e) { console.warn('[src/capabilities/tools/observability.js] op failed:', e?.message || e) }
+  }
+  if (!receipt) receipt = buildReceiptForLogRow(row)
+  if (action === 'verify') {
+    if (!receipt) return toolJson({ ok: true, tool: 'tool_receipt', action: 'verify', valid: false, reason: '该记录无回执' })
+    const result = verifyToolReceiptSafe(receipt)
+    return toolJson({
+      ok: true,
+      tool: 'tool_receipt',
+      action: 'verify',
+      id,
+      recorded_tool: row.tool,
+      timestamp: row.timestamp,
+      status: row.status,
+      ...result,
+    })
+  }
+  // get
+  return toolJson({
+    ok: true,
+    tool: 'tool_receipt',
+    action: 'get',
+    id,
+    recorded_tool: row.tool,
+    timestamp: row.timestamp,
+    status: row.status,
+    source: row.source,
+    summary: row.summary,
+    receipt,
+  })
 }

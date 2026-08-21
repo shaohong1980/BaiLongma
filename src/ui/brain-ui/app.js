@@ -1,5 +1,5 @@
 ﻿import { renderBrainUiApp } from "./app-shell.js";
-import { API } from "./api-client.js";
+import { API, apiSseUrl } from "./api-client.js";
 import { bootstrapScene } from "../scene-shell/bootstrap.js";
 import { initChat, friendlyChannelLabel } from "./chat.js";
 import { initPanelCollapse } from "./panel-collapse.js";
@@ -12,17 +12,19 @@ import { initWorldcup, toggleWorldcup, setWorldcupMode } from "./worldcup.js";
 import { initTyphoon, toggleTyphoon, setTyphoonMode } from "./typhoon.js";
 import { enrichVisiblePersonCardFromText, initPersonCard, setPersonCardMode, showPersonCardByName } from "./person-card.js";
 import { initDocPanel, setDocPanelMode } from "./doc.js";
+import { initPreviewPanel, openPreviewPanel } from "./preview-panel.js";
+import { initCommandPalette } from "./command-palette.js";
 import { initMapPanel } from "./map-panel.js";
 import { initWechatPopup, showWechatPopup } from "./wechat-popup.js";
 import { initFeishuPopup, showFeishuPopup } from "./feishu-popup.js";
 import { attachJarvisAudioGraph, attachJarvisFx, isFxEnabledForVoice, setFxEnabledForVoice, getJarvisFxParams, setJarvisFxParams, resetJarvisFxParams, isFxUnlocked, tryUnlockFx } from "./tts-fx.js";
 import { buildVisemeTimeline, getVisemeAt } from "./viseme.js";
 import { initAudioOutputRouting, applyOutputSink, listOutputDevices, getOutputPreference, setOutputPreference } from "./audio-output.js";
-import { parseEntities, parseLinks, deterministicIndex, shuffleArray, createVisualOrder } from "./memory-graph.js";
+import { shuffleArray } from "./memory-graph.js";
 import { initUiZoom } from "./ui-zoom.js";
 import { physicsSettings, themeColors, readCSSVar, readPhysicsSettings, savePhysicsSettings, refreshThemeColors } from "./ui-preferences.js";
 import { withStates } from "./with-states.js";
-import { setGraphData, computeDegrees, markCore, renderLegend, isConversationMemory, nodeColor, nodeRadius, resolveNodeColor, semanticChildTargets, chooseVisualParent, getCurrentVisualChildCounts, maxVisualChildren, addSupplementalVisualLinks, addRandomVisualLinks, findAnchorNode, NODE_TYPE_LABELS } from "./memory-graph-core.js";
+import { setGraphData, computeDegrees, markCore, renderLegend, isConversationMemory, nodeColor, nodeRadius, resolveNodeColor, addRandomVisualLinks, findAnchorNode, NODE_TYPE_LABELS } from "./memory-graph-core.js";
 renderBrainUiApp(document.body);
 const THEME_KEY = "jarvis-brain-ui-theme";
 const ACTIVATION_WARMUP_KEY = "bailongma_activation_warmup_until";
@@ -58,13 +60,10 @@ let openSettingsRef = null;
 function addMsg(...args) { return chat?.addMsg(...args); }
 function openChat(...args) { return chat?.openChat(...args); }
 function updateLastJarvisMsg(...args) { return chat?.updateLastJarvisMsg(...args); }
-function isTyping() { return chat?.isTyping() || false; }
 
 function defaultInputPlaceholder() {
   return `向 ${agentName} 发消息…`;
 }
-
-
 
 function setAgentName(nextName) {
   const normalized = String(nextName || "").trim() || DEFAULT_AGENT_NAME;
@@ -85,7 +84,7 @@ async function loadAgentProfile() {
     if (!res.ok) return;
     const data = await res.json();
     setAgentName(data.name);
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
 }
 
 ;
@@ -115,7 +114,7 @@ function updatePhysicsReadout() {
 
 function applyTheme(theme) {
   document.body.dataset.theme = theme;
-  try { localStorage.setItem(THEME_KEY, theme); } catch {}
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   document.querySelectorAll(".theme-dot").forEach(el => {
     el.classList.toggle("active", el.dataset.t === theme);
   });
@@ -131,7 +130,7 @@ function applyTheme(theme) {
 
 (function initTheme() {
   let saved = "neon";
-  try { saved = localStorage.getItem(THEME_KEY) || "neon"; } catch {}
+  try { saved = localStorage.getItem(THEME_KEY) || "neon"; } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   applyTheme(saved);
 })();
 
@@ -348,7 +347,7 @@ function initGraphDetail() {
         const nids = rows.map(m => m.mem_id || m.id).filter(Boolean);
         highlightNodes(nids, 12000);
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   });
 }
 
@@ -812,10 +811,8 @@ function bumpTokens(text) {
 // 纯事件驱动：focus_frame → 全量重渲染；focus_compressed → 在栈顶尾部追加 conclusion 并淡入。
 
 function escapeFocusText(s) {
-  return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  // 委托统一转义助手（比旧版多转义引号，浏览器渲染结果一致）
+  return escHtml(s);
 }
 
 function truncateConclusion(text, max = 60) {
@@ -905,11 +902,11 @@ function flashFocusCompressed() {
 
 // 晨间简报卡片：把内容渲染进 #brief-card 并展开（供 SSE briefing_show 事件调用）。
 // 模块级函数，handle（connectSSE 内）与设置区按钮共用。
-function showBriefingCard(content, date) {
+function showBriefingCard(content, _date) {
   const body = document.getElementById("brief-body");
   const card = document.getElementById("brief-card");
   if (!body || !content) return;
-  const esc = String(content).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = escHtml(content);
   body.innerHTML = esc.split("\n").map(line => {
     if (/^### /.test(line)) return '<div class="brief-h3">' + line.slice(4) + "</div>";
     if (/^## /.test(line)) return '<div class="brief-h2">' + line.slice(3) + "</div>";
@@ -920,14 +917,14 @@ function showBriefingCard(content, date) {
   if (card) {
     card.hidden = false;
     localStorage.removeItem("bailongma.brief.closed");
-    try { card.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch {}
+    try { card.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
 }
 
 // 复杂任务完成后的技能沉淀建议卡：轻提示、可关闭、不打断对话。
 let skillSuggestionTimer = null;
 function showSkillSuggestionCard(task, suggestion) {
-  const esc = String(suggestion || "").replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = escHtml(suggestion || "");
   let el = document.getElementById("skill-suggestion-card");
   if (!el) {
     el = document.createElement("div");
@@ -951,7 +948,7 @@ function showSkillSuggestionCard(task, suggestion) {
 
 function connectSSE() {
   setConnectionState("连接中", true);
-  const es = new EventSource(`${API}/events`);
+  const es = new EventSource(apiSseUrl('/events'));
 
   es.onopen = () => setConnectionState("已连接", true);
 
@@ -1143,7 +1140,7 @@ function handle({ type, data = {} }) {
     case "workbench_updated":
       // 工作台数据变化（Agent 工具/UI 操作）→ 刷新作战指挥 + 待办工作页
       if (typeof window.__refreshWorkbench === "function") {
-        try { window.__refreshWorkbench(); } catch {}
+        try { window.__refreshWorkbench(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       }
       renderDashboard();
       renderWorkbenchPage();
@@ -1223,6 +1220,9 @@ function handle({ type, data = {} }) {
       break;
     case "doc_panel_mode":
       setDocPanelMode(!!data.active || data.action === "open", { topicId: data.topic || null, source: "agent_event" });
+      break;
+    case "preview_file_mode":
+      openPreviewPanel(!!data.active || data.action === "open", data.path || "");
       break;
     case "person_card_mode":
       setPersonCardMode(!!data.active || data.action === "show" || data.action === "open" || data.action === "update", { source: "agent_event", card: data.card || null });
@@ -1313,7 +1313,7 @@ function isTTSStreamingEnabled() {
   try { return localStorage.getItem(TTS_STREAMING_KEY) !== '0'; } catch { return true; } // 默认开启
 }
 function setTTSStreamingEnabled(on) {
-  try { localStorage.setItem(TTS_STREAMING_KEY, on ? '1' : '0'); } catch {}
+  try { localStorage.setItem(TTS_STREAMING_KEY, on ? '1' : '0'); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
 }
 // 仅当开启 + 浏览器支持 MSE 流式 MP3 时才走流式，否则退回整段 blob 播放（绝不让声音变哑）
 function ttsCanStream() {
@@ -1394,8 +1394,8 @@ window.stopTTS = () => {
   applyTTSInterruption(spokenUpTo);
   clearTTSAudioGraph();
   ttsAudioEl.pause();
-  try { URL.revokeObjectURL(ttsAudioEl.src); } catch {}
-  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch {} ttsStreamReader = null; }
+  try { URL.revokeObjectURL(ttsAudioEl.src); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
+  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } ttsStreamReader = null; }
   ttsAudioEl = null;
 };
 
@@ -1426,7 +1426,7 @@ window.resumeTTSIfNoSpeech = () => {
 
 function activateTTSAudioGraph(graph) {
   if (ttsAudioGraph && ttsAudioGraph !== graph) {
-    try { ttsAudioGraph.teardown?.(); } catch {}
+    try { ttsAudioGraph.teardown?.(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
   ttsAudioGraph = graph || null;
   window.bailongmaVoice?.setTTSAnalyser?.(ttsAudioGraph?.analyser || null);
@@ -1436,12 +1436,12 @@ function clearTTSAudioGraph(graph) {
   if (arguments.length > 0) {
     if (!graph) return;
     if (graph !== ttsAudioGraph) {
-      try { graph.teardown?.(); } catch {}
+      try { graph.teardown?.(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       return;
     }
   }
   if (ttsAudioGraph) {
-    try { ttsAudioGraph.teardown?.(); } catch {}
+    try { ttsAudioGraph.teardown?.(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
     ttsAudioGraph = null;
   }
   stopTTSVisemeLoop();
@@ -1510,9 +1510,9 @@ function startTTSAudio(audioEl, revokeUrl, opts = {}) {
   // 此时全局已指向新元素，必须用 ttsAudioEl===audioEl 守卫，否则会误杀新播放的流读取器和状态。
   const finish = () => {
     clearTTSAudioGraph(audioGraph);
-    if (revokeUrl) { try { URL.revokeObjectURL(revokeUrl); } catch {} } // 释放本元素 URL（无论是否当前）
+    if (revokeUrl) { try { URL.revokeObjectURL(revokeUrl); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } } // 释放本元素 URL（无论是否当前）
     if (ttsAudioEl !== audioEl) return; // 已不是当前播放对象：仅回收 URL，不动全局
-    if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch {} ttsStreamReader = null; }
+    if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } ttsStreamReader = null; }
     ttsAudioEl = null;
     if (onComplete) { onComplete(); return; } // 队列段：交回队列推进，麦克风/收尾由队列统一管
     ttsCurrentText = '';
@@ -1542,20 +1542,20 @@ function playTTSViaMediaSource(resp, opts = {}) {
   const isCurrentAudio = () => ttsAudioEl === audioEl;
   startTTSAudio(audioEl, url, opts); // play() 会在缓冲到首包后自动开始
   mediaSource.addEventListener('sourceopen', () => {
-    if (!isCurrentAudio()) { try { mediaSource.endOfStream(); } catch {} return; }
+    if (!isCurrentAudio()) { try { mediaSource.endOfStream(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } return; }
     let sb;
     try { sb = mediaSource.addSourceBuffer('audio/mpeg'); }
-    catch { try { mediaSource.endOfStream(); } catch {} return; }
+    catch { try { mediaSource.endOfStream(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } return; }
     const reader = resp.body.getReader();
-    if (!isCurrentAudio()) { try { reader.cancel(); } catch {} return; }
+    if (!isCurrentAudio()) { try { reader.cancel(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } return; }
     ttsStreamReader = reader;
     const queue = [];
     let finished = false;
     // appendBuffer 是异步的，更新中不能再次 append；用队列在 updateend 时串行送入
     const flush = () => {
       if (sb.updating) return;
-      if (queue.length) { try { sb.appendBuffer(queue.shift()); } catch {} return; }
-      if (finished && mediaSource.readyState === 'open') { try { mediaSource.endOfStream(); } catch {} }
+      if (queue.length) { try { sb.appendBuffer(queue.shift()); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } return; }
+      if (finished && mediaSource.readyState === 'open') { try { mediaSource.endOfStream(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } }
     };
     sb.addEventListener('updateend', flush);
     (async () => {
@@ -1564,7 +1564,7 @@ function playTTSViaMediaSource(resp, opts = {}) {
           const { done, value } = await reader.read();
           if (!isCurrentAudio()) {
             if (ttsStreamReader === reader) ttsStreamReader = null;
-            try { reader.cancel(); } catch {}
+            try { reader.cancel(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
             break;
           }
           if (done) {
@@ -1588,7 +1588,7 @@ async function playTTSReply(text, voiceId) {
   ttsInterruptionApplied = false;
   ttsInterruptedOriginalContent = '';
   // 取消上一段仍在进行的流式读取，避免旧网络流继续占用
-  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch {} ttsStreamReader = null; }
+  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } ttsStreamReader = null; }
   try {
     const resp = await fetch(`${API}/tts/stream`, {
       method: "POST",
@@ -1597,10 +1597,10 @@ async function playTTSReply(text, voiceId) {
     });
     if (!resp.ok) {
       let errMsg = `HTTP ${resp.status}`;
-      try { const j = await resp.json(); errMsg = j.error || errMsg; } catch {}
+      try { const j = await resp.json(); errMsg = j.error || errMsg; } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       throw new Error(errMsg);
     }
-    if (ttsAudioEl) { clearTTSAudioGraph(); ttsAudioEl.pause(); try { URL.revokeObjectURL(ttsAudioEl.src); } catch {} }
+    if (ttsAudioEl) { clearTTSAudioGraph(); ttsAudioEl.pause(); try { URL.revokeObjectURL(ttsAudioEl.src); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } }
     // 默认流式：边下边播；不支持 MSE / 已关闭流式 → 退回整段 blob 播放
     if (ttsCanStream() && resp.body) {
       playTTSViaMediaSource(resp);
@@ -1651,8 +1651,8 @@ function playTTSReplyIfReadable(text) {
 // ── 逐句流式 TTS 队列 ──────────────────────────────────────────────────────────
 function beginStreamingTTS() {
   // 停掉上一段仍在进行的单段播放 / 流读取
-  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch {} ttsStreamReader = null; }
-  if (ttsAudioEl) { clearTTSAudioGraph(); try { ttsAudioEl.pause(); URL.revokeObjectURL(ttsAudioEl.src); } catch {} ttsAudioEl = null; }
+  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } ttsStreamReader = null; }
+  if (ttsAudioEl) { clearTTSAudioGraph(); try { ttsAudioEl.pause(); URL.revokeObjectURL(ttsAudioEl.src); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } ttsAudioEl = null; }
   ttsStreamingMode = true;
   sttsActive = true;
   sttsConsumed = 0; sttsBuf = ''; sttsQueue = []; sttsPlaying = false;
@@ -1760,8 +1760,8 @@ function stopStreamingTTS() {
   ttsCurrentText = fullPlain;                       // 让 ✋/续播的文本计算有一致的全文基准
   ttsInterruptedRemaining = remainingPlain || fullPlain;
   applyTTSInterruption(spokenPlain.length);
-  if (ttsAudioEl) { clearTTSAudioGraph(); try { ttsAudioEl.pause(); URL.revokeObjectURL(ttsAudioEl.src); } catch {} }
-  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch {} ttsStreamReader = null; }
+  if (ttsAudioEl) { clearTTSAudioGraph(); try { ttsAudioEl.pause(); URL.revokeObjectURL(ttsAudioEl.src); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } }
+  if (ttsStreamReader) { try { ttsStreamReader.cancel(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } ttsStreamReader = null; }
   ttsAudioEl = null;
   sttsActive = false; ttsStreamingMode = false;
   sttsQueue = []; sttsBuf = ''; sttsCurSeg = ''; sttsSpoken = ''; sttsPlaying = false;
@@ -1898,6 +1898,7 @@ connectSSE();
 loadAgentProfile();
 initPersonCard();
 initDocPanel().catch((err) => console.warn('[DocPanel] init failed:', err));
+initPreviewPanel();
 initBagua();
 initMultiAgentPanel();
 chat.restoreChatHistory();
@@ -2160,7 +2161,7 @@ function initTTSSettings() {
         });
         if (!ttsResp.ok) {
           let errMsg = `合成失败（HTTP ${ttsResp.status}）`;
-          try { const j = await ttsResp.json(); errMsg = j.error || errMsg; } catch {}
+          try { const j = await ttsResp.json(); errMsg = j.error || errMsg; } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
           if (testStatus) testStatus.textContent = errMsg;
           return;
         }
@@ -2290,14 +2291,7 @@ function initTTSSettings() {
     }
   }
 
-  function escapeHtml(text) {
-    return String(text ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
+  // 统一转义：所有 HTML 注入统一走模块级 escHtml()（见文件顶部），此处不再自建副本。
 
   function syncOfficialCustomModelRow() {
     const customRow = document.getElementById("settings-official-custom-model-row");
@@ -2311,7 +2305,7 @@ function initTTSSettings() {
     const currentModel = String(current || "").trim();
     const hasCurrent = currentModel && list.some(m => m.id === currentModel);
     modelSelect.innerHTML = list
-      .map(m => `<option value="${escapeHtml(m.id)}"${m.deprecated ? " data-deprecated" : ""}>${escapeHtml(m.label || m.id)}</option>`)
+      .map(m => `<option value="${escHtml(m.id)}"${m.deprecated ? " data-deprecated" : ""}>${escHtml(m.label || m.id)}</option>`)
       .concat(`<option value="${CUSTOM_MODEL_VALUE}">手动输入模型名…</option>`)
       .join("");
     if (hasCurrent) {
@@ -2330,7 +2324,7 @@ function initTTSSettings() {
     const options = [`<option value="auto">Auto-detect</option>`]
       .concat(Object.entries(providers).map(([id, provider]) => {
         const label = provider.label || id;
-        return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+        return `<option value="${escHtml(id)}">${escHtml(label)}</option>`;
       }));
     providerSelect.innerHTML = options.join("");
     providerSelect.value = providers[selected] || selected === "auto" ? selected : "auto";
@@ -2411,11 +2405,12 @@ function initTTSSettings() {
         if (tempVal) tempVal.textContent = llm.temperature.toFixed(2);
       }
       if (thinkingToggle) thinkingToggle.checked = llm.thinking === true;
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
 
   const SOCIAL_FIELD_MAP = {
     "social-discord-token":  "DISCORD_BOT_TOKEN",
+    "social-telegram-token": "TELEGRAM_BOT_TOKEN",
     "social-feishu-appid":   "FEISHU_APP_ID",
     "social-feishu-secret":  "FEISHU_APP_SECRET",
     "social-feishu-token":   "FEISHU_VERIFICATION_TOKEN",
@@ -2428,6 +2423,7 @@ function initTTSSettings() {
 
   const SOCIAL_PLATFORM_STATUS = {
     "social-status-discord": ["DISCORD_BOT_TOKEN"],
+    "social-status-telegram":["TELEGRAM_BOT_TOKEN"],
     "social-status-feishu":  ["FEISHU_APP_ID", "FEISHU_APP_SECRET", "FEISHU_VERIFICATION_TOKEN"],
     "social-status-wechat":  ["WECHAT_OFFICIAL_APP_ID", "WECHAT_OFFICIAL_APP_SECRET", "WECHAT_OFFICIAL_TOKEN"],
     "social-status-wecom":   ["WECOM_BOT_KEY", "WECOM_INCOMING_TOKEN"],
@@ -2451,12 +2447,15 @@ function initTTSSettings() {
           el.className = "settings-platform-status miss";
         }
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
 
   const fileSandboxToggle = document.getElementById("security-file-sandbox");
   const execSandboxToggle = document.getElementById("security-exec-sandbox");
   const lanAccessToggle   = document.getElementById("security-lan-access");
+  const shellGuardSelect  = document.getElementById("security-shell-guard");
+  const fileGuardSelect   = document.getElementById("security-file-guard");
+  const skillScanSelect   = document.getElementById("security-skill-scan");
   const saveSecurityBtn   = document.getElementById("settings-save-security");
   const restartSecurityBtn = document.getElementById("settings-restart-security");
   const securityFeedback  = document.getElementById("settings-security-feedback");
@@ -2484,7 +2483,7 @@ function initTTSSettings() {
       setStatus("websearch-status-jina",    !!webSearch?.jinaConfigured,   !!webSearch?.jinaFromEnv);
       const searxngConfigured = !!webSearch?.searxngUrl || !!webSearch?.searxngFromEnv;
       setStatus("websearch-status-searxng", searxngConfigured, !!webSearch?.searxngFromEnv, webSearch?.effectiveSearxngUrl || "");
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
 
   const saveWebSearchBtn = document.getElementById("settings-save-web-search");
@@ -2539,9 +2538,6 @@ function initTTSSettings() {
     const label = { active: "活跃", stale: "闲置", archived: "归档" }[state] || state || "活跃";
     const cls = state === "stale" ? "stale" : (state === "archived" ? "archived" : "active");
     return `<span class="settings-badge settings-badge-${cls}">${label}</span>`;
-  }
-  function escHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   }
   async function loadSkillsSettings() {
     const listEl = document.getElementById("skills-list");
@@ -2732,10 +2728,13 @@ function initTTSSettings() {
       if (execSandboxToggle) execSandboxToggle.checked = security.execSandbox !== false;
       if (lanAccessToggle) lanAccessToggle.checked = network?.allowLanAccess === true;
       restartSecurityBtn?.classList.add("hidden");
+      if (shellGuardSelect) shellGuardSelect.value = security.shellGuard || "smart";
+      if (fileGuardSelect) fileGuardSelect.value = security.fileGuard || "smart";
+      if (skillScanSelect) skillScanSelect.value = security.skillScan || "warn";
       document.querySelectorAll(".security-blocked-tool").forEach(cb => {
         cb.checked = (security.blockedTools || []).includes(cb.value);
       });
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
 
   if (saveSecurityBtn) {
@@ -2748,6 +2747,9 @@ function initTTSSettings() {
         execSandbox: execSandboxToggle ? execSandboxToggle.checked : true,
         allowLanAccess: lanAccessToggle ? lanAccessToggle.checked : false,
         blockedTools,
+        shellGuard: shellGuardSelect ? shellGuardSelect.value : undefined,
+        fileGuard: fileGuardSelect ? fileGuardSelect.value : undefined,
+        skillScan: skillScanSelect ? skillScanSelect.value : undefined,
       };
       saveSecurityBtn.disabled = true;
       try {
@@ -3009,7 +3011,7 @@ function initTTSSettings() {
         try {
           const s = await navigator.mediaDevices.getUserMedia({ audio: true });
           s.getTracks().forEach(t => t.stop());
-        } catch {}
+        } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       }
       const outs = await listOutputDevices();
       // 只列真实可选设备（隐藏 default/communications 别名，避免和"自动"重复）
@@ -3179,7 +3181,7 @@ function initTTSSettings() {
     const apiKey = volcAsrKeyInput.value.trim();
     const request = ++volcAsrSaveRequest;
     try {
-      const resp = await fetch("http://127.0.0.1:3721/settings/voice", {
+      const resp = await fetch(API + "/settings/voice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ voiceProvider: "volcengine", volcAsrApiKey: apiKey }),
@@ -3233,7 +3235,7 @@ function initTTSSettings() {
 
     let savedProvider = localStorage.getItem(VOICE_PROVIDER_KEY) || "aliyun";
     try {
-      const resp = await fetch("http://127.0.0.1:3721/settings/voice");
+      const resp = await fetch(API + "/settings/voice");
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && data?.voice?.voiceProvider) {
         savedProvider = data.voice.voiceProvider;
@@ -3241,7 +3243,7 @@ function initTTSSettings() {
       }
       const savedVolcAsrKey = data?.voice?.volcAsrApiKey?.value;
       if (volcAsrKeyInput) volcAsrKeyInput.value = typeof savedVolcAsrKey === "string" ? savedVolcAsrKey : "";
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
     if (voiceProviderSelect) voiceProviderSelect.value = savedProvider;
     applyVoiceProviderUI(savedProvider);
   }
@@ -3293,7 +3295,7 @@ function initTTSSettings() {
       if (Object.keys(body).length > 0) {
         try {
           saveVoiceBtn.disabled = true;
-          const resp = await fetch("http://127.0.0.1:3721/settings/voice", {
+          const resp = await fetch(API + "/settings/voice", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -3346,7 +3348,7 @@ function initTTSSettings() {
           ? `路径：${s.path} · ${s.files} 个文件`
           : "尚未导出（点击「导出记忆库」）";
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
   document.getElementById("vault-export-btn")?.addEventListener("click", async () => {
     if (!vaultFeedback) return;
@@ -3375,9 +3377,8 @@ function initTTSSettings() {
   const briefBody = document.getElementById("brief-body");
   const briefGoals = document.getElementById("brief-goals");
   const BRIEF_CLOSED_KEY = "bailongma.brief.closed";
-  const BRIEF_ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
   function renderMarkdown(md) {
-    const esc = String(md || '').replace(/[&<>"]/g, c => BRIEF_ESCAPE[c]);
+    const esc = escHtml(md || '');
     return esc.split("\n").map(line => {
       if (/^### /.test(line)) return '<div class="brief-h3">' + line.slice(4) + "</div>";
       if (/^## /.test(line)) return '<div class="brief-h2">' + line.slice(3) + "</div>";
@@ -3397,7 +3398,7 @@ function initTTSSettings() {
         renderBriefing(b.content);
         if (briefCard && localStorage.getItem(BRIEF_CLOSED_KEY) !== "1") briefCard.hidden = false;
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
     try {
       const g = await fetch(`${API}/goals?status=active`).then(x => x.json());
       const goals = g?.goals || [];
@@ -3416,7 +3417,7 @@ function initTTSSettings() {
           }
         }
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
   document.getElementById("brief-gen")?.addEventListener("click", async () => {
     if (!briefBody) return;
@@ -3632,7 +3633,7 @@ function initTTSSettings() {
         setClawbotStatus("连接失败", false);
         if (clawbotFeedback) showFeedback(clawbotFeedback, data.error || "连接失败", true);
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
 
   if (clawbotConnectBtn) {
@@ -3649,7 +3650,7 @@ function initTTSSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ _clawbot_connect: "1" }),
       });
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
     await pollClawbotQR();
     clawbotPollTimer = setInterval(pollClawbotQR, 2000);
   });
@@ -3742,7 +3743,7 @@ function initTTSSettings() {
     try {
       const ver = await bridge.getVersion?.();
       if (settingsCurrentVersion && ver) settingsCurrentVersion.textContent = ver;
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
 
     removeUpdaterListener = bridge.onUpdaterStatus?.((payload = {}) => {
       const stage = payload.stage || "idle";
@@ -3873,11 +3874,7 @@ function initTTSSettings() {
   let activeTab = "todo";
   let reviewEditor = null;
 
-  function escapeHtml(value = "") {
-    return String(value)
-      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
+  // 统一转义：HTML 注入统一走模块级 escHtml()（见文件顶部），此处不再自建副本。
 
   function parseTags(tags) {
     try { const arr = JSON.parse(tags || "[]"); return Array.isArray(arr) ? arr.map(String) : []; }
@@ -4051,7 +4048,7 @@ function initTTSSettings() {
         currentWeekKey: data.currentWeekKey || "",
       };
       render();
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   }
 
   // 供 SSE workbench_updated 事件触发的全局刷新入口
@@ -4254,6 +4251,74 @@ window.addEventListener("bailongma:multiagent-close", () => switchAppPage("chat"
 // 默认进入作战指挥中心
 document.body.classList.add("page-dashboard");
 
+// ── 侧栏「最近会话」（QwenPaw 会话列表思路）──
+function friendlyPartyLabel(fromId, channel) {
+  const id = String(fromId || "");
+  if (!id) return "本机";
+  const c = String(channel || "").toUpperCase();
+  if (c === "WECHAT_CLAWBOT" || c === "WECHAT") return "微信";
+  if (c === "DISCORD") return "Discord";
+  if (c === "FEISHU") return "飞书";
+  if (c === "TELEGRAM") return "Telegram";
+  if (id === "ID:000001" || /^id:000001/i.test(id)) return "用户";
+  if (/^discord:/i.test(id)) return id.replace(/^discord:/, "Discord ").slice(0, 20);
+  if (/^telegram:/i.test(id)) return id.replace(/^telegram:/, "TG ").slice(0, 20);
+  return id.slice(0, 20);
+}
+async function loadRecentConversations() {
+  const box = document.getElementById("recent-convs");
+  if (!box) return;
+  try {
+    const rows = await fetch(`${API}/conversations?limit=80`).then(r => r.json());
+    if (!Array.isArray(rows)) return;
+    const byParty = new Map();
+    for (const r of rows) {
+      if (!r || typeof r.content !== "string") continue;
+      if (r.role !== "user" && r.role !== "jarvis") continue;
+      const key = r.from_id && r.role === "user" ? r.from_id : "本机";
+      if (!byParty.has(key)) {
+        byParty.set(key, {
+          label: friendlyPartyLabel(r.from_id, r.channel),
+          snippet: String(r.content).replace(/\s+/g, " ").trim().slice(0, 28),
+          time: (r.timestamp || "").slice(5, 16),
+          channel: r.channel || "",
+        });
+      }
+    }
+    const parties = [...byParty.values()].slice(0, 8);
+    if (!parties.length) { box.innerHTML = '<div class="recent-convs-empty">暂无对话记录</div>'; return; }
+    box.innerHTML = parties.map(p => `
+      <div class="recent-conv" title="${escHtml(p.snippet)}">
+        <span class="recent-conv-label">${escHtml(p.label)}</span>
+        <span class="recent-conv-snippet">${escHtml(p.snippet)}</span>
+        <span class="recent-conv-time">${escHtml(p.time)}</span>
+      </div>`).join("");
+    box.querySelectorAll(".recent-conv").forEach(el => {
+      el.addEventListener("click", () => switchAppPage("chat"));
+    });
+  } catch { /* 静默 */ }
+}
+loadRecentConversations();
+setInterval(loadRecentConversations, 120000);
+
+// ── 全局命令面板（Ctrl+K / Ctrl+Shift+P）──
+initCommandPalette([
+  { id: 'page-dashboard', title: '作战指挥中心', group: '页面', icon: '🏠', keywords: '指挥 首页 dashboard home', run: () => switchAppPage('dashboard') },
+  { id: 'page-chat', title: 'AI 对话', group: '页面', icon: '💬', keywords: '聊天 chat 对话', run: () => switchAppPage('chat') },
+  { id: 'page-multiagent', title: '多Agent办公室', group: '页面', icon: '🏢', keywords: '多智能体 办公室 multiagent', run: () => switchAppPage('multiagent') },
+  { id: 'page-workbench', title: '待办工作台', group: '页面', icon: '✅', keywords: '待办 todo workbench 工作台', run: () => switchAppPage('workbench') },
+  { id: 'page-backup', title: '数据备份', group: '页面', icon: '💾', keywords: '备份 backup 迁移', run: () => switchAppPage('backup') },
+  { id: 'page-knowledge', title: '知识库', group: '页面', icon: '📚', keywords: 'rag 知识 knowledge 文档', run: () => switchAppPage('knowledge') },
+  { id: 'page-workflow', title: '工作流', group: '页面', icon: '🔀', keywords: 'workflow 流程 编排', run: () => switchAppPage('workflow') },
+  { id: 'page-observability', title: '用量监控', group: '页面', icon: '📊', keywords: '成本 cost token 用量 监控 observability', run: () => switchAppPage('observability') },
+  { id: 'panel-preview', title: '文件预览', group: '面板', icon: '👁', keywords: 'preview 预览 文件', run: () => document.getElementById('preview-btn')?.click() },
+  { id: 'panel-video', title: '视频模式', group: '面板', icon: '🎬', keywords: 'video 视频 播放', run: () => document.getElementById('video-btn')?.click() },
+  { id: 'panel-music', title: '音乐模式', group: '面板', icon: '🎵', keywords: 'music 音乐 播放', run: () => document.getElementById('music-btn')?.click() },
+  { id: 'panel-approvals', title: '审批中心', group: '面板', icon: '☑', keywords: 'approve 审批 批准 hitl', run: () => openApprovalsModal() },
+  { id: 'action-settings', title: '打开设置', group: '操作', icon: '⚙', keywords: 'settings 设置 配置 模型', run: () => openSettingsRef?.() },
+  { id: 'action-fullscreen', title: '切换全屏', group: '操作', icon: '⛶', keywords: 'fullscreen 全屏 最大化', run: () => document.getElementById('fullscreen-btn')?.click() },
+]);
+
 // ── 作战指挥中心：指标 + 今日待办 + 记忆图谱 ──
 renderDashboard();
 function renderDashboard() {
@@ -4286,7 +4351,7 @@ function renderDashboard() {
         await fetch(`${API}/workbench/todos/${b.dataset.wbId}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" })
         });
-      } catch {}
+      } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       window.__refreshWorkbench?.();
       renderDashboard();
     }));
@@ -4339,12 +4404,12 @@ async function renderWorkbenchPage() {
         await fetch(`${API}/workbench/todos/${el.dataset.wbToggle}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: target })
         });
-      } catch {}
+      } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       window.__refreshWorkbench?.();
       renderWorkbenchPage();
     }));
     wrap.querySelectorAll("[data-wb-del]").forEach(el => el.addEventListener("click", async () => {
-      try { await fetch(`${API}/workbench/todos/${el.dataset.wbDel}`, { method: "DELETE" }); } catch {}
+      try { await fetch(`${API}/workbench/todos/${el.dataset.wbDel}`, { method: "DELETE" }); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       window.__refreshWorkbench?.();
       renderWorkbenchPage();
     }));
@@ -4366,7 +4431,7 @@ async function addWbPageTodo() {
     await fetch(`${API}/workbench/todos`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title })
     });
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   window.__refreshWorkbench?.();
   renderWorkbenchPage();
 }
@@ -4374,8 +4439,8 @@ async function addWbPageTodo() {
 // ── 数据备份页：导出 / 导入 / 清空 ──
 document.getElementById("backup-export")?.addEventListener("click", async () => {
   let memories = [], workbench = null;
-  try { memories = await fetch(`${API}/memories?limit=500`).then(r => r.json()); } catch {}
-  try { workbench = await fetch(`${API}/workbench`).then(r => r.json()); } catch {}
+  try { memories = await fetch(`${API}/memories?limit=500`).then(r => r.json()); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
+  try { workbench = await fetch(`${API}/workbench`).then(r => r.json()); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   const data = { app: "bailongma", exportedAt: new Date().toISOString(), memories, workbench };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -4392,7 +4457,7 @@ document.getElementById("backup-file")?.addEventListener("change", async (e) => 
     const data = JSON.parse(await file.text());
     if (data.workbench) {
       for (const t of (data.workbench.pending || [])) {
-        try { await fetch(`${API}/workbench/todos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: t.title }) }); } catch {}
+        try { await fetch(`${API}/workbench/todos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: t.title }) }); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       }
       for (const t of (data.workbench.done || [])) {
         try {
@@ -4400,7 +4465,7 @@ document.getElementById("backup-file")?.addEventListener("change", async (e) => 
           const j = await r.json();
           const id = j.id || j.todo?.id;
           if (id) await fetch(`${API}/workbench/todos/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" }) });
-        } catch {}
+        } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       }
     }
     window.__refreshWorkbench?.();
@@ -4420,7 +4485,7 @@ async function renderKnowledgePage() {
     set("kb-chunks", stats.chunks || 0);
     set("kb-coverage", stats.embedding_coverage != null ? stats.embedding_coverage + "%" : "—");
     set("kb-chars", (stats.total_chars || 0).toLocaleString());
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   try {
     const data = await fetch(`${API}/knowledge/docs?limit=200`).then(r => r.json());
     const wrap = document.getElementById("kb-doc-list");
@@ -4443,14 +4508,14 @@ async function renderKnowledgePage() {
         const detail = await fetch(`${API}/knowledge/docs/${encodeURIComponent(b.dataset.kbView)}`).then(r => r.json());
         const doc = detail.doc || {};
         alert(`文档：${doc.name}\n格式：${doc.format}\n分块：${doc.chunks?.length || 0} 个\n字符：${doc.chars}\n\n${(doc.chunks || []).slice(0, 3).map(c => c.text.slice(0, 120)).join("\n---\n")}`);
-      } catch {}
+      } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
     }));
     wrap.querySelectorAll("[data-kb-del]").forEach(b => b.addEventListener("click", async () => {
       if (!confirm(`确定删除文档「${b.dataset.kbDel}」？不可恢复。`)) return;
-      try { await fetch(`${API}/knowledge/docs/${encodeURIComponent(b.dataset.kbDel)}`, { method: "DELETE" }); } catch {}
+      try { await fetch(`${API}/knowledge/docs/${encodeURIComponent(b.dataset.kbDel)}`, { method: "DELETE" }); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       renderKnowledgePage();
     }));
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
 }
 document.getElementById("kb-refresh")?.addEventListener("click", renderKnowledgePage);
 document.getElementById("kb-search-btn")?.addEventListener("click", async () => {
@@ -4941,7 +5006,7 @@ function wfRenderInspector() {
     if (node.type === 'condition') branchName = { true: '真 (true)', false: '假 (false)' }
     else if (node.type === 'switch') {
       const bs = Array.isArray(cfg.branches) ? cfg.branches : []
-      bs.forEach((b, i) => { branchName[String(b.value)] = (b.label || b.value) + ` (${String(b.value)})` })
+      bs.forEach((b, _i) => { branchName[String(b.value)] = (b.label || b.value) + ` (${String(b.value)})` })
       branchName.default = '默认 (default)'
     }
     else branchName = { approved: '通过 (approved)', rejected: '拒绝 (rejected)' }
@@ -5171,7 +5236,7 @@ function wfLoadProposal(proposal) {
 // 弹出「Agent 提议了一个工作流」卡片（可接受 / 忽略）
 function showWorkflowProposalCard(proposal) {
   if (!proposal || !proposal.name) return
-  const esc = String(proposal.name).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+  const esc = escHtml(proposal.name)
   const steps = Array.isArray(proposal.summary?.steps) ? proposal.summary.steps : []
   const stepsHTML = steps.slice(0, 6).map(s => `<span class="wfp-step">${escHtml(s.kind || '')} · ${escHtml(s.name || '')}</span>`).join('')
   const el = document.createElement('div')
@@ -5194,7 +5259,7 @@ function showWorkflowProposalCard(proposal) {
   el.querySelector('.wfp-accept').addEventListener('click', () => {
     const ok = wfLoadProposal(proposal)
     el.classList.remove('show'); setTimeout(() => el.remove(), 300)
-    if (ok) { try { document.getElementById('wf-zoom-fit')?.click() } catch {} }
+    if (ok) { try { document.getElementById('wf-zoom-fit')?.click() } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } }
   })
   setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300) }, 30000)
 }
@@ -5221,7 +5286,7 @@ async function renderWorkflowPage() {
         const list = await fetch(`${API}/workflows`).then(r => r.json())
         const first = (list.templates || [])[0]
         if (first?.id) await wfLoadTemplateById(first.id)
-      } catch {}
+      } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
     }
   }
   wfRenderCanvas()
@@ -5330,7 +5395,7 @@ document.getElementById('wf-run-exec')?.addEventListener('click', async () => {
   const wf = JSON.parse(JSON.stringify(wfEditor))
   const inputText = document.getElementById('wf-run-input')?.value.trim() || ''
   let parsed = { input: inputText }
-  if (inputText && inputText.trim().startsWith('{')) { try { parsed = JSON.parse(inputText) } catch {} }
+  if (inputText && inputText.trim().startsWith('{')) { try { parsed = JSON.parse(inputText) } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) } }
   if (!wf.nodes.some(n => n.type === 'start')) { statusEl.textContent = '缺少 start 节点'; return }
   statusEl.textContent = '运行中…'
   logEl.innerHTML = ''
@@ -5412,21 +5477,34 @@ async function renderObservabilityPage() {
         <div class="obs-row"><span class="obs-row-label">${escHtml(t.created_at || '')} · ${escHtml(t.model || '')}</span>
         <span class="obs-row-val">$ ${Number(t.cost_estimate || 0).toFixed(4)}</span></div>`).join("");
     }
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
 }
 document.getElementById("obs-refresh")?.addEventListener("click", renderObservabilityPage);
 
 // ── 审批中心（HITL）──
 async function refreshApprovalBadge() {
   const badge = document.getElementById("approvals-badge");
-  if (!badge) return;
+  const banner = document.getElementById("approval-banner");
+  const bannerText = document.getElementById("approval-banner-text");
   try {
     const r = await fetch(`${API}/approvals?status=pending&limit=1`).then(res => res.json());
     const count = r.pending_count || 0;
-    badge.style.display = count ? "inline-block" : "none";
-    badge.textContent = count;
-  } catch {}
+    if (badge) {
+      badge.style.display = count ? "inline-block" : "none";
+      badge.textContent = count;
+    }
+    // 待审批横幅：有审批时置顶提示，点击查看（5 秒后自动淡出）
+    if (banner) {
+      banner.hidden = count <= 0;
+      if (bannerText) bannerText.textContent = `有 ${count} 个待审批事项`;
+      if (count > 0) banner.classList.add("show");
+      clearTimeout(refreshApprovalBadge._hideTimer);
+      refreshApprovalBadge._hideTimer = setTimeout(() => banner.classList.remove("show"), 8000);
+    }
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
 }
+document.getElementById("approval-banner-btn")?.addEventListener("click", () => { openApprovalsModal(); });
+document.getElementById("approval-banner")?.addEventListener("click", (e) => { if (e.target === e.currentTarget) openApprovalsModal(); });
 document.getElementById("approvals-btn")?.addEventListener("click", () => { openApprovalsModal(); });
 function openApprovalsModal() {
   const overlay = document.getElementById("approvals-overlay");
@@ -5473,7 +5551,7 @@ async function resolveApproval(id, action) {
     await fetch(`${API}/approvals/${encodeURIComponent(id)}/${action}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: action === "reject" ? "用户主动拒绝" : "" })
     });
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   loadApprovals();
   refreshApprovalBadge();
 }
@@ -5510,7 +5588,7 @@ document.getElementById("fullscreen-btn")?.addEventListener("click", () => {
   try {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
     else document.exitFullscreen?.();
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
 });
 
 // ── 顶栏：投影（打开文档面板作为投影示例）──
@@ -5659,7 +5737,7 @@ document.getElementById("project-btn")?.addEventListener("click", () => {
       playResumeAt = null;
       reloadFrameAutoplay(false);
     } else if (videoKind === "file") {
-      try { videoFeed?.pause?.(); } catch {}
+      try { videoFeed?.pause?.(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       playResumeAt = null;
     }
   }
@@ -5680,7 +5758,7 @@ document.getElementById("project-btn")?.addEventListener("click", () => {
   function resetVideoSurface() {
     stopCamera();
     if (videoFeed) {
-      try { videoFeed.pause(); } catch {}
+      try { videoFeed.pause(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       videoFeed.removeAttribute("src");
       videoFeed.srcObject = null;
       videoFeed.hidden = true;
@@ -5712,14 +5790,6 @@ document.getElementById("project-btn")?.addEventListener("click", () => {
   function closeAndDestroyVideo() {
     setPanelVisible(false);
     resetVideoSurface();
-  }
-
-  function setVideoModeActive(active) {
-    if (!active) {
-      closeAndDestroyVideo();
-    } else {
-      setPanelVisible(true);
-    }
   }
 
   function setBackdrop(kind, url) {
@@ -6168,7 +6238,7 @@ document.getElementById("project-btn")?.addEventListener("click", () => {
       const res = await fetch(`${API}/media/music/scan`, { method: "POST" });
       const data = await res.json();
       if (data && data.ok) await loadMusicLibrary();
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
     finally { musicScanBtn.textContent = original; }
   });
   musicAddBtn?.addEventListener("click", async () => {
@@ -6184,7 +6254,7 @@ document.getElementById("project-btn")?.addEventListener("click", () => {
         musicAddPath.value = "";
         await loadMusicLibrary();
       }
-    } catch {}
+    } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
   });
   musicAddPath?.addEventListener("keydown", (e) => { if (e.key === "Enter") musicAddBtn?.click(); });
   renderMusicModeBtn();
@@ -6267,7 +6337,7 @@ document.getElementById("project-btn")?.addEventListener("click", () => {
       if (pttHeld) return;
       pttHeld = true;
       // 不论是否在播，stopTTS 内部已做 no-op 守卫
-      try { window.stopTTS?.(); } catch {}
+      try { window.stopTTS?.(); } catch (e) { console.warn('[src/ui/brain-ui/app.js] op failed:', e?.message || e) }
       window.bailongmaVoice?.pttStart?.();
     }, { capture: true });
 

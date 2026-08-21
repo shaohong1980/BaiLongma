@@ -24,7 +24,7 @@ import { buildSkillSuggestion } from './memory/skill-suggest.js'
 import { runRuntimeInjector } from './context/runtime-injector.js'
 import { selectContextSections } from './context/section-gate.js'
 import { capLowValueSegment, summarizeContextBudget, warnIfOverBudget } from './context/token-budget.js'
-import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, loadThreadState, saveThreadState, setCurrentFocusTopic, setCurrentThreadId, updateUserMessageFocusTopic, reassignConversationsThread, insertActionLog } from './db.js'
+import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, getRecentConversation, loadFocusStack, loadThreadState, saveThreadState, setCurrentFocusTopic, setCurrentThreadId, updateUserMessageFocusTopic, reassignConversationsThread, insertActionLog } from './db.js'
 import { calculateNextDueAt, autoSpeakForVoiceReply, detectOpenFollowupQuestion } from './capabilities/executor.js'
 import { buildRoleContextBlock } from './capabilities/tools/roles.js'
 import { pushMessage } from './inbound-message.js'
@@ -128,7 +128,7 @@ let persistedTaskSteps = []
 try {
   const raw = getConfig('current_task_steps')
   if (raw) persistedTaskSteps = JSON.parse(raw)
-} catch {}
+} catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) }
 if (persistedTask) {
   console.log(`[system] Resuming in-progress task: ${persistedTask.slice(0, 80)}`)
   if (persistedTaskSteps.length) console.log(`[system] Restoring task steps: ${persistedTaskSteps.length} step(s)`)
@@ -625,6 +625,7 @@ function clearExecution(controller) {
 
 function enqueueDueReminders() {
   const now = new Date().toISOString()
+  const nowMs = Date.now()
   const dueReminders = getDueReminders(now, 20)
   for (const reminder of dueReminders) {
     if (reminder.recurrence_type) {
@@ -645,9 +646,31 @@ function enqueueDueReminders() {
       const marked = markReminderFired(reminder.id, now)
       if (!marked.changes) continue
     }
-    pushMessage('SYSTEM', reminder.system_message, 'REMINDER', {
+
+    // 会话绑定（AionUi Cron 思路）：提醒带 conversation_ref 时，把该会话最近上下文拼进
+    // 触发消息，让 Agent 处理时带着此前讨论，跨轮延续话题。迟到补跑时 miss 也一并说明。
+    let fireMessage = reminder.system_message
+    const missedByMs = Math.max(0, nowMs - new Date(reminder.due_at).getTime())
+    if (missedByMs > 5 * 60 * 1000) {
+      const mins = Math.round(missedByMs / 60000)
+      fireMessage += `\n（本次为迟到补跑：原定 ${reminder.due_at}，已晚约 ${mins} 分钟。）`
+    }
+    if (reminder.conversation_ref) {
+      try {
+        const boundCtx = getRecentConversation(reminder.conversation_ref, 10, 24)
+        if (boundCtx && boundCtx.length) {
+          const ctxText = boundCtx.map(r => r.content || '').filter(Boolean).join('\n').slice(0, 2000)
+          fireMessage += `\n\n[绑定会话 ${reminder.conversation_ref} 的最近上下文]\n${ctxText}`
+        }
+      } catch (err) {
+        console.warn(`[reminder #${reminder.id}] conversation_ref 上下文加载失败: ${err?.message}`)
+      }
+    }
+
+    pushMessage('SYSTEM', fireMessage, 'REMINDER', {
       reminderTargetId: reminder.user_id,
       reminderId: reminder.id,
+      conversationRef: reminder.conversation_ref || undefined,
     })
     emitEvent('reminder_fired', {
       id: reminder.id,
@@ -655,6 +678,8 @@ function enqueueDueReminders() {
       due_at: reminder.due_at,
       task: reminder.task,
       recurrence_type: reminder.recurrence_type,
+      conversation_ref: reminder.conversation_ref || null,
+      missed_by_ms: missedByMs,
     })
   }
 }
@@ -787,6 +812,123 @@ async function projectWeatherSurfaceForTurn(message = '') {
   return { id, data, changed }
 }
 
+
+
+// 安全切片：runTurn 的线索归属子段（attributeUserMessage + 写时印章 + 弱信号仲裁）。
+// 行为与内联时完全一致；失败不影响主流程（原 try/catch 语义保留）。同步函数，无需 await。
+function handleThreadAttribution({ state, input, isTick, msg, controller, sessionRef }) {
+    try {
+      const saveState = () => saveThreadState(state.threadState)
+      let threadResult = { event: 'noop', thread: null, switchedFrom: null }
+      if (!isTick) {
+        threadResult = attributeUserMessage(state, input, {
+          tick: state.tickCounter || 0,
+          channel: msg ? normalizeChannel(msg.channel || '') : '',
+        })
+      }
+      const foregroundThread = getForegroundThread(state)
+      emitEvent('focus_frame', {
+        focusStack: deriveStackView(state),
+        topFrame: foregroundThread,
+        threadState: state.threadState,
+        event: threadResult?.event || 'noop',
+      })
+    
+      // 写时归属印章：本轮所有 insertConversation 自动带 thread_id + focus_topic。
+      // TICK 轮（自主干活）归属到开放承诺的线索——Agent 干活本身就是注意力事件。
+      const stampThread = !isTick
+        ? foregroundThread
+        : (() => {
+            const oc = latestOpenCommitment(state)
+            return (oc && getThreadById(state, oc.threadId)) || foregroundThread
+          })()
+      const stampTopicStr = stableFocusTopic(stampThread)
+      setCurrentFocusTopic(stampTopicStr)
+      setCurrentThreadId(stampThread?.id || '')
+      if (!isTick && msg?.fromId && msg?.timestamp && stampThread) {
+        try { updateUserMessageFocusTopic(msg.fromId, msg.timestamp, stampTopicStr, stampThread.id) } catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) }
+      }
+    
+      if (threadResult?.event && threadResult.event !== 'noop') {
+        saveState()
+      }
+    
+      // 前台切走 → 旧前台做一次增量摘要（fire-and-forget；只增加表示，不隐藏任何对话）。
+      if (threadResult?.switchedFrom) {
+        const switched = threadResult.switchedFrom
+        ;(async () => {
+          try {
+            await summarizeThread(switched, { sessionRef, emitEvent, saveState })
+          } catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) }
+        })().catch(() => {})
+      }
+    
+      // 弱信号候选（与某后台线索重叠=1）→ 后台 LLM 仲裁。
+      // same → 合并（线索无栈序不变量，合并永远安全）；different → 用语义化 label/topic 润色新线索。
+      if (threadResult?.ambiguousWith && state.focusClassifierDisabled !== true) {
+        const createdThread = threadResult.thread
+        const candidate = threadResult.ambiguousWith
+        const body = msg?.content || input || ''
+        ;(async () => {
+          try {
+            const verdict = await classifyThreadAttribution({
+              newMessage: body,
+              candidateThread: candidate,
+              createdTopic: createdThread?.topic || [],
+              signal: controller.signal,
+            })
+            if (!verdict) return
+            const ts = ensureThreadState(state)
+            if (verdict.verdict === 'same' && ts.threads.includes(createdThread) && ts.threads.includes(candidate)) {
+              mergeThreads(state, createdThread.id, candidate.id)
+              try { reassignConversationsThread(createdThread.id, candidate.id) } catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) }
+              ts.mergedAwayIds = [...(ts.mergedAwayIds || []), createdThread.id]
+              setCurrentThreadId(candidate.id)
+              saveState()
+              ts.mergedAwayIds = []   // db 行已标 merged，清掉避免每次 save 重复 UPDATE
+            } else if (ts.threads.includes(createdThread)) {
+              if (verdict.label) createdThread.label = verdict.label
+              if (verdict.topic.length > 0) createdThread.topic = verdict.topic
+              saveState()
+            }
+            emitEvent('focus_frame', {
+              focusStack: deriveStackView(state),
+              topFrame: getForegroundThread(state),
+              threadState: state.threadState,
+              event: 'refined',
+            })
+          } catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) }
+        })().catch(() => {})
+      }
+    } catch (e) {
+      // 线索判断不应该影响主流程；任何异常吞掉、记录日志即可
+      console.log('[threads] attributeUserMessage failed:', e.message)
+    }
+}
+
+
+// 安全切片：runTurn 的 API key 自动配置子段（静默配置 → 跳过 LLM；失败交给 LLM 告知用户）。
+// 行为与内联时完全一致：ok → 删库/通知/结束本轮；失败 → 返回 failDir 注入 directions。
+async function handleKeyAutoConfig({ isTick, msg, input, finishTurn }) {
+  if (isTick || !msg) return { skip: false, failDir: null }
+  const recentCtx = getRecentConversationTimeline(5, 1).map(r => r.content || '').join(' ')
+  const autoConfigResult = await tryAutoConfigureKey(input, recentCtx)
+  if (autoConfigResult?.ok) {
+    getDB().prepare(
+      `DELETE FROM conversations WHERE role = 'user' AND from_id = ? AND timestamp = ?`
+    ).run(msg.fromId, msg.timestamp)
+    emitEvent('key_configured', {
+      ttsText: autoConfigResult.hasTTS ? 'Voice synthesis successful' : null,
+    })
+    finishTurn()
+    return { skip: true, failDir: null }
+  }
+  if (autoConfigResult && !autoConfigResult.ok) {
+    return { skip: false, failDir: `[system] An API key was detected in the user message but validation failed: ${autoConfigResult.error}. Inform the user that the key is invalid and suggest checking whether it is correct or has expired.` }
+  }
+  return { skip: false, failDir: null }
+}
+
 async function runTurn(input, label, msg = null) {
   const sessionRef = newSessionRef()
   const turnStartedAtMs = Date.now()
@@ -827,27 +969,10 @@ async function runTurn(input, label, msg = null) {
     }
 
     // Key auto-config: if the user message contains an API key, silently configure it, purge the DB entry, notify frontend, and skip LLM
-    let keyConfigFailDir = null
-    if (!isTick && msg) {
-      const recentCtx = getRecentConversationTimeline(5, 1).map(r => r.content || '').join(' ')
-      const autoConfigResult = await tryAutoConfigureKey(input, recentCtx)
-      if (autoConfigResult?.ok) {
-        // Delete the user message from DB (no key trace left)
-        getDB().prepare(
-          `DELETE FROM conversations WHERE role = 'user' AND from_id = ? AND timestamp = ?`
-        ).run(msg.fromId, msg.timestamp)
-        // Notify frontend: remove last user message bubble + speak via TTS if available
-        emitEvent('key_configured', {
-          ttsText: autoConfigResult.hasTTS ? 'Voice synthesis successful' : null,
-        })
-        finishTurn()
-        return  // Skip LLM, silent round
-      }
-      if (autoConfigResult && !autoConfigResult.ok) {
-        // Key detected but validation failed: keep message and let LLM inform the user
-        keyConfigFailDir = `[system] An API key was detected in the user message but validation failed: ${autoConfigResult.error}. Inform the user that the key is invalid and suggest checking whether it is correct or has expired.`
-      }
-    }
+    // Key auto-config: if the user message contains an API key, silently configure it, purge the DB entry, notify frontend, and skip LLM
+    const keyCfg = await handleKeyAutoConfig({ isTick, msg, input, finishTurn })
+    if (keyCfg.skip) return
+    let keyConfigFailDir = keyCfg.failDir
 
     // 天气不走"绕开 LLM 的快速回复"：仍交回 LLM 回答。
     // 但天气 surface 是确定性 UI 能力,不能完全依赖模型是否记得调用 ui_set。
@@ -863,93 +988,7 @@ async function runTurn(input, label, msg = null) {
     // 1b. 线索模型（DynamicMemoryPool.md 第 8 章）—— 专注栈的继任者。
     // 只有用户消息走归属判定（纯启发式，零 LLM 延迟）；TICK 永不参与判定也永不触发降温
     // ——温度是读时算出来的（buildThreadView），没有"stale 清理"这个动作。
-    try {
-      const saveState = () => saveThreadState(state.threadState)
-      let threadResult = { event: 'noop', thread: null, switchedFrom: null }
-      if (!isTick) {
-        threadResult = attributeUserMessage(state, input, {
-          tick: state.tickCounter || 0,
-          channel: msg ? normalizeChannel(msg.channel || '') : '',
-        })
-      }
-      const foregroundThread = getForegroundThread(state)
-      emitEvent('focus_frame', {
-        focusStack: deriveStackView(state),
-        topFrame: foregroundThread,
-        threadState: state.threadState,
-        event: threadResult?.event || 'noop',
-      })
-
-      // 写时归属印章：本轮所有 insertConversation 自动带 thread_id + focus_topic。
-      // TICK 轮（自主干活）归属到开放承诺的线索——Agent 干活本身就是注意力事件。
-      const stampThread = !isTick
-        ? foregroundThread
-        : (() => {
-            const oc = latestOpenCommitment(state)
-            return (oc && getThreadById(state, oc.threadId)) || foregroundThread
-          })()
-      const stampTopicStr = stableFocusTopic(stampThread)
-      setCurrentFocusTopic(stampTopicStr)
-      setCurrentThreadId(stampThread?.id || '')
-      if (!isTick && msg?.fromId && msg?.timestamp && stampThread) {
-        try { updateUserMessageFocusTopic(msg.fromId, msg.timestamp, stampTopicStr, stampThread.id) } catch {}
-      }
-
-      if (threadResult?.event && threadResult.event !== 'noop') {
-        saveState()
-      }
-
-      // 前台切走 → 旧前台做一次增量摘要（fire-and-forget；只增加表示，不隐藏任何对话）。
-      if (threadResult?.switchedFrom) {
-        const switched = threadResult.switchedFrom
-        ;(async () => {
-          try {
-            await summarizeThread(switched, { sessionRef, emitEvent, saveState })
-          } catch {}
-        })().catch(() => {})
-      }
-
-      // 弱信号候选（与某后台线索重叠=1）→ 后台 LLM 仲裁。
-      // same → 合并（线索无栈序不变量，合并永远安全）；different → 用语义化 label/topic 润色新线索。
-      if (threadResult?.ambiguousWith && state.focusClassifierDisabled !== true) {
-        const createdThread = threadResult.thread
-        const candidate = threadResult.ambiguousWith
-        const body = msg?.content || input || ''
-        ;(async () => {
-          try {
-            const verdict = await classifyThreadAttribution({
-              newMessage: body,
-              candidateThread: candidate,
-              createdTopic: createdThread?.topic || [],
-              signal: controller.signal,
-            })
-            if (!verdict) return
-            const ts = ensureThreadState(state)
-            if (verdict.verdict === 'same' && ts.threads.includes(createdThread) && ts.threads.includes(candidate)) {
-              mergeThreads(state, createdThread.id, candidate.id)
-              try { reassignConversationsThread(createdThread.id, candidate.id) } catch {}
-              ts.mergedAwayIds = [...(ts.mergedAwayIds || []), createdThread.id]
-              setCurrentThreadId(candidate.id)
-              saveState()
-              ts.mergedAwayIds = []   // db 行已标 merged，清掉避免每次 save 重复 UPDATE
-            } else if (ts.threads.includes(createdThread)) {
-              if (verdict.label) createdThread.label = verdict.label
-              if (verdict.topic.length > 0) createdThread.topic = verdict.topic
-              saveState()
-            }
-            emitEvent('focus_frame', {
-              focusStack: deriveStackView(state),
-              topFrame: getForegroundThread(state),
-              threadState: state.threadState,
-              event: 'refined',
-            })
-          } catch {}
-        })().catch(() => {})
-      }
-    } catch (e) {
-      // 线索判断不应该影响主流程；任何异常吞掉、记录日志即可
-      console.log('[threads] attributeUserMessage failed:', e.message)
-    }
+    handleThreadAttribution({ state, input, isTick, msg, controller, sessionRef })
 
     const directions = [...(injection.directions || [])]
     if (isTick) {
@@ -1625,7 +1664,7 @@ async function runTurn(input, label, msg = null) {
       if (touchCommitmentThread(state, { tick: state.tickCounter || 0 })) {
         saveThreadState(state.threadState)
       }
-    } catch {}
+    } catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) }
   }
 
   // 6. Recognizer: split think block and response body, pass full experience.
@@ -1708,7 +1747,7 @@ const startConsciousnessLoop = consciousnessLoop.start
 async function main() {
   console.log('Jarvis starting...')
   startTracerFlush()  // 可观测性：启动 span 缓冲定时落库（trace_list / trace_detail 数据源）
-  process.on('exit', () => { try { stopTracerFlush() } catch {} })
+  process.on('exit', () => { try { stopTracerFlush() } catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) } })
 
   // 启动时打印恢复的线索状态，便于"重启不丢线索/承诺"的直观验证。
   {

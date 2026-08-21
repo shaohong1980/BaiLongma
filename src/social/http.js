@@ -43,7 +43,7 @@ export function requestJson(url, { method = 'GET', headers = {}, body = null, ti
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf-8')
         let data = null
-        try { data = text ? JSON.parse(text) : null } catch {}
+        try { data = text ? JSON.parse(text) : null } catch (e) { console.warn('[src/social/http.js] op failed:', e?.message || e) }
         resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data, text })
       })
     })

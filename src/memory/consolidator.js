@@ -66,7 +66,7 @@ export async function runConsolidator({ entity, memories }) {
       try {
         const parsed = JSON.parse(result)
         if (parsed.ok) actions++
-      } catch {}
+      } catch (e) { console.warn('[src/memory/consolidator.js] op failed:', e?.message || e) }
     }
   }
 

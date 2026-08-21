@@ -71,7 +71,7 @@ ${turns.join('\n')}
 </conversation_metadata>`
 }
 
-export function formatConversationMessage(row, currentMsg = null, prevChannel = '', currentTopic = '', expiredQuestion = false, prevTopic = '') {
+export function formatConversationMessage(row, currentMsg = null, _prevChannel = '', _currentTopic = '', _expiredQuestion = false, _prevTopic = '') {
   if (row.role === 'jarvis') {
     return {
       role: 'assistant',
@@ -247,7 +247,7 @@ export function buildRuntimeContextMessages({ contextBlock = '', recentActions =
 //   "直接接茬"的简化判定：紧跟这条 jarvis 行之后的下一条 user 消息长度 >= 6 字
 //   且至少含 1 个中英文实词字符；极短回应（嗯/好/可以）不算接茬。
 const EXPIRED_FOLLOWUP_DISTANCE = 4
-function computeExpiredFollowupSet(rows, currentTopic) {
+function computeExpiredFollowupSet(rows, _currentTopic) {
   const expired = new Set()
   if (!Array.isArray(rows)) return expired
   for (let i = 0; i < rows.length; i++) {

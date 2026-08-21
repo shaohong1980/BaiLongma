@@ -282,7 +282,7 @@ async function fetchConfigState() {
       cfgTtsState = td.tts || {}
       if (cfgTtsState.ttsProvider) cfgTtsProvider = cfgTtsState.ttsProvider
     }
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/doc.js] op failed:', e?.message || e) }
 }
 
 function isConfigured(state, key) {
@@ -292,7 +292,7 @@ function isConfigured(state, key) {
   return !!v
 }
 
-function renderProviderTabs(defs, activeId, onSwitch) {
+function renderProviderTabs(defs, activeId, _onSwitch) {
   return `<div class="dpc-tabs">${defs.map(p => `
     <button class="dpc-tab${p.id === activeId ? ' dpc-tab-active' : ''}" data-pid="${p.id}" type="button">${p.label}</button>
   `).join('')}</div>`

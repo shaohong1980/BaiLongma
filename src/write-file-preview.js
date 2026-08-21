@@ -142,7 +142,7 @@ function scheduleAutoCloseWriteFilePreview({ title = DEFAULT_TITLE, artifact = {
         source: 'write_file_auto_close',
         artifact_path: snapshot.artifact_path,
       })
-    } catch {}
+    } catch (e) { console.warn('[src/write-file-preview.js] op failed:', e?.message || e) }
     recordTerminalStreamEvent({ action: 'close', stream_id: streamId, title, force: true })
   }, autoCloseDelayMs())
   if (typeof timer.unref === 'function') timer.unref()

@@ -1,14 +1,14 @@
 import { getDB } from '../connection.js'
 import { CANONICAL_USER_ID, normalizeConversationPartyId } from '../utils.js'
 
-export function createReminder({ userId, dueAt, task, systemMessage, source = '', recurrenceType = null, recurrenceConfig = null }) {
+export function createReminder({ userId, dueAt, task, systemMessage, source = '', recurrenceType = null, recurrenceConfig = null, conversationRef = null }) {
   const db = getDB()
   const normalizedUserId = normalizeConversationPartyId(userId || CANONICAL_USER_ID)
   const configStr = recurrenceConfig ? JSON.stringify(recurrenceConfig) : null
   return db.prepare(`
-    INSERT INTO reminders (user_id, due_at, task, system_message, status, source, recurrence_type, recurrence_config)
-    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
-  `).run(normalizedUserId, dueAt, task, systemMessage, source, recurrenceType, configStr)
+    INSERT INTO reminders (user_id, due_at, task, system_message, status, source, recurrence_type, recurrence_config, conversation_ref)
+    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+  `).run(normalizedUserId, dueAt, task, systemMessage, source, recurrenceType, configStr, conversationRef || null)
 }
 
 export function findMergeableOneOffReminder(userId, dueAtIsoMinute) {

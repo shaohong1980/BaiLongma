@@ -119,7 +119,7 @@ function isFailureResult(resultStr) {
   try {
     const parsed = JSON.parse(t);
     if (parsed && typeof parsed === "object" && parsed.ok === false) return true;
-  } catch {}
+  } catch (e) { console.warn('[src/ui/brain-ui/thought-stream.js] op failed:', e?.message || e) }
   return false;
 }
 

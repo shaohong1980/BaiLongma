@@ -349,7 +349,7 @@ export function exportTracesOtel({ days = 1, limit = 100 } = {}) {
   }
 
   return {
-    resourceSpans: Object.entries(resourceSpans).map(([traceId, spanList]) => ({
+    resourceSpans: Object.entries(resourceSpans).map(([_traceId, spanList]) => ({
       resource: { attributes: [{ key: 'service.name', value: { stringValue: 'bailongma' } }] },
       scopeSpans: [{ scope: { name: 'bailongma' }, spans: spanList }],
     })),

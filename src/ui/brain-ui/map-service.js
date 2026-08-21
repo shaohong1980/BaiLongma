@@ -63,7 +63,7 @@ async function loadAmap(apiRoot) {
       ],
     })
     // 兜底：某些版本插件名可能未随 plugins 加载，确保核心服务可用
-    await new Promise((resolve, reject) => {
+    await new Promise((resolve, _reject) => {
       try {
         AMap.plugin(['AMap.Geocoder', 'AMap.PlaceSearch', 'AMap.Scale', 'AMap.ToolBar', 'AMap.DistrictLayer'], (err) => {
           if (err) { resolve() } // 个别缺失不影响主地图，放行

@@ -116,6 +116,10 @@ export async function execManageReminder(args, context = {}) {
   const taskText = task.trim()
   const fallbackTargetId = context.visibleTargetIds?.[0] || context.allowedTargetIds?.[0] || PRIMARY_USER_ID
   const resolvedTargetId = normalizeConversationPartyId(args.target_id || fallbackTargetId)
+  // 会话绑定（AionUi Cron 思路）：可选 conversation_ref，触发时带该会话上下文
+  const conversationRef = args.conversation_ref
+    ? normalizeConversationPartyId(args.conversation_ref)
+    : null
 
   const kind = args.kind || 'once'
 
@@ -141,9 +145,10 @@ export async function execManageReminder(args, context = {}) {
       task: taskText,
       systemMessage: buildSystemMessage(resolvedTargetId, taskText),
       source: `tool:manage_reminder@${nowTimestamp()}`,
+      conversationRef,
     })
-    emitEvent('reminder_created', { id: Number(result.lastInsertRowid), user_id: resolvedTargetId, due_at: isoDueAt, task: taskText })
-    return `提醒已创建：#${result.lastInsertRowid}，将在 ${isoDueAt} 触发，目标用户 ${resolvedTargetId}`
+    emitEvent('reminder_created', { id: Number(result.lastInsertRowid), user_id: resolvedTargetId, due_at: isoDueAt, task: taskText, conversation_ref: conversationRef })
+    return `提醒已创建：#${result.lastInsertRowid}，将在 ${isoDueAt} 触发，目标用户 ${resolvedTargetId}${conversationRef ? `，绑定会话 ${conversationRef}` : ''}`
   }
 
   // 周期提醒
@@ -170,9 +175,10 @@ export async function execManageReminder(args, context = {}) {
     source: `tool:manage_reminder@${nowTimestamp()}`,
     recurrenceType: kind,
     recurrenceConfig: config,
+    conversationRef,
   })
-  emitEvent('reminder_created', { id: Number(result.lastInsertRowid), user_id: resolvedTargetId, due_at: isoDueAt, task: taskText, recurrence_type: kind, recurrence_config: config })
-  return `周期提醒已创建：#${result.lastInsertRowid} (${kind})，下次触发 ${isoDueAt}，目标用户 ${resolvedTargetId}`
+  emitEvent('reminder_created', { id: Number(result.lastInsertRowid), user_id: resolvedTargetId, due_at: isoDueAt, task: taskText, recurrence_type: kind, recurrence_config: config, conversation_ref: conversationRef })
+  return `周期提醒已创建：#${result.lastInsertRowid} (${kind})，下次触发 ${isoDueAt}，目标用户 ${resolvedTargetId}${conversationRef ? `，绑定会话 ${conversationRef}` : ''}`
 }
 
 

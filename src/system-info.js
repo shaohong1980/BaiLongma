@@ -283,7 +283,7 @@ export async function collectSystemInfo() {
   if (exists) {
     // ── 非首次启动：读静态数据，只刷新动态字段 ──────────────────────────────
     let stored = null
-    try { stored = JSON.parse(fs.readFileSync(SYSTEM_INFO_FILE, 'utf8')) } catch {}
+    try { stored = JSON.parse(fs.readFileSync(SYSTEM_INFO_FILE, 'utf8')) } catch (e) { console.warn('[src/system-info.js] op failed:', e?.message || e) }
 
     if (stored?.version === SYSTEM_INFO_VERSION) {
       let staticData = mergeFreshShellPaths(stored.static)
@@ -322,7 +322,7 @@ export async function collectSystemInfo() {
         },
       }
 
-      try { fs.writeFileSync(SYSTEM_INFO_FILE, JSON.stringify(updated, null, 2), 'utf8') } catch {}
+      try { fs.writeFileSync(SYSTEM_INFO_FILE, JSON.stringify(updated, null, 2), 'utf8') } catch (e) { console.warn('[src/system-info.js] op failed:', e?.message || e) }
       _cached = updated
       console.log('[system-info] 动态信息已刷新')
       return updated

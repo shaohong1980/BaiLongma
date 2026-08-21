@@ -16,7 +16,7 @@
 // 每个节点有：id, type, name, config, next（下一个节点ID或条件映射）
 // 数据通过 context 变量在节点间传递，用 {{variable}} 语法引用。
 
-const NODE_TYPES = ['start', 'end', 'llm', 'tool', 'condition', 'switch', 'loop', 'parallel', 'merge', 'transform', 'sub_workflow', 'human_input', 'approval', 'code']
+const NODE_TYPES = ['start', 'end', 'llm', 'tool', 'condition', 'switch', 'loop', 'parallel', 'merge', 'transform', 'sub_workflow', 'human_input', 'approval', 'code', 'room']
 
 // 验证工作流定义
 export function validateWorkflow(workflow, { allowNoStart = false } = {}) {
@@ -196,6 +196,30 @@ export const WORKFLOW_TEMPLATES = {
       { id: 'start', type: 'start', name: '开始', next: 'analyze' },
       { id: 'analyze', type: 'tool', name: 'Python 分析', config: { tool: 'run_python', args: { code: '{{code}}' } }, next: 'interpret' },
       { id: 'interpret', type: 'llm', name: '解读结果', config: { prompt: '解读以下数据分析结果：\n\n{{analyze.result}}' }, next: 'end' },
+      { id: 'end', type: 'end', name: '结束' },
+    ],
+  },
+
+  // F1 收敛：主引擎驱动多Agent办公室（room 节点）
+  room_office: {
+    id: 'room_office',
+    name: '会议室派活（CEO 拆解→分派→执行→汇总）',
+    description: '把任务交给多Agent办公室，CEO 决策者拆解分工，职能员工执行，CEO 汇总',
+    nodes: [
+      { id: 'start', type: 'start', name: '开始', next: 'office' },
+      { id: 'office', type: 'room', name: '办公室执行', config: { mode: 'office', content: '{{input}}' }, next: 'summarize' },
+      { id: 'summarize', type: 'llm', name: 'LLM 提炼', config: { prompt: '把多Agent办公室的交付结果整理成简洁汇报：\n\n{{office.result}}' }, next: 'end' },
+      { id: 'end', type: 'end', name: '结束' },
+    ],
+  },
+
+  room_crew: {
+    id: 'room_crew',
+    name: '角色团队（CrewAI 式顺序/层级）',
+    description: '声明角色团队协作完成目标（学 CrewAI 的原生 runCrew）',
+    nodes: [
+      { id: 'start', type: 'start', name: '开始', next: 'crew' },
+      { id: 'crew', type: 'room', name: '角色团队', config: { mode: 'crew', content: '{{input}}', roles: [], process: 'sequential', manager: 'gm' }, next: 'end' },
       { id: 'end', type: 'end', name: '结束' },
     ],
   },

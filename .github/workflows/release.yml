@@ -1,0 +1,63 @@
+# release.yml —— 发布工作流（P2-18：签名 / 公证 / 发布前 smoke）
+#
+# 触发：打 v* 标签（如 `git tag v2.1.516 && git push origin v2.1.516`）。
+# 产物：GitHub Release（electron-builder publish=github，owner=shaohong1980/BaiLongma）。
+#
+# 签名/公证所需的 secrets（在仓库 Settings → Secrets 配置）：
+#   Windows:  CSC_LINK（base64 编码的 .pfx 证书）+ CSC_KEY_PASSWORD
+#   macOS:    APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+#            （未配置时 electron-builder 会跳过签名/公证，但 hardenedRuntime 仍在）
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-win:
+    name: Build + sign Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      # 原生模块必须按 electron ABI 重编（win 也要 better-sqlite3）
+      - run: npx @electron/rebuild -f -w better-sqlite3 -v 43.4.1
+        env:
+          npm_config_disturl: https://npmmirror.com/mirrors/electron/
+      - run: npm run lint
+      - name: Build + publish (sign)
+        run: npx electron-builder --win --publish always
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release smoke
+        run: node scripts/smoke-release.mjs --deep
+
+  build-mac:
+    name: Build + notarize macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npx @electron/rebuild -f -w better-sqlite3 -v 43.4.1
+        env:
+          npm_config_disturl: https://npmmirror.com/mirrors/electron/
+      - name: Build + publish (notarize)
+        run: npx electron-builder --mac --publish always
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release smoke
+        run: node scripts/smoke-release.mjs --deep

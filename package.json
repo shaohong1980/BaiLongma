@@ -71,7 +71,8 @@
     "check": "npm run lint && npm run test:unit && node scripts/run-tests.mjs",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:unit:coverage": "vitest run --coverage"
+    "test:unit:coverage": "vitest run --coverage",
+    "smoke:release": "node scripts/smoke-release.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -162,6 +163,15 @@
             "x64"
           ]
         }
+      ],
+      "signingHashAlgorithms": [
+        "sha256"
+      ],
+      "files": [
+        "!node_modules/@img/sharp-darwin-*/**",
+        "!node_modules/@img/sharp-linux-*/**",
+        "!node_modules/sherpa-onnx-darwin-*/**",
+        "!node_modules/sherpa-onnx-linux-*/**"
       ]
     },
     "nsis": {
@@ -192,12 +202,21 @@
         "NSMicrophoneUsageDescription": "Bailongma uses the microphone for voice input when you enable voice features.",
         "NSSpeechRecognitionUsageDescription": "Bailongma may use speech recognition for voice input features."
       },
-      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": true,
+      "files": [
+        "!node_modules/@img/sharp-win32-*/**",
+        "!node_modules/@img/sharp-linux-*/**",
+        "!node_modules/sherpa-onnx-win-*/**",
+        "!node_modules/sherpa-onnx-linux-*/**"
+      ]
     },
     "publish": [
       {
         "provider": "github",
-        "owner": "xiaoyuanda666-ship-it",
+        "owner": "shaohong1980",
         "repo": "BaiLongma",
         "releaseType": "release"
       }

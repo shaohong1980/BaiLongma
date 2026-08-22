@@ -80,13 +80,13 @@ function parseDomain(text) {
   if (/教务|行政|招生|课程|台账|制度|文档|文案|PPT|宣传|会议纪要|管理|协调|排期|项目/.test(text)) return 'admin'
   return 'mixed'
 }
-// 部堂 → 执行 Agent（dev→外部 Claude Code，admin→外部 Hermes）
-const DOMAIN_EXECUTOR = { dev: 'claudecode', admin: 'hermesagent', finance: 'hubu', security: 'bingbu', legal: 'xingbu', hr: 'libu', mixed: 'claudecode' }
+// 部堂 → 执行 Agent（对齐当前办公室职能员工 agents.js，dev→外部 Claude Code，admin→外部 Hermes）
+const DOMAIN_EXECUTOR = { dev: 'claudecode', admin: 'hermesagent', finance: 'libu', security: 'tijian', legal: 'xingbu', hr: 'hermesagent', mixed: 'claudecode' }
 function parseExecutor(text) {
   return DOMAIN_EXECUTOR[parseDomain(text)] || 'claudecode'
 }
 function domainLabel(domain) {
-  return { dev: '研发·技术(ClaudeCode)', admin: '运营·管理(Hermes)', finance: '户部·财务', security: '兵部·安全', legal: '刑部·法务', hr: '吏部·人事', mixed: '综合' }[domain] || domain
+  return { dev: '研发·技术(ClaudeCode)', admin: '运营·管理(Hermes)', finance: '财务·报表(报表统计)', security: '安全·体检(系统体检)', legal: '法务·检索(检索专员)', hr: '人事·管理(Hermes)', mixed: '综合' }[domain] || domain
 }
 function parseVerdict(text) {
   if (/通过|批准|同意|合格|approve|ok|可以/.test(text)) return { pass: true }

@@ -1,8 +1,10 @@
 // 多 Agent 会议室 API
 import { getAllAgentConfigs, getAgentConfig, updateAgentConfig } from '../../multi-agent/config.js'
-import { bossSpeak, officeCommand, assignTask, getRoomHistory, resetRoom, getMeetingRound, resumeOfficeGraph } from '../../multi-agent/room.js'
+import { bossSpeak, officeCommand, assignTask, getRoomHistory, resetRoom, getMeetingRound, resumeOfficeGraph, getPendingApprovals } from '../../multi-agent/room.js'
 import { getLedger } from '../../multi-agent/ledger.js'
+import { getTraces } from '../../multi-agent/trace.js'
 import { listTasks, getTask, runEdictTask, runEdictGraph, resumeEdictGraph, resetTasks, controlTask, reviewTask } from '../../multi-agent/task-flow.js'
+import { getPtySnapshot, writePtyInput, resizePty, killPty, startPtyShell } from '../../multi-agent/pty-manager.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
 import { emitEvent } from '../../events.js'
 
@@ -37,6 +39,14 @@ export async function handleAgentRoutes(req, res, url) {
     return true
   }
 
+  // GET /agents/trace —— 执行轨迹（谁干了啥：引擎/工具/命令/A2A/回复）
+  if (req.method === 'GET' && url.pathname === '/agents/trace') {
+    const agentId = url.searchParams.get('agent') || url.searchParams.get('agentId') || null
+    const limit = Number(url.searchParams.get('limit')) || 40
+    jsonResponse(res, 200, { ok: true, traces: getTraces(agentId, limit) })
+    return true
+  }
+
   // GET /agents —— 列出所有 Agent（含形象/语音/引擎配置）
   if (req.method === 'GET' && url.pathname === '/agents') {
     const agents = getAllAgentConfigs().map(a => {
@@ -44,6 +54,54 @@ export async function handleAgentRoutes(req, res, url) {
       return { ...pub, has_api_key: !!api_key }
     })
     jsonResponse(res, 200, { ok: true, agents })
+    return true
+  }
+
+  // POST /agents/:id/pty/start —— 启动所选成员的交互式终端（常驻 shell）
+  const ptyStartMatch = url.pathname.match(/^\/agents\/([^/]+)\/pty\/start$/)
+  if (req.method === 'POST' && ptyStartMatch) {
+    try {
+      const body = await readJsonBody(req)
+      const r = startPtyShell(ptyStartMatch[1], { cwd: body?.cwd, cols: body?.cols, rows: body?.rows })
+      jsonResponse(res, r.ok ? 200 : 400, r)
+    } catch (err) { jsonResponse(res, 400, { ok: false, error: err.message }) }
+    return true
+  }
+
+  // GET /agents/:id/pty/history —— 实时 PTY 历史与状态
+  const ptyHistoryMatch = url.pathname.match(/^\/agents\/([^/]+)\/pty\/history$/)
+  if (req.method === 'GET' && ptyHistoryMatch) {
+    jsonResponse(res, 200, { ok: true, session: getPtySnapshot(ptyHistoryMatch[1]) })
+    return true
+  }
+
+  // POST /agents/:id/pty/input —— 向所选成员的 PTY 写入输入
+  const ptyInputMatch = url.pathname.match(/^\/agents\/([^/]+)\/pty\/input$/)
+  if (req.method === 'POST' && ptyInputMatch) {
+    try {
+      const body = await readJsonBody(req)
+      const r = writePtyInput(ptyInputMatch[1], body?.data)
+      jsonResponse(res, r.ok ? 200 : 400, r)
+    } catch (err) { jsonResponse(res, 400, { ok: false, error: err.message }) }
+    return true
+  }
+
+  // POST /agents/:id/pty/resize —— 调整 PTY 尺寸
+  const ptyResizeMatch = url.pathname.match(/^\/agents\/([^/]+)\/pty\/resize$/)
+  if (req.method === 'POST' && ptyResizeMatch) {
+    try {
+      const body = await readJsonBody(req)
+      const r = resizePty(ptyResizeMatch[1], body?.cols, body?.rows)
+      jsonResponse(res, r.ok ? 200 : 400, r)
+    } catch (err) { jsonResponse(res, 400, { ok: false, error: err.message }) }
+    return true
+  }
+
+  // POST /agents/:id/pty/kill —— 结束所选成员的 PTY 进程
+  const ptyKillMatch = url.pathname.match(/^\/agents\/([^/]+)\/pty\/kill$/)
+  if (req.method === 'POST' && ptyKillMatch) {
+    const r = killPty(ptyKillMatch[1])
+    jsonResponse(res, r.ok ? 200 : 400, r)
     return true
   }
 
@@ -89,6 +147,12 @@ export async function handleAgentRoutes(req, res, url) {
       })
       jsonResponse(res, 200, { ok: true, ...result })
     } catch (err) { jsonResponse(res, 400, { ok: false, error: err.message }) }
+    return true
+  }
+
+  // GET /room/office/pending —— 待人工审批列表（借鉴 openhuman 注意力队列）
+  if (req.method === 'GET' && url.pathname === '/room/office/pending') {
+    jsonResponse(res, 200, { ok: true, approvals: getPendingApprovals() })
     return true
   }
 

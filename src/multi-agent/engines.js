@@ -3,10 +3,18 @@
 //   custom   : 自选 OpenAI 兼容端点（base_url/api_key/model）
 //   cli      : 调用外部 CLI 智能体（Claude Code / Codex / Hermes 等，需本机安装并配置命令）
 import OpenAI from 'openai'
-import { spawn } from 'child_process'
 import { runSimpleCompletion, callLLM } from '../llm.js'
 import { getAgentConfig } from './config.js'
 import { getMemorySnapshot, searchMemory } from './memory.js'
+import { runPtyCommand, killPty, cleanPtyText } from './pty-manager.js'
+import { recordTrace } from './trace.js'
+
+// 任务输出 token 预算：默认 8000（对齐 deepseek 等主流 provider 的 8k 输出上限），
+// 可用 agent.max_tokens 覆盖。修复「文档生成一半停止」——原来硬编码 3000 会把报告/文档截断。
+// 注意：max_tokens 是"上限"不是"目标"，简单任务模型会自动提前停，不会因此变慢变贵。
+function agentTaskMaxTokens(agent) {
+  return Number(agent?.max_tokens) > 0 ? Number(agent.max_tokens) : 8000
+}
 
 function buildSystemPrompt(agent) {
   const parts = [
@@ -16,6 +24,15 @@ function buildSystemPrompt(agent) {
     `你的专长：${(agent.capabilities || []).join('、')}。`,
     '保持角色设定，用第一人称回答。专业、具体、可执行；不确定就说明。',
   ]
+  // 分段写入长文档：只有具备写文件能力的成员才会收到此指令。
+  // 单次模型输出有 token 上限，长文档必须拆段写，否则会被截断。
+  if (Array.isArray(agent.tools) && agent.tools.includes('write_file')) {
+    parts.push('【生成长文档（报告/方案/纪要/长文）时的硬性要求】用分段写入：先用 write_file 写开头部分，再用 append_file 逐段追加后续内容，每段 2500~4000 字，直到内容完整为止。严禁试图在单次 write_file 里塞进超长全文（会被截断）。写完后可 read_file 抽查确认完整。')
+  }
+  // Word 文档：用 gen_docx 生成排版专业的 .docx（不要手写二进制或用 HTML 伪 .doc）
+  if (Array.isArray(agent.tools) && agent.tools.includes('gen_docx')) {
+    parts.push('【生成 Word 文档（.docx）时的标准流程】① 把文档内容写成 Markdown 文件：先 write_file 写开头，长文档用 append_file 分段追加；Markdown 支持 #/##/### 多级标题、表格（| 列 | 列 |）、- 无序列表、1. 有序列表，段落间空一行。② 调用 gen_docx：{ input: "报告.md", title, cover: true, toc: true, author, header }，工具会转成带封面、目录、多级标题、页眉页码、专业排版的正式 .docx。③ 把生成的文件路径明确告诉用户。禁止手写二进制 .docx，也禁止把 HTML 改名成 .doc 冒充（排版差）。')
+  }
   // 私有记忆（仅该 Agent 可见，其他角色无法调取）：演算草稿、内部清单、历史沉淀
   if (agent.private_memory && String(agent.private_memory).trim()) {
     parts.push(`【你的私有记忆（仅你自己可见）】\n${String(agent.private_memory).trim()}`)
@@ -56,36 +73,58 @@ async function runInternal(agent, roomHistory, bossMessage, isTask) {
   // 默认 false 保持主模型质量（CEO/军机处等核心角色不应降级）
   const fast = agent.fast === true
   let tools = Array.isArray(agent.tools) && agent.tools.length ? agent.tools : []
-  if (tools.length) {
-    // ③ 高危命令纵深防御：权限变更/安装/系统级工具对子 agent 一律禁用
-    //（即使配进 allowlist 也会被过滤，防止子 agent 越权；exec_command 的危险
-    //  命令由 isDangerousShellCommand 另行拦截）
-    const SUBAGENT_FORBIDDEN = new Set([
-      'manage_rule', 'set_security', 'install_software', 'install_tool', 'uninstall_tool',
-      'manage_tool_factory', 'grant_agent_delegation', 'manage_api_capability',
-      'kill_process', 'generate_image', 'generate_music', 'download_file',
-      'exec_background_command', 'workflow_save', 'workflow_delete',
-    ])
-    tools = tools.filter(t => !SUBAGENT_FORBIDDEN.has(t))
-    try {
-      const result = await callLLM({
-        messages,
-        tools,
-        temperature: Number(agent.temperature) || 0.5,
-        maxTokens: isTask ? 3000 : 2500,
-        localReply: true,   // 本地办公室渠道：纯文本即最终回复，无需 send_message
-        mustReply: true,
-        toolContext: { subAgent: true, agentId: agent.id },   // 标记为子 agent，供策略层识别
-        onToolCall: (tool) => console.log(`[agent:${agent.name}] 调用工具 → ${tool?.name || tool}`),
-        onToolExecute: (tool, res) => console.log(`[agent:${agent.name}] ${tool?.name || tool} → ${String(res || '').slice(0, 80)}`),
-      })
-      const text = String(result?.content || '').trim()
-      return text || '（该环节未返回内容）'
-    } catch (err) {
-      console.warn(`[agent:${agent.name}] 工具循环失败，回退纯文本:`, err.message)
+  // P2-22：子 agent 单次完整回合的墙钟超时（默认 90s，可用 agent.turn_timeout 覆盖）。
+  // 工具循环上限只数"调用次数"(30) 不卡墙钟，exec_command 单条最长 120s——
+  // 没有整体超时会导致「文件管理/电脑操作」这类带真实工具的成员把整个办公室流程卡死。
+  const turnTimeoutMs = (Number(agent.turn_timeout) > 0 ? Number(agent.turn_timeout) : 90) * 1000
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), turnTimeoutMs)
+  try {
+    if (tools.length) {
+      // ③ 高危命令纵深防御：权限变更/安装/系统级工具对子 agent 一律禁用
+      //（即使配进 allowlist 也会被过滤，防止子 agent 越权；exec_command 的危险
+      //  命令由 isDangerousShellCommand 另行拦截）
+      const SUBAGENT_FORBIDDEN = new Set([
+        'manage_rule', 'set_security', 'install_software', 'install_tool', 'uninstall_tool',
+        'manage_tool_factory', 'grant_agent_delegation', 'manage_api_capability',
+        'kill_process', 'generate_image', 'generate_music', 'download_file',
+        'exec_background_command', 'workflow_save', 'workflow_delete',
+      ])
+      tools = tools.filter(t => !SUBAGENT_FORBIDDEN.has(t))
+      try {
+        const result = await callLLM({
+          messages,
+          tools,
+          temperature: Number(agent.temperature) || 0.5,
+          maxTokens: isTask ? agentTaskMaxTokens(agent) : 2500,
+          localReply: true,   // 本地办公室渠道：纯文本即最终回复，无需 send_message
+          mustReply: true,
+          signal: controller.signal,   // 超时熔断：到点 abort 工具循环（exec_command 等会响应 abort）
+          toolContext: { subAgent: true, agentId: agent.id },   // 标记为子 agent，供策略层识别
+          onToolCall: (tool) => {
+            console.log(`[agent:${agent.name}] 调用工具 → ${tool?.name || tool}`)
+            recordTrace({ agentId: agent.id, agentName: agent.name, kind: 'tool_call', tool: tool?.name || String(tool || ''), detail: String(tool?.args || tool?.input || '') })
+          },
+          onToolExecute: (tool, res) => {
+            console.log(`[agent:${agent.name}] ${tool?.name || tool} → ${String(res || '').slice(0, 80)}`)
+            recordTrace({ agentId: agent.id, agentName: agent.name, kind: 'tool_result', tool: tool?.name || String(tool || ''), ok: !/失败|error|异常|错误/i.test(String(res || '')), detail: String(res || '').slice(0, 200) })
+          },
+        })
+        const text = String(result?.content || '').trim()
+        if (result?.aborted) {
+          // 超时熔断：callLLM 内部已用干净 signal 兜底投递了已有内容；这里如实标记给上层
+          return text || `（${agent.name} 本轮执行超过 ${Math.round(turnTimeoutMs / 1000)}s，已自动中断。可能是命令/工具耗时过长，请换个更明确的小任务。）`
+        }
+        return text || '（该环节未返回内容）'
+      } catch (err) {
+        console.warn(`[agent:${agent.name}] 工具循环失败，回退纯文本:`, err.message)
+        if (err?.name === 'AbortError') return `（${agent.name} 本轮执行超时（${Math.round(turnTimeoutMs / 1000)}s）已中断）`
+      }
     }
+    return runSimpleCompletion({ messages, temperature: Number(agent.temperature) || 0.5, maxTokens: isTask ? agentTaskMaxTokens(agent) : 2500, fast })
+  } finally {
+    clearTimeout(timer)
   }
-  return runSimpleCompletion({ messages, temperature: Number(agent.temperature) || 0.5, maxTokens: isTask ? 3000 : 2500, fast })
 }
 
 // 自定义引擎：独立 OpenAI 兼容端点
@@ -99,7 +138,7 @@ async function runCustom(agent, roomHistory, bossMessage, isTask) {
     model: agent.model,
     messages,
     temperature: Number(agent.temperature) || 0.5,
-    max_tokens: isTask ? 3000 : 2500,
+    max_tokens: isTask ? agentTaskMaxTokens(agent) : 2500,
   })
   return res?.choices?.[0]?.message?.content?.trim?.() || ''
 }
@@ -177,31 +216,32 @@ async function runCli(agent, roomHistory, bossMessage, isTask) {
   }
   const cwd = String(agent.cli_cwd || '').trim() || undefined
 
-  return new Promise((resolve, reject) => {
-    let child
-    try {
-      child = spawn(fullCmd, { shell: true, cwd, windowsHide: true })
-    } catch (err) { reject(err); return }
-    let stdout = '', stderr = ''
-    const timer = setTimeout(() => { try { child.kill() } catch (e) { console.warn('[src/multi-agent/engines.js] op failed:', e?.message || e) } }, timeoutMs)
-    child.stdout?.on('data', d => { stdout += Buffer.from(d).toString('utf-8') })
-    child.stderr?.on('data', d => { stderr += Buffer.from(d).toString('utf-8') })
-    child.on('error', (err) => { clearTimeout(timer); reject(err) })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      // 优先从输出里提取最终回复；有回复就认为成功（即使退出码非 0，如超时前已给完整答案）
-      const reply = extractCliResponse(stdout)
-      if (reply) { resolve(reply); return }
-      if (code === 0) { resolve('(该外部智能体未输出)'); return }
-      const err = new Error(stderr ? stderr.slice(-400) : `外部智能体退出码 ${code}`)
-      err.stdout = stdout; err.stderr = stderr
-      reject(err)
-    })
-    if (useStdin) {
-      child.stdin.write(prompt)
-      child.stdin.end()
-    }
-  })
+  recordTrace({ agentId: agent.id, agentName: agent.name, kind: 'command', tool: 'CLI', detail: (useStdin ? cmd : fullCmd).slice(0, 200) })
+  let timer
+  try {
+    const result = await Promise.race([
+      runPtyCommand(agent.id, fullCmd, {
+        cwd,
+        stdin: useStdin ? prompt : '',
+        env: { ...(agent.cli_env || {}) },
+      }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          try { killPty(agent.id) } catch { /* already gone */ }
+          reject(new Error(`外部智能体 ${agent.name} 响应超时（${Math.round(timeoutMs / 1000)}s）`))
+        }, timeoutMs)
+      }),
+    ])
+    clearTimeout(timer)
+    const output = cleanPtyText(result.output)
+    const reply = extractCliResponse(output)
+    if (reply) return reply
+    if (result.exitCode === 0) return '(该外部智能体未输出)'
+    throw new Error(`外部智能体退出码 ${result.exitCode}`)
+  } catch (err) {
+    clearTimeout(timer)
+    throw err
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +271,7 @@ async function runA2A(agent, roomHistory, bossMessage, isTask) {
   const timeoutMs = (Number(agent.a2a_timeout) > 0 ? Number(agent.a2a_timeout) : 120) * 1000
   const prompt = await buildCliPrompt(roomHistory, bossMessage, isTask)
   const ctx = a2aContexts[agent.id] || (a2aContexts[agent.id] = 'blm-office-' + agent.id + '-' + Date.now().toString(36))
+  recordTrace({ agentId: agent.id, agentName: agent.name, kind: 'a2a', tool: base.replace(/\/+$/, ''), detail: `A2A 调用 · context:${ctx}` })
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -269,17 +310,27 @@ export async function runAgentEngine(agentId, roomHistory, bossMessage, isTask =
   const agent = getAgentConfig(agentId)
   if (!agent) throw new Error(`未知 Agent: ${agentId}`)
   const engine = String(agent.engine || 'internal').trim().toLowerCase()
-  if (engine === 'a2a') {
-    try { return await runA2A(agent, roomHistory, bossMessage, isTask) }
-    catch (err) { console.warn(`[agent:${agent.name}] a2a 失败，回退 internal:`, err.message); return runInternal(agent, roomHistory, bossMessage, isTask) }
+  const taskText = String(bossMessage || '').slice(0, 120)
+  recordTrace({ agentId: agent.id, agentName: agent.name, kind: 'engine', tool: engine, detail: isTask ? `接到任务：${taskText}` : `被点名：${taskText}` })
+  const t0 = Date.now()
+  try {
+    let reply
+    if (engine === 'a2a') {
+      try { reply = await runA2A(agent, roomHistory, bossMessage, isTask) }
+      catch (err) { console.warn(`[agent:${agent.name}] a2a 失败，回退 internal:`, err.message); reply = await runInternal(agent, roomHistory, bossMessage, isTask) }
+    } else if (engine === 'custom') {
+      try { reply = await runCustom(agent, roomHistory, bossMessage, isTask) }
+      catch (err) { console.warn(`[agent:${agent.name}] custom 失败，回退 internal:`, err.message); reply = await runInternal(agent, roomHistory, bossMessage, isTask) }
+    } else if (engine === 'cli') {
+      try { reply = await runCli(agent, roomHistory, bossMessage, isTask) }
+      catch (err) { console.warn(`[agent:${agent.name}] cli 失败，回退 internal:`, err.message); reply = await runInternal(agent, roomHistory, bossMessage, isTask) }
+    } else {
+      reply = await runInternal(agent, roomHistory, bossMessage, isTask)
+    }
+    recordTrace({ agentId: agent.id, agentName: agent.name, kind: 'reply', tool: '', ok: true, detail: String(reply || '').slice(0, 200), ms: Date.now() - t0 })
+    return reply
+  } catch (err) {
+    recordTrace({ agentId: agent.id, agentName: agent.name, kind: 'error', tool: engine, ok: false, detail: String(err?.message || err).slice(0, 200), ms: Date.now() - t0 })
+    throw err
   }
-  if (engine === 'custom') {
-    try { return await runCustom(agent, roomHistory, bossMessage, isTask) }
-    catch (err) { console.warn(`[agent:${agent.name}] custom 失败，回退 internal:`, err.message); return runInternal(agent, roomHistory, bossMessage, isTask) }
-  }
-  if (engine === 'cli') {
-    try { return await runCli(agent, roomHistory, bossMessage, isTask) }
-    catch (err) { console.warn(`[agent:${agent.name}] cli 失败，回退 internal:`, err.message); return runInternal(agent, roomHistory, bossMessage, isTask) }
-  }
-  return runInternal(agent, roomHistory, bossMessage, isTask)
 }

@@ -44,7 +44,9 @@ function persist() {
   try { fs.mkdirSync(path.dirname(ROOM_FILE), { recursive: true }); fs.writeFileSync(ROOM_FILE, JSON.stringify({ messages: history, round }), 'utf-8') } catch (e) { console.warn('[src/multi-agent/room.js] op failed:', e?.message || e) }
 }
 function push(msg) {
-  history.push(msg)
+  // 长交付（worker 文档/报告可能到 8000 token）落历史时截断到 3000 字符，
+  // 避免 12 条历史注入每个 agent 上下文时撑爆窗口；完整文档由文件/前端全文承载。
+  history.push({ ...msg, content: String(msg.content || '').slice(0, 3000) })
   // P1-5：会话压缩——历史过长时把最早的消息压缩成一条滚动摘要，
   // 而不是直接硬丢弃（避免长会议"前半段失忆"）。
   if (history.length > COMPACT_THRESHOLD) {
@@ -94,17 +96,28 @@ export function detectAddressedAgents(text) {
 }
 
 // 按话题推断最相关 Agent：统计所有角色关键词命中，取得分最高者（避免顺序抢答）
+// 关键词映射对齐当前办公室职能员工（agents.js），避免"财务→电脑操作"这类错位路由
 function inferRelevantAgent(text) {
   const t = String(text || '')
   const roleMap = [
-    { re: /技术|开发|代码|架构|系统|接口|数据库|前端|后端|脚本|部署|机器人|设计|页面|界面|登录|网站|网页|app|软件|程序/g, id: 'claudecode', w: 1 },
-    { re: /管理|协调|排期|进度|统筹|分工|资源|跨部门|组织|汇报|会议|教务|行政|文案|PPT|制度|招生|课程/g, id: 'hermesagent', w: 1 },
-    { re: /财务|预算|成本|报表|投资|经济|税/g, id: 'hubu', w: 1 },
-    { re: /安全|风险|加固|运维|应急|防护|漏洞/g, id: 'bingbu', w: 1 },
-    { re: /合同|合规|法律|法务|条款|风险提示/g, id: 'xingbu', w: 1 },
-    { re: /人事|招聘|考核|组织|绩效|岗位/g, id: 'libu', w: 1 },
-    { re: /体检|诊断|磁盘|性能|电池|系统检查|大文件|垃圾|健康|cpu|内存占用/g, id: 'tijian', w: 1 },
-    { re: /统筹|协调|评审|复盘|分工|全局/g, id: 'gm', w: 1 },
+    // 技术实现 → 外部 Claude Code
+    { re: /技术|开发|代码|架构|系统|接口|数据库|前端|后端|脚本|部署|机器人|设计|页面|界面|登录|网站|网页|app|软件|程序|编程|重构|测试|bug|修复|排查/g, id: 'claudecode', w: 1 },
+    // 项目/排期/协调 → 外部 Hermes
+    { re: /管理|协调|排期|进度|统筹|分工|资源|跨部门|组织|汇报|会议|教务|行政|文案|PPT|制度|招生|课程|项目/g, id: 'hermesagent', w: 1 },
+    // 报表/财务/数据 → 报表统计（专属词加权，避免被"系统/电脑"等弱信号抢答）
+    { re: /财务|预算|成本|报表|投资|经济|税|统计|数据|汇总|图表|口径|看板/g, id: 'libu', w: 2 },
+    // 电脑/桌面/脚本 → 电脑操作
+    { re: /电脑|操作|运行|桌面|本地|系统设置|安装|脚本|应用启动|进程/g, id: 'hubu', w: 1 },
+    // 第三方/连接器/接口对接 → 应用调度
+    { re: /第三方|连接|接口调用|对接|连接器|插件|app|集成/g, id: 'bingbu', w: 1 },
+    // 检索/搜索/调研 → 检索专员（专属词加权）
+    { re: /搜索|查找|检索|调研|查询|知识库|资料|核验|来源/g, id: 'xingbu', w: 2 },
+    // 文件/归档/版本 → 文件管理
+    { re: /文件|归档|文档|整理|版本|备份|目录|重命名|移动|复制/g, id: 'host', w: 1 },
+    // 系统体检/诊断 → 系统体检员（专属词加权，避免被"系统/电脑"抢答）
+    { re: /体检|诊断|磁盘|性能|电池|系统检查|大文件|垃圾|健康|cpu|内存占用|清理/g, id: 'tijian', w: 2 },
+    // 全局决策/评审 → CEO
+    { re: /统筹|协调|评审|复盘|分工|全局|决策|拍板|立项/g, id: 'gm', w: 1 },
   ]
   let best = null, bestScore = 0
   for (const { re, id, w } of roleMap) {
@@ -279,11 +292,15 @@ export async function officeCommand(content, opts = {}) {
   const workerName = workers.map(id => getAgentConfig(id)?.name || id).join('、')
   emitEvent('office_progress', { agentId: 'gm', status: 'reporting', stage: 'dispatch', text: `分派给：${workerName || '（无）'}` })
 
-  // 3. 分派工人执行（每个 worker 开始/结束都实时推送，让前端看到"眼睛在动"）
-  const workerReplies = []
-  for (const wid of workers) {
+  // 3. 分派工人执行 —— 并行（P2-22），并让外部全能顾问同场参与讨论。
+  //    老板下任务时，Hermes/OpenHuman 参与讨论、制定方案、给意见（已被派为 worker 的顾问不重复发言）。
+  const ADVISOR_IDS = ['hermesagent', 'openhuman']
+  const advisors = ADVISOR_IDS.filter(id => getAgentConfig(id) && !workers.includes(id))
+  const ceoPlan = String(ceoReply || '').replace(/\n?\s*\{\s*"workers"\s*:\s*\[[^\]]*\]\s*\}\s*$/, '').slice(0, 1500)
+
+  const workerPromise = Promise.all(workers.map(async (wid) => {
     const worker = getAgentConfig(wid)
-    if (!worker) continue
+    if (!worker) return null
     emitEvent('office_progress', { agentId: wid, status: 'working', stage: 'executing', text, bubble: '⚙️ 收到任务，开始处理…' })
     const t0 = Date.now()
     try {
@@ -292,26 +309,56 @@ export async function officeCommand(content, opts = {}) {
       push({ role: 'agent', agentId: wid, agentName: worker.name, avatar: worker.avatar, content: reply, ts: new Date().toISOString() })
       if (worker.voice?.enabled) emitEvent('agent_tts', { agentId: wid, text: reply.slice(0, 300), voiceId: worker.voice?.voiceId || '' })
       emitEvent('office_progress', { agentId: wid, status: 'reporting', stage: 'done', text: '交付完成' })
-      // A：证据化验证（验货员核实产物真实存在）
-      const verified = await verifyDelivery(worker.name, text, reply)
-      workerReplies.push({ agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply, verified })
-      // B：台账记录
+      // B：台账记录（所有成功 worker 都记，含 host）
       recordActivity({ agentId: wid, agentName: worker.name, task: text, result: reply.slice(0, 300), ms: Date.now() - t0 })
+      return { agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply, worker }
     } catch (err) {
-      const ms = Date.now() - t0
-      workerReplies.push({ agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply: '（执行失败：' + err.message + '）', error: true, verified: { verified: true, pass: false, verdict: '执行异常，无法验证交付' } })
-      recordActivity({ agentId: wid, agentName: worker.name, task: text, result: '（执行失败）' + err.message, ms })
+      recordActivity({ agentId: wid, agentName: worker.name, task: text, result: '（执行失败）' + err.message, ms: Date.now() - t0 })
+      emitEvent('office_progress', { agentId: wid, status: 'idle', stage: 'idle', text: '—' })
+      return { agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply: '（执行失败：' + err.message + '）', error: true, verified: { verified: true, pass: false, verdict: '执行异常，无法验证交付' } }
     }
-    emitEvent('office_progress', { agentId: wid, status: 'idle', stage: 'idle', text: '—' })
-  }
+  }))
 
-  // 3. CEO 汇总
+  // 外部全能顾问讨论：给出方案意见（与 worker 并行，不额外拖慢）
+  const advisorPromise = Promise.all(advisors.map(async (aid) => {
+    const adv = getAgentConfig(aid)
+    if (!adv) return null
+    emitEvent('office_progress', { agentId: aid, status: 'thinking', stage: 'advise', text: `讨论：${text}`, bubble: '🧭 参与讨论，制定方案…' })
+    const t0 = Date.now()
+    try {
+      const reply = await runAgentEngine(aid, getRoomHistory(MAX_HISTORY),
+        `老板下达任务：「${text}」。CEO 拆解的方案如下：\n${ceoPlan}\n请作为外部全能顾问参与讨论：给出你的方案意见、风险提示与补充建议（明确、可执行）。`, false)
+      push({ role: 'agent', agentId: aid, agentName: adv.name, avatar: adv.avatar, content: reply, ts: new Date().toISOString() })
+      if (adv.voice?.enabled) emitEvent('agent_tts', { agentId: aid, text: reply.slice(0, 300), voiceId: adv.voice?.voiceId || '' })
+      emitEvent('office_progress', { agentId: aid, status: 'idle', stage: 'idle', text: '—' })
+      recordActivity({ agentId: aid, agentName: adv.name, task: `【顾问】${text.slice(0, 80)}`, result: reply.slice(0, 300), ms: Date.now() - t0 })
+      return { agentId: aid, agentName: adv.name, avatar: adv.avatar, role: adv.role, reply }
+    } catch (err) {
+      emitEvent('office_progress', { agentId: aid, status: 'idle', stage: 'idle', text: '—' })
+      return { agentId: aid, agentName: adv.name, avatar: adv.avatar, role: adv.role, reply: '（顾问响应失败：' + err.message + '）', error: true }
+    }
+  }))
+
+  const [workerResults, advisoryResults] = await Promise.all([workerPromise, advisorPromise])
+  const workerReplies = workerResults.filter(Boolean)
+  const advisoryReplies = advisoryResults.filter(Boolean)
+
+  // 3.5 证据化验证（验货员核实产物）——并行执行，且验证本身已被 runInternal 的回合超时兜底，
+  // 不再串行拖慢整条流水。文件管理(host) 验证自己的交付无意义，跳过。
+  await Promise.all(workerReplies.map(async (r) => {
+    if (r.error || r.agentId === 'host') return
+    r.verified = await verifyDelivery(r.worker.name, text, r.reply)
+  }))
+
+  // 4. CEO 汇总（综合外部顾问意见 + 各成员交付）
   let ceoSummary
   try {
     emitEvent('office_progress', { agentId: 'gm', status: 'thinking', stage: 'summary', text: '汇总结果…' })
-    if (workerReplies.length) {
+    const advisoryText = advisoryReplies.filter(r => r && !r.error && r.reply).map(r => `【${r.agentName}】${String(r.reply).slice(0, 3000)}`).join('\n')
+    const workerText = workerReplies.map(r => `【${r.agentName}】${String(r.reply).slice(0, 4000)}`).join('\n')
+    if (advisoryText || workerText) {
       ceoSummary = await runAgentEngine('gm', getRoomHistory(MAX_HISTORY),
-        `上级指令：「${text}」。各成员交付如下：\n${workerReplies.map(r => `【${r.agentName}】${r.reply}`).join('\n\n')}\n请汇总结果并向用户汇报（总结要点、指出待确认事项）。`, true)
+        `上级指令：「${text}」。\n外部顾问意见：\n${advisoryText || '（无）'}\n\n各成员交付：\n${workerText || '（无）'}\n请综合顾问意见与交付结果，向用户汇报最终方案（总结要点、指出待确认事项）。`, true)
     } else {
       ceoSummary = ceoReply
     }
@@ -328,7 +375,7 @@ export async function officeCommand(content, opts = {}) {
   // B：CEO 台账（整周期耗时）
   recordActivity({ agentId: 'gm', agentName: ceo.name, task: `【CEO】${text.slice(0, 100)}`, result: String(ceoSummary || ceoReply || '').slice(0, 300), ms: Date.now() - tStart })
 
-  return { ok: true, round, ceoReply, workerReplies, ceoSummary, workers }
+  return { ok: true, round, ceoReply, workerReplies, advisoryReplies, ceoSummary, workers }
 }
 
 // ── F2：办公室流程图模式 ───────────────────────────────────────────────
@@ -340,9 +387,24 @@ export async function officeCommand(content, opts = {}) {
 const OFFICE_GRAPH_CP_DIR = () => path.join(paths.dataDir, 'office-graph-checkpoints')
 const officeGraphs = new Map()   // threadId -> { app, text }
 
+// ── 人工审批待办（借鉴 openhuman AttentionQueue：需要你处理的待审批）──
+let pendingApprovals = []   // [{ threadId, node, text, ts }]
+export function getPendingApprovals() {
+  return pendingApprovals.slice()
+}
+function registerPendingApproval(threadId, node, text) {
+  pendingApprovals = pendingApprovals.filter(a => a.threadId !== threadId)
+  pendingApprovals.unshift({ threadId, node: String(node || ''), text: String(text || '').slice(0, 80), ts: new Date().toISOString() })
+  try { emitEvent('office_approval', pendingApprovals[0]) } catch { /* event bus unavailable */ }
+}
+function clearPendingApproval(threadId) {
+  pendingApprovals = pendingApprovals.filter(a => a.threadId !== threadId)
+}
+
 function finalizeOfficeGraph(text, state, threadId) {
   const ceoReply = state.ceoReply || ''
   const workerReplies = state.workerReplies || []
+  const advisoryReplies = state.advisoryReplies || []
   const ceoSummary = state.ceoSummary || ceoReply || ''
   const workers = state.workers || []
   const workerName = state.workerName || ''
@@ -350,7 +412,7 @@ function finalizeOfficeGraph(text, state, threadId) {
     remember({ type: 'decision', agent: 'CEO', content: `指令「${text}」→ 分派 ${workerName} → 结论：${String(ceoSummary).slice(0, 500)}` }).catch(() => {})
   }
   recordActivity({ agentId: 'gm', agentName: getAgentConfig('gm')?.name || 'CEO', task: `【CEO】${text.slice(0, 100)}`, result: String(ceoSummary || ceoReply || '').slice(0, 300), ms: 0 })
-  return { ok: true, graph: true, threadId, round: getMeetingRound(), ceoReply, workerReplies, ceoSummary, workers }
+  return { ok: true, graph: true, threadId, round: getMeetingRound(), ceoReply, workerReplies, advisoryReplies, ceoSummary, workers }
 }
 
 async function runOfficeGraph(text, opts = {}) {
@@ -383,10 +445,15 @@ async function runOfficeGraph(text, opts = {}) {
   })
 
   g.addNode('worker_execute', async (state) => {
-    const workerReplies = []
-    for (const wid of (state.workers || [])) {
+    // P2-22：并行执行 worker，避免某个慢成员串行堵住整条流水（与 officeCommand 保持一致）。
+    // 同时让外部全能顾问（Hermes/OpenHuman）参与讨论、给意见。
+    const ADVISOR_IDS = ['hermesagent', 'openhuman']
+    const advisors = ADVISOR_IDS.filter(id => getAgentConfig(id) && !(state.workers || []).includes(id))
+    const ceoPlan = String(state.ceoReply || '').replace(/\n?\s*\{\s*"workers"\s*:\s*\[[^\]]*\]\s*\}\s*$/, '').slice(0, 1500)
+
+    const workerPromise = Promise.all((state.workers || []).map(async (wid) => {
       const worker = getAgentConfig(wid)
-      if (!worker) continue
+      if (!worker) return null
       emitEvent('office_progress', { agentId: wid, status: 'working', stage: 'executing', text, bubble: '⚙️ 收到任务，开始处理…' })
       const t0 = Date.now()
       try {
@@ -395,26 +462,55 @@ async function runOfficeGraph(text, opts = {}) {
         push({ role: 'agent', agentId: wid, agentName: worker.name, avatar: worker.avatar, content: reply, ts: new Date().toISOString() })
         if (worker.voice?.enabled) emitEvent('agent_tts', { agentId: wid, text: reply.slice(0, 300), voiceId: worker.voice?.voiceId || '' })
         emitEvent('office_progress', { agentId: wid, status: 'reporting', stage: 'done', text: '交付完成' })
-        const verified = await verifyDelivery(worker.name, text, reply)
-        workerReplies.push({ agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply, verified })
         recordActivity({ agentId: wid, agentName: worker.name, task: text, result: reply.slice(0, 300), ms: Date.now() - t0 })
+        return { agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply, worker }
       } catch (err) {
-        const ms = Date.now() - t0
-        workerReplies.push({ agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply: '（执行失败：' + err.message + '）', error: true, verified: { verified: true, pass: false, verdict: '执行异常，无法验证交付' } })
-        recordActivity({ agentId: wid, agentName: worker.name, task: text, result: '（执行失败）' + err.message, ms })
+        recordActivity({ agentId: wid, agentName: worker.name, task: text, result: '（执行失败）' + err.message, ms: Date.now() - t0 })
+        emitEvent('office_progress', { agentId: wid, status: 'idle', stage: 'idle', text: '—' })
+        return { agentId: wid, agentName: worker.name, avatar: worker.avatar, role: worker.role, reply: '（执行失败：' + err.message + '）', error: true, verified: { verified: true, pass: false, verdict: '执行异常，无法验证交付' } }
       }
-      emitEvent('office_progress', { agentId: wid, status: 'idle', stage: 'idle', text: '—' })
-    }
-    return { workerReplies }
+    }))
+
+    const advisorPromise = Promise.all(advisors.map(async (aid) => {
+      const adv = getAgentConfig(aid)
+      if (!adv) return null
+      emitEvent('office_progress', { agentId: aid, status: 'thinking', stage: 'advise', text: `讨论：${text}`, bubble: '🧭 参与讨论，制定方案…' })
+      const t0 = Date.now()
+      try {
+        const reply = await runAgentEngine(aid, getRoomHistory(MAX_HISTORY),
+          `老板下达任务：「${text}」。CEO 拆解的方案如下：\n${ceoPlan}\n请作为外部全能顾问参与讨论：给出你的方案意见、风险提示与补充建议（明确、可执行）。`, false)
+        push({ role: 'agent', agentId: aid, agentName: adv.name, avatar: adv.avatar, content: reply, ts: new Date().toISOString() })
+        if (adv.voice?.enabled) emitEvent('agent_tts', { agentId: aid, text: reply.slice(0, 300), voiceId: adv.voice?.voiceId || '' })
+        emitEvent('office_progress', { agentId: aid, status: 'idle', stage: 'idle', text: '—' })
+        recordActivity({ agentId: aid, agentName: adv.name, task: `【顾问】${text.slice(0, 80)}`, result: reply.slice(0, 300), ms: Date.now() - t0 })
+        return { agentId: aid, agentName: adv.name, avatar: adv.avatar, role: adv.role, reply }
+      } catch (err) {
+        emitEvent('office_progress', { agentId: aid, status: 'idle', stage: 'idle', text: '—' })
+        return { agentId: aid, agentName: adv.name, avatar: adv.avatar, role: adv.role, reply: '（顾问响应失败：' + err.message + '）', error: true }
+      }
+    }))
+
+    const [workerResults, advisoryResults] = await Promise.all([workerPromise, advisorPromise])
+    const workerReplies = workerResults.filter(Boolean)
+    const advisoryReplies = advisoryResults.filter(Boolean)
+    // 证据化验证：并行 + 文件管理(host) 不自验
+    await Promise.all(workerReplies.map(async (r) => {
+      if (r.error || r.agentId === 'host') return
+      r.verified = await verifyDelivery(r.worker.name, text, r.reply)
+    }))
+    return { workerReplies, advisoryReplies }
   })
 
   g.addNode('ceo_summary', async (state) => {
     const workerReplies = state.workerReplies || []
+    const advisoryReplies = state.advisoryReplies || []
     emitEvent('office_progress', { agentId: 'gm', status: 'thinking', stage: 'summary', text: '汇总结果…' })
+    const advisoryText = advisoryReplies.filter(r => r && !r.error && r.reply).map(r => `【${r.agentName}】${String(r.reply).slice(0, 3000)}`).join('\n')
+    const workerText = workerReplies.map(r => `【${r.agentName}】${String(r.reply).slice(0, 4000)}`).join('\n')
     let summary = state.ceoReply || ''
-    if (workerReplies.length) {
+    if (advisoryText || workerText) {
       summary = await runAgentEngine('gm', getRoomHistory(MAX_HISTORY),
-        `上级指令：「${text}」。各成员交付如下：\n${workerReplies.map(r => `【${r.agentName}】${r.reply}`).join('\n\n')}\n请汇总结果并向用户汇报（总结要点、指出待确认事项）。`, true).catch(e => '（CEO 汇总失败：' + e.message + '）')
+        `上级指令：「${text}」。\n外部顾问意见：\n${advisoryText || '（无）'}\n\n各成员交付：\n${workerText || '（无）'}\n请综合顾问意见与交付结果，向用户汇报最终方案（总结要点、指出待确认事项）。`, true).catch(e => '（CEO 汇总失败：' + e.message + '）')
     }
     push({ role: 'agent', agentId: 'gm', agentName: ceo.name, avatar: ceo.avatar, content: summary, ts: new Date().toISOString() })
     emitEvent('office_progress', { agentId: 'gm', status: 'idle', stage: 'complete', text: '—' })
@@ -431,6 +527,7 @@ async function runOfficeGraph(text, opts = {}) {
   const r = await app.invoke({ content: text }, { threadId, onStep: opts.onStep })
 
   if (r.interrupted) {
+    registerPendingApproval(threadId, r.waitingNode, text)
     return { ok: true, graph: true, interrupted: true, threadId, waitingNode: r.waitingNode, state: r.state || {} }
   }
   return finalizeOfficeGraph(text, r.state || {}, threadId)
@@ -440,6 +537,7 @@ async function runOfficeGraph(text, opts = {}) {
 export async function resumeOfficeGraph(threadId, { approved = true, note = '' } = {}) {
   const entry = officeGraphs.get(threadId)
   if (!entry) throw new Error(`未知办公室图线程: ${threadId}（请先以 graph:true 发起）`)
+  clearPendingApproval(threadId)
   const r = await entry.app.resume(threadId, { approved, note })
   if (r.rejected) return { ok: true, graph: true, rejected: true, threadId, state: r.state || {}, note }
   if (r.resumed) return finalizeOfficeGraph(entry.text, r.state || {}, threadId)

@@ -21,7 +21,7 @@ export const AGENTS = [
   {
     id: 'hermesagent',
     name: 'HermesAgent',
-    role: '独立外部 Agent · Hermes 网关',
+    role: '外部全能顾问 · Hermes',
     avatar: '🧭',
     avatar_image: '',
     color: '#ff7a59',
@@ -32,10 +32,11 @@ export const AGENTS = [
     a2a_timeout: 120,
     table: true,      // 会议桌成员
     external: true,   // 独立外部 Agent（非 CEO 子 agent）
-    capabilities: ['项目管理', '任务排期', '资源协调', '跨部门协作', '进度汇报'],
-    persona: '你是独立外部 Agent「Hermes」，通过 A2A 协议接入本办公室，坐镇会议桌。负责项目排期、任务拆解、资源协调与跨部门协作，以独立身份参与讨论与评审。',
-    style: '1. 接任务先排期、拆解、定责任人。2. 跨部门/跨 Agent 协作时主动协调资源与进度。3. 独立给出专业判断，向会议桌汇报。',
-    private_memory: '我是独立外部 Agent Hermes：项目排期/资源协调/跨部门协作。',
+    advisor: true,    // 外部全能顾问：老板下任务时参与讨论、制定方案、给意见
+    capabilities: ['全局讨论', '方案制定', '专业意见', '风险提示', '落地配合', '项目管理', '资源协调'],
+    persona: '你是独立外部全能型 Agent「Hermes」，通过 A2A 协议接入本办公室，坐镇会议桌。你不是单一职能的专员，而是全能顾问：面对老板下达的任何任务，你都会先参与讨论、制定方案、给出专业意见与风险提示，并配合团队推进落地。',
+    style: '1. 接到任务先参与讨论，给出方案与意见。2. 从全局视角指出风险、补充建议。3. 独立判断，专业、具体、可执行。',
+    private_memory: '我是外部全能顾问 Hermes：参与讨论/制定方案/给意见/配合落地。',
   },
   {
     id: 'claudecode',
@@ -59,7 +60,7 @@ export const AGENTS = [
   {
     id: 'openhuman',
     name: 'OpenHuman',
-    role: '独立外部 Agent · OpenHuman',
+    role: '外部全能顾问 · OpenHuman',
     avatar: '🧠',
     avatar_image: '',
     color: '#10b981',
@@ -70,10 +71,11 @@ export const AGENTS = [
     a2a_timeout: 180,
     table: true,      // 会议桌成员
     external: true,   // 独立外部 Agent（非 CEO 子 agent）
-    capabilities: ['自主推理', '任务规划', '工具调用', '记忆检索', '多模态', '讨论协作'],
-    persona: '你是独立外部 Agent「OpenHuman」，通过 A2A 协议接入本办公室，坐镇会议桌。你是自主通用型智能体：长程任务规划、工具调用、记忆检索与多轮推理，以独立身份参与讨论与评审。',
-    style: '1. 独立判断，从自身能力与知识出发给出专业意见。2. 复杂任务先拆解再逐步推进。3. 参与评审时给出可执行的判断与依据。',
-    private_memory: '我是独立外部 Agent OpenHuman：自主推理/工具调用/记忆检索/任务规划/多轮讨论。',
+    advisor: true,    // 外部全能顾问：老板下任务时参与讨论、制定方案、给意见
+    capabilities: ['自主推理', '方案制定', '任务规划', '讨论协作', '评审把关', '专业意见'],
+    persona: '你是独立外部全能型 Agent「OpenHuman」，通过 A2A 协议接入本办公室，坐镇会议桌。你不是单一职能的专员，而是自主通用型全能顾问：面对老板下达的任何任务，你都会先参与讨论、制定方案、给出专业意见与可行判断，并配合团队推进落地。',
+    style: '1. 接到任务先参与讨论，制定方案。2. 给出专业意见与可行判断。3. 独立把关，配合推进，参与评审。',
+    private_memory: '我是外部全能顾问 OpenHuman：参与讨论/制定方案/给意见/评审把关/配合落地。',
   },
   {
     id: 'host',
@@ -86,7 +88,7 @@ export const AGENTS = [
     voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
     engine: 'internal',
     model: '', base_url: '', api_key: '', temperature: 0.3, cli_command: '',
-    tools: ['list_dir', 'read_file', 'write_file', 'make_dir', 'delete_file', 'rename_file', 'copy_file', 'move_file', 'find_file'],   // 真实文件工具
+    tools: ['list_dir', 'read_file', 'write_file', 'append_file', 'gen_docx', 'make_dir', 'delete_file', 'rename_file', 'copy_file', 'move_file', 'find_file'],   // 真实文件工具（append_file 分段写 + gen_docx 生成排版专业 Word）
     capabilities: ['文件读写', '归档整理', '检索定位', '版本管理'],
     persona: '你是办公室的文件管理员工，负责文件读写、归档、检索与版本管理。',
     style: '1. 文件任务先确认路径与格式。2. 产出整理/归档/检索结果。3. 版本管理要清晰可追溯。',
@@ -103,7 +105,7 @@ export const AGENTS = [
     voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
     engine: 'internal',
     model: '', base_url: '', api_key: '', temperature: 0.5, cli_command: '',
-    tools: ['exec_command', 'list_dir', 'read_file', 'write_file', 'run_python'],   // 真实执行工具
+    tools: ['exec_command', 'list_dir', 'read_file', 'write_file', 'append_file', 'gen_docx', 'run_python'],   // 真实执行工具（append_file 分段写 + gen_docx 生成 Word）
     capabilities: ['桌面操作', '脚本运行', '本地资源', '系统设置'],
     persona: '你是办公室的电脑操作员工，负责桌面与系统级操作：开应用、跑脚本、处理本地资源。',
     style: '1. 操作类任务给出明确步骤与命令。2. 涉及改动先说明影响。3. 结果可复现。',
@@ -154,7 +156,7 @@ export const AGENTS = [
     voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
     engine: 'internal',
     model: '', base_url: '', api_key: '', temperature: 0.5, cli_command: '',
-    tools: ['read_file', 'write_file', 'run_python', 'list_dir'],   // 真实统计/报表工具
+    tools: ['read_file', 'write_file', 'append_file', 'gen_docx', 'run_python', 'list_dir'],   // 真实统计/报表工具（append_file 分段写 + gen_docx 生成 Word）
     capabilities: ['数据汇总', '报表生成', '统计口径', '进度看板'],
     persona: '你是办公室的报表统计员工，负责数据汇总、报表生成与统计口径。',
     style: '1. 统计任务先明确口径与维度。2. 报表用表格/图表呈现。3. 数据可复核。',
@@ -171,7 +173,7 @@ export const AGENTS = [
     voice: { enabled: false, ttsProvider: '', voiceId: '', speed: 1.0 },
     engine: 'internal',
     model: '', base_url: '', api_key: '', temperature: 0.3, cli_command: '',
-    tools: ['exec_command', 'exec_quick_command', 'list_dir', 'read_file', 'write_file', 'run_python'],   // 真实系统诊断工具
+    tools: ['exec_command', 'exec_quick_command', 'list_dir', 'read_file', 'write_file', 'append_file', 'gen_docx', 'run_python'],   // 真实系统诊断工具（append_file 分段写 + gen_docx 生成 Word）
     capabilities: ['磁盘体检', '系统性能', '电池健康', '大文件清理', '使用习惯分析'],
     persona: '你是办公室的系统体检员（对标 Marvis），负责对电脑做全方位体检：扫描磁盘空间、定位大文件垃圾、诊断系统性能、检测电池健康、分析使用习惯。必须用真实系统命令采集数据，产出结构化可视化报告。',
     style: '1. 用真实系统命令（df/wmic/powershell 系统信息）采集数据，不用编造。2. 分项输出：磁盘/性能/电池/大文件/习惯。3. 给出可落地的清理与优化建议。4. 产出 Markdown/表格报告。',

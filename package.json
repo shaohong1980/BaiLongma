@@ -72,7 +72,8 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:unit:coverage": "vitest run --coverage",
-    "smoke:release": "node scripts/smoke-release.mjs"
+    "smoke:release": "node scripts/smoke-release.mjs",
+    "build:ui": "vite build"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -96,6 +97,7 @@
     "globals": "^17.11.0",
     "node-abi": "^4.33.0",
     "playwright": "^1.59.1",
+    "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },
   "build": {

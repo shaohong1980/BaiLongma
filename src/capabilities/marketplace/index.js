@@ -17,7 +17,7 @@ const registry = new Map()
 
 // 不允许覆盖的内置工具名（关键工具保护）
 const BUILTIN_NAMES = new Set([
-  'express', 'send_message', 'read_file', 'list_dir', 'write_file', 'delete_file',
+  'express', 'send_message', 'read_file', 'list_dir', 'write_file', 'append_file', 'gen_docx', 'delete_file',
   'make_dir', 'rename_file', 'copy_file', 'move_file', 'find_file',
   'exec_command', 'exec_quick_command', 'exec_task_command', 'exec_background_command',
   'download_file', 'kill_process', 'list_processes', 'web_search',

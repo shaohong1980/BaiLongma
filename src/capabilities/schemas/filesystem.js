@@ -71,6 +71,50 @@ export const filesystemSchemas = {
     }
   },
 
+  append_file: {
+    type: 'function',
+    function: {
+      name: 'append_file',
+      description: 'Append content to the END of an existing text file (creates it if it does not exist). Use this together with write_file to build LONG documents in chunks: write the opening with write_file, then call append_file repeatedly to add each following section. Never try to emit a very long document in a single write_file response — the per-response output budget is limited and content gets truncated. A safe chunk is roughly 2500–4000 Chinese characters (or 800–1500 words) per call. Pass the chunk verbatim in `content` — no escaping, no quoting. Reads the file back after appending to verify the bytes landed. Accepts a relative path (inside the sandbox) or an absolute path when the file sandbox is disabled. System files such as readme.txt and world.txt cannot be modified.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'File path to append to.'
+          },
+          content: {
+            type: 'string',
+            description: 'Content chunk to append at the end of the file.'
+          }
+        },
+        required: ['path', 'content']
+      }
+    }
+  },
+
+  gen_docx: {
+    type: 'function',
+    function: {
+      name: 'gen_docx',
+      description: 'Convert a Markdown file into a professionally formatted Word document (.docx). Use this whenever the user wants a Word/office document with good typesetting (headings, tables, page numbers, cover, TOC). WORKFLOW: first write the document content as a Markdown file (write_file for the start, append_file for long docs), then call gen_docx with input=<md path>. Markdown is parsed: `#/##/###` headings, paragraphs, `-` bullet lists, `1.` numbered lists, `|...|` tables, and a line `---PAGE---` for page breaks. Optional args: cover=true adds a cover page, toc=true adds a table of contents (you must also pass title), subtitle, author, header (page header text). Output defaults to the same name with .docx. This is the ONLY reliable way to produce a real .docx — never hand-write binary .docx or fake .doc via HTML.',
+      parameters: {
+        type: 'object',
+        properties: {
+          input: { type: 'string', description: 'Path to the Markdown source file.' },
+          output: { type: 'string', description: 'Optional output .docx path (defaults to input name with .docx).' },
+          title: { type: 'string', description: 'Document title (used for cover/TOC).' },
+          subtitle: { type: 'string', description: 'Optional subtitle on the cover page.' },
+          author: { type: 'string', description: 'Optional author/company line on the cover page.' },
+          cover: { type: 'boolean', description: 'Whether to add a cover page.' },
+          toc: { type: 'boolean', description: 'Whether to add a table of contents.' },
+          header: { type: 'string', description: 'Optional text shown in the page header.' }
+        },
+        required: ['input']
+      }
+    }
+  },
+
   delete_file: {
     type: 'function',
     function: {

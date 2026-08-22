@@ -24,11 +24,24 @@ triggers:
 
 | 任务 | 方案 |
 |---|---|
-| **新建** | 用 `docx`（npm）写脚本生成 |
+| **新建（推荐）** | 用 `gen_docx` 工具：先写 Markdown，再转 .docx |
 | **编辑已有** | `unzip` → 改 `word/document.xml` → 重新 zip |
 | **读取内容** | `pandoc -t markdown file.docx` 转 Markdown |
 
-## 关键坑（docx-js）
+## 首选：gen_docx 工具（零手动 XML，排版专业）
+
+写文档内容时**不要用 write_file 一次写完**，而是：
+
+1. 把正文写成 **Markdown 文件**（`#` 一级标题、`##` 二级、`###` 三级；表格用 `| 列 | 列 |`；列表用 `-`/`1.`；段落间空一行；需要分页就单独一行 `---PAGE---`）。长文档用 `write_file` 开头 + `append_file` 逐段追加。
+2. 调用 `gen_docx`：
+   ```
+   gen_docx({ input: "报告.md", title: "报告标题", cover: true, toc: true, author: "白龙马办公室", header: "公司名" })
+   ```
+3. `gen_docx` 自动生成带封面、目录、多级标题、页眉页码、表格边框的专业 .docx。
+
+> 禁止手写二进制 .docx（ZIP+XML 极易损坏），也禁止把 HTML 改名成 .doc 冒充（Word 打开排版很差）。
+
+## 关键坑（docx-js 脚本方案，仅高级场景）
 
 - 页面默认 A4；美国信纸要设 `width: 12240, height: 15840`（DXA，1440=1英寸）
 - 表格要同时设 `columnWidths` 和每个单元格的 `width`，都用 `WidthType.DXA`，列宽和必须等于表宽
@@ -49,5 +62,5 @@ pdftoppm -jpeg -r 100 output.pdf page   # 生成 page-*.jpg 逐页看
 
 ## 流程
 1. 先问用户：文档用途、样式偏好（正式/简洁）、需要哪些章节
-2. 写脚本生成 → 转 PDF 目检 → 修复排版 → 交付
+2. 写 Markdown（分段）→ 调 `gen_docx` 生成 → 转 PDF 目检 → 修复排版 → 交付
 3. 交付时说明文件路径

@@ -21,7 +21,8 @@ import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { tracer } from '../observability/index.js'
-import { execCopyFile, execDeleteFile, execFindFile, execListDir, execMakeDir, execMoveFile, execReadFile, execRenameFile, execWriteFile } from './tools/filesystem.js'
+import { execCopyFile, execDeleteFile, execFindFile, execListDir, execMakeDir, execMoveFile, execReadFile, execRenameFile, execWriteFile, execAppendFile } from './tools/filesystem.js'
+import { execGenDocx } from './tools/docx-gen.js'
 import { execReadDocument } from './tools/documents.js'
 import { execKnowledgeIngest, execKnowledgeSearch, execKnowledgeList, execKnowledgeDelete, execKnowledgeStats } from './tools/knowledge.js'
 import { execRunPython, execPythonPackages } from './tools/python-sandbox.js'
@@ -275,6 +276,10 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execProposeWorkflow(args, context)
       case 'write_file':
         return await execWriteFile(args, context)
+      case 'append_file':
+        return await execAppendFile(args, context)
+      case 'gen_docx':
+        return await execGenDocx(args, context)
       case 'delete_file':
         return await execDeleteFile(args, context)
       case 'make_dir':

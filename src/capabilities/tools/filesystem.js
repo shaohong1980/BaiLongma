@@ -137,6 +137,53 @@ export async function execWriteFile(args, context = {}) {
   })
 }
 
+// append_file —— 追加内容到文件末尾（分段写入长文档的核心工具）。
+// 存在则追加，不存在则新建；同样做读回校验，防止内容丢失。
+export async function execAppendFile(args, context = {}) {
+  throwIfAborted(context.signal)
+  const rawPath = args.path || args.filename || args.file_path
+  const content = args.content ?? args.text ?? args.data
+  if (!rawPath) return '错误：未提供文件路径'
+  if (content === undefined) return '错误：未提供追加内容'
+  const filePath = normalizeSandboxPath(rawPath)
+  if (PROTECTED_FILES.has(path.basename(filePath).toLowerCase())) {
+    return `错误：${path.basename(filePath)} 是系统文件，不可修改`
+  }
+  const resolved = path.resolve(SANDBOX_ROOT, filePath)
+  assertInSandbox(resolved)
+  assertFileNotGuarded(resolved)
+  const existed = fs.existsSync(resolved)
+  const before = existed ? fs.readFileSync(resolved, 'utf-8') : ''
+  fs.mkdirSync(path.dirname(resolved), { recursive: true })
+  fs.appendFileSync(resolved, content, 'utf-8')
+  const after = fs.readFileSync(resolved, 'utf-8')
+  const bytes = Buffer.byteLength(String(content), 'utf-8')
+  const verified = after === before + String(content)
+  streamWriteFileExecutionPreview({ path: filePath, content, bytes, verified })
+  if (!verified) {
+    return toolJson({
+      ok: false,
+      tool: 'append_file',
+      path: filePath,
+      absolute_path: resolved,
+      bytes,
+      verified: false,
+      error: 'read-back verification did not match appended content',
+    })
+  }
+  return toolJson({
+    ok: true,
+    tool: 'append_file',
+    path: filePath,
+    absolute_path: resolved,
+    existed,
+    bytes,
+    total_bytes: Buffer.byteLength(after, 'utf-8'),
+    verified: true,
+    content_preview: String(content).slice(0, 120),
+  })
+}
+
 export async function execDeleteFile(args, context = {}) {
   throwIfAborted(context.signal)
   const rawPath = args.path || args.filename || args.file_path

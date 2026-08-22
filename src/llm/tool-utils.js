@@ -36,6 +36,8 @@ const PARAM_ALIASES = {
   send_message: { to: 'target_id', message: 'content', text: 'content', recipient: 'target_id' },
   read_file: { file: 'path', filename: 'path', filepath: 'path' },
   write_file: { file: 'path', filename: 'path', filepath: 'path', text: 'content', data: 'content' },
+  append_file: { file: 'path', filename: 'path', filepath: 'path', text: 'content', data: 'content' },
+  gen_docx: { file: 'input', filename: 'input', input_file: 'input' },
   list_dir: { directory: 'path', dir: 'path', folder: 'path' },
   make_dir: { directory: 'path', dir: 'path', folder: 'path' },
   delete_file: { file: 'path', filename: 'path' },
@@ -138,6 +140,10 @@ export function summarizeToolCall(name, args = {}) {
     }
     case 'write_file':
       return `write_file(${args.path || args.filename || args.file_path || '?'})`
+    case 'append_file':
+      return `append_file(${args.path || args.filename || args.file_path || '?'})`
+    case 'gen_docx':
+      return `gen_docx(${args.input || args.file || '?'} → ${args.output || 'auto.docx'})`
     case 'delete_file':
       return `delete_file(${args.path || args.filename || args.file_path || '?'})`
     case 'make_dir':

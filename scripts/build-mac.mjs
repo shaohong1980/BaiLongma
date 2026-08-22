@@ -2,7 +2,7 @@
 
 import { spawnSync } from 'node:child_process';
 
-const electronVersion = '33.4.11';
+const electronVersion = '43.4.1';
 const supportedArchs = new Set(['x64', 'arm64']);
 const args = process.argv.slice(2).map((arg) => arg.replace(/^--/, ''));
 const invalidArgs = args.filter((arg) => !supportedArchs.has(arg));

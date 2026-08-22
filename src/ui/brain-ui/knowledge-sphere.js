@@ -12,18 +12,17 @@ const THREE_CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module
 const THREE_CDN_FALLBACK = 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
 async function loadThree() {
-  try {
-    const mod = await import(THREE_LOCAL);
-    return mod;
-  } catch {
-    try {
-      const mod = await import(THREE_CDN);
-      return mod;
-    } catch {
-      const mod = await import(THREE_CDN_FALLBACK);
-      return mod;
-    }
+  // P1-10：npm three 优先（打包版 tree-shaking）；源码直载时回退本地 vendor/CDN。
+  const sources = [
+    () => import('three'),
+    () => import(/* @vite-ignore */ THREE_LOCAL),
+    () => import(THREE_CDN),
+    () => import(THREE_CDN_FALLBACK),
+  ]
+  for (const s of sources) {
+    try { const mod = await s(); if (mod) return mod } catch { /* 尝试下一个 */ }
   }
+  throw new Error('three.js 加载失败')
 }
 
 // 径向渐变发光贴图（仅用于节点「被使用时」的点亮光晕）

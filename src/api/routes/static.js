@@ -1,7 +1,6 @@
 import fs from 'fs'
 import path from 'path'
 import { config } from '../../config.js'
-import { readParsedConfig } from '../../config/io.js'
 import { paths } from '../../paths.js'
 import { contentTypeFor, isPathInside } from '../utils.js'
 
@@ -15,18 +14,16 @@ const BRAIN_UI_ASSET_ROOT = paths.brainUiAssetRoot
 const SITE_ICON_PATH = path.join(paths.resourcesDir, 'build', 'icon.png')
 const SCENE_SHELL_ASSET_ROOT = path.join(paths.resourcesDir, 'src', 'ui', 'scene-shell')
 const TERMINAL_STREAM_PATH = path.join(paths.resourcesDir, 'src', 'ui', 'terminal-stream', 'index.html')
+// d3 由 npm 依赖提供（vendored d3.v7.min.js 已删）；smoke 测试仍会请求该路由
 const D3_VENDOR_PATH = path.join(paths.resourcesDir, 'node_modules', 'd3', 'dist', 'd3.min.js')
 
-// ── 打包版 Brain UI（P1-10，opt-in）───────────────────────────────────────────
-// 默认仍服务源码（无构建即可跑，Electron/后端零依赖）。仅当：
-//   config.json 里 `ui.useBundledBuild: true` 且 dist-ui/ 存在时，才改服务打包产物。
-// 切换前务必先在 GUI 里 `npm run build:ui && npm start` 人工验证打包版正常。
+// ── 打包版 Brain UI（P1-10，默认打包）──────────────────────────────────────────
+// 只要 `npm run build:ui` 产出的 dist-ui/ 存在，就服务打包产物；否则回退源码
+// （源码直载仍可用：three/pinyin-pro 走 npm 优先 + 本地 vendor/CDN 兜底）。
 const BUNDLED_UI_ROOT = path.join(paths.resourcesDir, 'dist-ui')
 
 function bundledUiEnabled() {
   try {
-    const raw = readParsedConfig()
-    if (raw?.ui?.useBundledBuild !== true) return false
     return fs.existsSync(BUNDLED_UI_ROOT)
   } catch { return false }
 }

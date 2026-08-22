@@ -12,7 +12,8 @@
 let _pinyinProPromise = null
 function loadPinyinPro() {
   if (!_pinyinProPromise) {
-    _pinyinProPromise = import('./vendor/pinyin-pro/pinyin-pro.mjs')
+    // P1-10：npm pinyin-pro 优先（打包版）；源码直载回退本地 vendor（@vite-ignore 不重复打包）
+    _pinyinProPromise = import('pinyin-pro').catch(() => import(/* @vite-ignore */ './vendor/pinyin-pro/pinyin-pro.mjs'))
   }
   return _pinyinProPromise
 }

@@ -1,42 +1,44 @@
 # Brain UI 构建体系（P1-10）
 
 ## 现状与策略
-Brain UI 共 46 个模块文件，历史上**直接以 `<script type="module">` 加载**（无需构建即可跑，
-后端 `src/api/routes/static.js` 服务源码）。本轮引入 Vite 提供**可选的打包路径**，不破坏现状：
+Brain UI 共 46 个模块文件。已引入 Vite 打包，**打包版成为默认**：
 
-- 默认仍服务源码（零依赖、无需构建）。
-- 只有同时满足「`config.json` 里 `ui.useBundledBuild: true`」且「`dist-ui/` 存在」时，
-  才改服务打包产物（`vite build` 输出到 `dist-ui/`）。
-- 切换前务必先在 GUI 里 `npm run build:ui && npm start` 人工验证打包版正常。
+- 后端 `src/api/routes/static.js`：只要 `dist-ui/`（`npm run build:ui` 产物）存在就服务打包版；
+  否则回退源码直载。
+- **双模式兼容**：three / pinyin-pro 走「npm 优先 → 本地 vendor → CDN」动态 import 链——
+  - 打包版：`import('three')` / `import('pinyin-pro')` 解析到 npm（tree-shaking、独立 chunk）。
+  - 源码直载：浏览器解析不了裸 specifier 会抛错，自动回退到本地 vendor（`@vite-ignore` 让打包版不重复打包）。
+- 切换回源码：删除 `dist-ui/` 即可。
 
 ## 使用
 
 ```bash
 npm run build:ui            # vite build → dist-ui/
-# 验证构建产物：dist-ui/index.html + dist-ui/assets/*
-# 然后在 config.json 加：{ "ui": { "useBundledBuild": true } }
-# 重启后端，/ 与 /assets/* 即走打包产物；删掉该字段或删 dist-ui/ 即回退源码。
+npm start                   # 后端检测到 dist-ui/ 即服务打包版
+rm -rf dist-ui              # 回退源码直载
 ```
 
 ## 构建产物（`dist-ui/`，已 gitignore）
 - 入口：`index.html` + 独立页（activation / website / systemPrompt / turn-trace / focus-banner）
-- `assets/main-*.js`（应用主包，~489KB）、`assets/knowledge-sphere-*.js`（动态 import 拆包）、
-  `assets/pinyin-pro-*.js`（动态 import 拆包）、`assets/main-*.css`（styles.css 打包）
+- `assets/main-*.js`（应用主包，~489KB）
+- `assets/three.module-*.js`（npm three，动态 import 独立 chunk，~658KB，比 vendored 1.3MB 小）
+- `assets/esm-*.js`（npm pinyin-pro 独立 chunk，~296KB）
+- `assets/knowledge-sphere-*.js`（动态 import 拆包）、`assets/main-*.css`（styles.css 打包）
 - 地球贴图等资源按需输出（`assets/earth_*.jpg/png`）
 
 ## 已生效的构建能力
-- ✅ 75 模块 tree-shaking 打包 + 代码分割（动态 import 拆 chunk：knowledge-sphere / pinyin-pro）
-- ✅ CSS 打包
-- ✅ 多页入口
-- ⏳ 尚未做（待 GUI 验证打包版后逐步迁移）：
-  - three/rive 从 vendored → npm 依赖（`import 'three'` 需构建环境才能解析）
-  - 移除大型 vendored 文件（`vendor/three/` 1.3MB、`vendor/rive/` 5MB）
-  - CSS 模块化
+- ✅ 104 模块打包 + 代码分割（three / pinyin-pro / knowledge-sphere 独立 chunk）
+- ✅ three / pinyin-pro 迁到 npm 依赖（`vendor/three`、`vendor/pinyin-pro` 降级为源码兜底）
+- ✅ CSS 打包、多页入口
+- ✅ 删除大型 vendored d3（`vendor/d3/d3.v7.min.js`；npm d3 路由保留供 smoke）
+- ⏳ 尚未做（需 GUI 验证后继续）：
+  - rive → npm（`@rive-app/canvas`，voice-rive.js 需重写，风险高）
+  - CSS 模块化（styles.css 8464 行拆分）
   - 开发模式 vite dev server
 
 ## 切换时的注意事项
 - **CSP**：打包版 index.html 沿用源码的 CSP；`unsafe-eval` 已移除，three 本地加载无需 eval。
-- **动态 import 的 three**：hotspot-earth/knowledge-sphere 用 `import(THREE_LOCAL)`（本地 vendor）
-  + CDN 兜底；Vite 构建会保留这些运行时动态 import，不预构建 vendor。
-- **Electron/后端**：`bundledUiEnabled()` 每请求读一次 config.json（`readParsedConfig`），
-  开关即时生效，无需重启后端。
+- **Electron/后端**：`bundledUiEnabled()` 仅检查 `dist-ui/` 是否存在，无需 config 开关。
+- **源码兜底**：`vendor/three/three.module.js`（1.3MB）与 `vendor/pinyin-pro/pinyin-pro.mjs`（564KB）
+  保留供源码直载；确认打包版在 GUI 稳定后可删除（届时源码直载不再可用）。
+

@@ -90,19 +90,18 @@ let THREE = null;
 
 async function loadThree() {
   if (THREE) return THREE;
-  try {
-    const mod = await import(THREE_LOCAL);
-    THREE = mod;
-  } catch {
-    try {
-      const mod = await import(THREE_CDN);
-      THREE = mod;
-    } catch {
-      const mod = await import(THREE_CDN_FALLBACK);
-      THREE = mod;
-    }
+  // P1-10：npm three 优先（打包版 tree-shaking）；源码直载时浏览器解析不了裸 specifier
+  // 会抛错，依次回退到本地 vendor（@vite-ignore 让打包版不重复打包）与 CDN。
+  const sources = [
+    () => import('three'),
+    () => import(/* @vite-ignore */ THREE_LOCAL),
+    () => import(THREE_CDN),
+    () => import(THREE_CDN_FALLBACK),
+  ]
+  for (const s of sources) {
+    try { const mod = await s(); if (mod) { THREE = mod; return THREE } } catch { /* 尝试下一个 */ }
   }
-  return THREE;
+  throw new Error('three.js 加载失败')
 }
 
 function latLonToVec3(lat, lon, radius) {

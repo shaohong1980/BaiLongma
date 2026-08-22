@@ -8,6 +8,7 @@
 // 所有错误吞掉，绝不影响主循环。
 
 import { runPrefetch } from './runner.js'
+import { every } from '../scheduler.js'
 
 const RUN_INTERVAL_MS = 30 * 60 * 1000   // 30 分钟
 const FIRST_DELAY_MS = 10 * 60 * 1000    // 启动 10 分钟后再首次运行（避开启动自检/首次 L1）
@@ -21,20 +22,22 @@ async function tick() {
 }
 
 let started = false
-let timer = null
+let loop = null
 
 export function startPrefetchLoop() {
   if (started) return
   started = true
-  setTimeout(() => {
-    tick()
-    timer = setInterval(tick, RUN_INTERVAL_MS)
-  }, FIRST_DELAY_MS)
+  loop = every(RUN_INTERVAL_MS, tick, {
+    name: 'prefetch-loop',
+    runImmediately: true,
+    delayMs: FIRST_DELAY_MS,
+    onError: (err) => console.error('[预热循环] 失败:', err?.message || err),
+  })
   console.log(`[预热循环] 已注册，${FIRST_DELAY_MS / 60000} 分钟后首次运行，之后每 ${RUN_INTERVAL_MS / 60000} 分钟一次（跳过 TTL 内新鲜缓存）`)
 }
 
 export function stopPrefetchLoop() {
-  if (timer) { clearInterval(timer); timer = null }
+  if (loop) { loop.stop(); loop = null }
   started = false
 }
 

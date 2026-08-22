@@ -57,4 +57,23 @@ describe('scheduler.every', () => {
     expect(() => every(-1, () => {})).toThrow()
     expect(() => every(0, () => {})).toThrow()
   })
+
+  it('delayMs 延迟首轮后启动', async () => {
+    let runs = 0
+    const loop = every(10, () => { runs++ }, { name: 'delay-test', runImmediately: true, delayMs: 40 })
+    await sleep(20)
+    expect(runs).toBe(0) // delay 内不应运行
+    await sleep(60)
+    expect(runs).toBeGreaterThanOrEqual(1) // delay 后首轮 + 后续 interval
+    loop.stop()
+  })
+
+  it('delayMs 期间 stop() 可取消', async () => {
+    let runs = 0
+    const loop = every(10, () => { runs++ }, { name: 'delay-cancel-test', runImmediately: true, delayMs: 100 })
+    await sleep(20)
+    loop.stop()
+    await sleep(120)
+    expect(runs).toBe(0)
+  })
 })

@@ -4,6 +4,7 @@
 // - 幂等：已存在 conv_thread_* 的线程跳过，可重复跑
 // - 用应用自身 getDB()：桌面端 / 开发模式各自作用于当前库
 import { getDB } from '../db.js'
+import { every } from '../scheduler.js'
 
 const RUN_INTERVAL_MS = 30 * 60 * 1000  // 30 分钟
 const FIRST_DELAY_MS = 5 * 60 * 1000    // 启动 5 分钟后再首次运行
@@ -65,19 +66,21 @@ async function tick() {
 }
 
 let started = false
-let timer = null
+let loop = null
 
 export function startConversationImportLoop() {
   if (started) return
   started = true
-  setTimeout(() => {
-    tick()
-    timer = setInterval(tick, RUN_INTERVAL_MS)
-  }, FIRST_DELAY_MS)
+  loop = every(RUN_INTERVAL_MS, tick, {
+    name: 'conversation-import',
+    runImmediately: true,
+    delayMs: FIRST_DELAY_MS,
+    onError: (err) => console.error('[对话导入] 失败:', err?.message || err),
+  })
   console.log(`[对话导入] 已注册，${FIRST_DELAY_MS / 60000} 分钟后首次运行，之后每 ${RUN_INTERVAL_MS / 60000} 分钟一次`)
 }
 
 export function stopConversationImportLoop() {
-  if (timer) { clearInterval(timer); timer = null }
+  if (loop) { loop.stop(); loop = null }
   started = false
 }

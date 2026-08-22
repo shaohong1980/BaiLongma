@@ -2,6 +2,7 @@
 // 不把网页路径或风速阈值当成预警：只有接入方提供的正式预警流中出现目标地区的橙/红预警才会自动打开面板。
 import { getConfig, setConfig } from './db.js'
 import { emitEvent } from './events.js'
+import { every } from './scheduler.js'
 
 const POLL_MS = 5 * 60 * 1000
 const LAST_ALERT_KEY = 'typhoon_alert_last_id'
@@ -54,7 +55,6 @@ export function startTyphoonAlertMonitor() {
     }
   }
   poll()
-  const timer = setInterval(poll, POLL_MS)
-  timer.unref?.()
-  return () => clearInterval(timer)
+  const loop = every(POLL_MS, poll, { name: 'typhoon-alert', runImmediately: true })
+  return () => loop.stop()
 }

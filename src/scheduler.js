@@ -6,14 +6,16 @@
 //   · 防重叠：上一轮回调尚未结束则跳过本轮（避免循环积压 / 多 loop 排队打 SQLite）
 //   · 错误隔离：回调抛错不会打断后续轮次（默认记 warn，可传 onError 自定义）
 //   · 可选 runImmediately：启动后立即跑首轮（如启动即 checkpoint）
+//   · 可选 delayMs：启动后延迟 delayMs 再开始（保留"启动 X 分钟后首次运行"的既有行为）
 //
 // 迁移方式：把 `setInterval(fn, ms)` 换成 `const loop = every(ms, fn, { name })`，
 // 需要停止时 `loop.stop()`。
 
-export function every(intervalMs, fn, { name = 'loop', onError, runImmediately = false } = {}) {
+export function every(intervalMs, fn, { name = 'loop', onError, runImmediately = false, delayMs = 0 } = {}) {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new Error(`[scheduler] invalid interval: ${intervalMs}`)
   let running = false
   let timer = null
+  let delayTimer = null
   let stopped = false
 
   const tick = async () => {
@@ -32,14 +34,25 @@ export function every(intervalMs, fn, { name = 'loop', onError, runImmediately =
     }
   }
 
-  if (runImmediately) { void tick() }
-  timer = setInterval(() => { void tick() }, intervalMs)
-  timer.unref?.()
+  const startInterval = () => {
+    if (stopped) return
+    if (runImmediately) void tick()
+    timer = setInterval(() => { void tick() }, intervalMs)
+    timer.unref?.()
+  }
+
+  if (delayMs > 0) {
+    delayTimer = setTimeout(startInterval, delayMs)
+    delayTimer.unref?.()
+  } else {
+    startInterval()
+  }
 
   return {
     stop() {
       stopped = true
       if (timer) { clearInterval(timer); timer = null }
+      if (delayTimer) { clearTimeout(delayTimer); delayTimer = null }
     },
     isRunning: () => running,
   }

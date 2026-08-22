@@ -24,7 +24,6 @@ const RIVE_WASM = '/src/ui/brain-ui/vendor/rive/rive.wasm';
 const RIVE_FALLBACK_WASM = '/src/ui/brain-ui/vendor/rive/rive_fallback.wasm';
 const MASCOT_SRC = '/src/ui/brain-ui/vendor/rive/tiny_mascot.riv';
 const MASCOT_STATE_MACHINE = 'MascotSM';
-const MASCOT_VIEW_MODEL = 'ViewModel1';
 
 // 资产内 pose 枚举（tiny_mascot.riv 实际导出，比 OpenHuman riveMaps.ts 多一个 recording）
 const RIVE_POSES = new Set([

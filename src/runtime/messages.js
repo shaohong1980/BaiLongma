@@ -332,7 +332,6 @@ export function buildLLMMessages({ systemPrompt, contextBlock = '', conversation
       role: 'user',
       content: msg?.content || input,
     })
-    currentMessageIndex = messages.length - 1
   }
 
   return messages

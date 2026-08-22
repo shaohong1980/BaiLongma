@@ -334,7 +334,7 @@ function mergeCandidate(map, memory, term = '') {
 function candidatesFromSearchTerms(terms) {
   const candidates = new Map()
   for (const term of terms) {
-    let hits = []
+    let hits
     try {
       hits = searchMemories(term, MAX_HITS_PER_TERM)
     } catch {

@@ -16,7 +16,7 @@ jobs:
           node-version: '22'
       # --ignore-scripts：CI 不重编原生模块（eslint 不需要）
       - run: npm ci --ignore-scripts
-      - run: npx eslint src electron scripts --max-warnings=99999
+      - run: npx eslint src electron scripts --max-warnings=0
 
   audit:
     name: npm audit
@@ -45,6 +45,17 @@ jobs:
       - run: node src/test-workflow-room.js
       - run: node src/test-llm-tool-loop.js
       - run: node src/test-key-auto-config.js
+
+  test-unit:
+    name: Vitest 单元测试 + 覆盖率
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - run: npm run test:unit:coverage
 
   # 注：完整测试套件（含 better-sqlite3 原生模块 / Electron）需 Windows runner + electron-rebuild，
   # 且部分测试依赖 LLM/网络，暂不在 CI 全量跑。本地请用 `npm run test:all`。

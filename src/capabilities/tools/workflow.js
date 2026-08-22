@@ -64,7 +64,7 @@ export async function execWorkflowRun(args = {}, context = {}) {
   const input = args.input && typeof args.input === 'object' ? args.input : { input: args.input ? String(args.input) : '' }
 
   // 获取工作流定义
-  let workflow = null
+  let workflow
   if (args.template && WORKFLOW_TEMPLATES[args.template]) {
     workflow = JSON.parse(JSON.stringify(WORKFLOW_TEMPLATES[args.template]))
     workflow.id = `template_${args.template}_${Date.now()}`

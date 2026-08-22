@@ -1,7 +1,6 @@
 import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const { chromium } = require('playwright')
-const fs = require('fs')
 
 const browser = await chromium.launch({
   executablePath: 'C:/Users/1/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe',

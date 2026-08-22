@@ -7,7 +7,7 @@ import fs from 'fs'
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'blm-remind-test-'))
 process.env.BAILONGMA_USER_DIR = tmp
 
-const { createReminder, getReminderById, getDueReminders, cancelReminder } = await import('../src/db.js')
+const { createReminder, getReminderById, getDueReminders } = await import('../src/db.js')
 const { execManageReminder } = await import('../src/capabilities/tools/reminders.js')
 
 let pass = 0, fail = 0

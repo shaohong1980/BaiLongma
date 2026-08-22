@@ -36,7 +36,7 @@ try {
       if (responses.length === 1 && JSON.stringify(messages).includes('文件内容')) seenToolResultInMessages = true
       return responses.shift()
     },
-    _executeToolForTest: async (name, args) => { toolExecuted++; return '文件内容' },
+    _executeToolForTest: async (_name, _args) => { toolExecuted++; return '文件内容' },
   })
   ok(toolExecuted === 1, '工具被调用 1 次 => ' + toolExecuted)
   ok(seenToolResultInMessages, '工具结果已回喂到下一轮 messages')

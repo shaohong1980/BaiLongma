@@ -822,9 +822,9 @@ export class KnowledgeSphere {
   }
 
   _dragNodeTo(px, py) {
+    const T = this.T;
     const nd = this.dragNode;
     if (!nd) return;
-    const T = this.T;
     if (!this.raycaster) this.raycaster = new T.Raycaster();
     const { x, y } = this._ndc(px, py);
     this.raycaster.setFromCamera({ x, y }, this.camera);
@@ -999,7 +999,6 @@ export class KnowledgeSphere {
   _animate() {
     if (this._disposed) return;
     this.animFrame = requestAnimationFrame(() => this._animate());
-    const T = this.T;
     this._time += 1;
 
     // 布局

@@ -73,7 +73,7 @@ export function setOutputPreference(deviceId) {
 // （本应用用 ASR，正常使用后即已授权；未授权时 label 为空，此时退回系统默认即可，无害）。
 export async function listOutputDevices() {
   if (!navigator.mediaDevices?.enumerateDevices) return [];
-  let devices = [];
+  let devices;
   try { devices = await navigator.mediaDevices.enumerateDevices(); } catch { return []; }
   return devices
     .filter(d => d.kind === 'audiooutput')

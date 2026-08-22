@@ -96,7 +96,7 @@ export async function computeEmbedding(text, { isQuery = false } = {}) {
   const cached = cacheGet(key)
   if (cached) return cached
 
-  let buf = null
+  let buf
   try {
     const { computeLocalEmbedding } = await import('./embedding-local.js')
     buf = await computeLocalEmbedding(input, { model: cred.model, isQuery })

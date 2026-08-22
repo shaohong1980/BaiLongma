@@ -18,7 +18,7 @@ export const CAPABILITY_DEMO_INTRO = '我能查查天气、操作读写你电脑
 
 let runId = 0
 let activeCmdProcess = null
-let activeCmdWindowTitle = null
+let _activeCmdWindowTitle = null
 let activeCmdPid = null
 let demoHotspotOpened = false
 
@@ -272,7 +272,7 @@ function openRealCmdWindow() {
   closeCmdWindow()
   const windowTitle = sanitizeCmdTitle(`Bailongma Capability Demo ${Date.now()}`)
   const scriptPath = writeCmdDemoScript(windowTitle)
-  activeCmdWindowTitle = windowTitle
+  _activeCmdWindowTitle = windowTitle
   const comspec = process.env.ComSpec || 'cmd.exe'
   try {
     activeCmdPid = startVisibleCmdWithPid({ comspec, scriptPath })
@@ -281,7 +281,7 @@ function openRealCmdWindow() {
   } catch (err) {
     console.warn('[capability-demo] failed to open visible cmd with pid:', err?.message || err)
     activeCmdPid = null
-    activeCmdWindowTitle = null
+    _activeCmdWindowTitle = null
     return null
   }
 }
@@ -303,7 +303,7 @@ function closeCmdWindow() {
     } catch (e) { console.warn('[src/capability-demo.js] op failed:', e?.message || e) }
   }
   activeCmdProcess = null
-  activeCmdWindowTitle = null
+  _activeCmdWindowTitle = null
   activeCmdPid = null
 }
 

@@ -14,10 +14,6 @@ import { TRIGRAMS, HEXAGRAMS, castHexagram } from './iching-data.js';
 import { themeColors } from './ui-preferences.js';
 
 const $ = (id) => document.getElementById(id);
-const ESC = (s) => String(s == null ? '' : s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
 let bgActive = false;
 let clockTimer = null;
 let rafId = null;

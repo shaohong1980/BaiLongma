@@ -32,7 +32,7 @@
     "test:complex-task": "electron ./src/test-complex-task.js",
     "test:relevance": "electron ./src/test-relevance-selection.js",
     "test:section-gate": "node ./src/test-section-gate.js",
-    "test:tick-policy": "node ./src/test-tick-policy.js",
+    "test:tick-policy": "vitest run tests/tick-policy.test.js",
     "test:failed-outbound-dedupe": "node ./src/test-failed-outbound-dedupe.js",
     "test:consciousness-loop": "node ./src/test-consciousness-loop.js",
     "test:agent-skills": "node ./src/test-agent-skills.js",
@@ -66,9 +66,12 @@
     "smoke:feishu-ws": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:ELECTRON_RUN_AS_NODE='1'; .\\node_modules\\.bin\\electron.cmd .\\scripts\\smoke-feishu-ws.mjs\"",
     "electron:rebuild": "node ./node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3",
     "backend:rebuild": "node scripts/backend-rebuild-guard.mjs",
-    "lint": "eslint src electron scripts --max-warnings=9999",
-    "lint:fix": "eslint src electron scripts --fix --max-warnings=9999",
-    "check": "npm run lint && node scripts/run-tests.mjs"
+    "lint": "eslint src electron scripts --max-warnings=0",
+    "lint:fix": "eslint src electron scripts --fix --max-warnings=0",
+    "check": "npm run lint && npm run test:unit && node scripts/run-tests.mjs",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:unit:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -85,11 +88,13 @@
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
     "@eslint/js": "^10.0.1",
+    "@vitest/coverage-v8": "^4.1.11",
     "electron": "^33.2.0",
     "electron-builder": "^26.15.3",
     "eslint": "^10.8.1",
     "globals": "^17.11.0",
-    "playwright": "^1.59.1"
+    "playwright": "^1.59.1",
+    "vitest": "^4.1.11"
   },
   "build": {
     "appId": "com.xiaoyuanda.bailongma",
@@ -197,5 +202,31 @@
         "releaseType": "release"
       }
     ]
-  }
+  },
+  "files": [
+    "electron/",
+    "src/",
+    "scripts/",
+    "vendor/",
+    "data/",
+    "llm/",
+    "voice/",
+    "skills/",
+    "roles/",
+    "images/",
+    "music/",
+    "build/",
+    "index.html",
+    "brain-ui.html",
+    "activation.html",
+    "focus-banner.html",
+    "turn-trace.html",
+    "systemPrompt.html",
+    "website.html",
+    "config.example.json",
+    "package.json",
+    "README.md",
+    "README.en.md",
+    "LICENSE"
+  ]
 }

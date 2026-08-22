@@ -1,4 +1,3 @@
-import http from 'http'
 import crypto from 'crypto'
 import { startAPI } from '../src/api.js'
 import { popMessage } from '../src/queue.js'

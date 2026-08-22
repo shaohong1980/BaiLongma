@@ -2,8 +2,6 @@ import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { paths } from './paths.js'
-import { upsertMemoryByMemId } from './db.js'
-import { nowTimestamp } from './time.js'
 
 const PERSON_CARD_CONTEXT_TTL_MINUTES = 60
 const PERSON_CARD_STORE_FILE = path.join(paths.dataDir, 'person-cards.json')

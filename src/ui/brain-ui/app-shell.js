@@ -135,55 +135,6 @@ const createSecondaryPanel = () => `
 </aside>
 `;
 
-const createWorkbenchPanel = () => `
-<section class="workbench" id="workbench">
-  <header class="workbench-head">
-    <span class="workbench-title">▦ 待办工作台</span>
-    <span class="workbench-counts">
-      <span class="wb-count" data-count="pending" title="待办事项">待办 <b id="wb-pending-count">0</b></span>
-      <span class="wb-count" data-count="done" title="完成事项">完成 <b id="wb-done-count">0</b></span>
-    </span>
-    <button class="workbench-toggle" id="workbench-toggle" type="button" title="展开 / 收起工作台" aria-expanded="true">▾</button>
-  </header>
-
-  <div class="workbench-body" id="workbench-body">
-    <nav class="workbench-tabs">
-      <button class="wb-tab active" data-tab="todo" type="button">待办事项</button>
-      <button class="wb-tab" data-tab="done" type="button">完成事项</button>
-      <button class="wb-tab" data-tab="review" type="button">每周复盘</button>
-    </nav>
-
-    <div class="workbench-content">
-      <!-- 待办事项 -->
-      <div class="wb-pane active" data-pane="todo" id="wb-pane-todo">
-        <div class="wb-add-row">
-          <input id="wb-todo-input" type="text" placeholder="添加待办…（回车确认）" autocomplete="off" spellcheck="false" />
-          <button id="wb-todo-add" type="button" title="添加待办">＋</button>
-        </div>
-        <div class="wb-list" id="wb-todo-list"></div>
-      </div>
-
-      <!-- 完成事项 -->
-      <div class="wb-pane" data-pane="done" id="wb-pane-done">
-        <div class="wb-list" id="wb-done-list"></div>
-      </div>
-
-      <!-- 每周复盘 -->
-      <div class="wb-pane" data-pane="review" id="wb-pane-review">
-        <div class="wb-review-head">
-          <span class="wb-review-week" id="wb-review-week">—</span>
-          <span class="wb-review-spacer"></span>
-          <button class="wb-review-edit" id="wb-review-edit" type="button" title="写 / 更新本周复盘">✎ 本周复盘</button>
-        </div>
-        <div class="wb-review-mood" id="wb-review-mood"></div>
-        <div class="wb-review-content" id="wb-review-content"></div>
-        <div class="wb-review-history" id="wb-review-history"></div>
-      </div>
-    </div>
-  </div>
-</section>
-`;
-
 const createConsole = () => `
 <section class="console" id="chat-area">
   <!-- 顶部状态条：心跳 / 思考 / AI 活动 -->

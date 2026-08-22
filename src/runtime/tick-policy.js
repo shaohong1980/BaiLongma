@@ -43,7 +43,6 @@ export function buildTaskContinuationDirection({ task, steps = [], idleTicks = 0
   const list = Array.isArray(steps) ? steps : []
   const done = list.filter(s => s?.status === 'done').length
   const total = list.length
-  const pending = list.filter(s => !s || s.status === 'pending')
   const failed = list.filter(s => s?.status === 'failed')
   const next = list.find(s => !s || s.status === 'pending')
 

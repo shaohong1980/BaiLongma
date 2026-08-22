@@ -55,7 +55,6 @@ check('mem_2 hidden', m2 && m2.visibility === 0)
 const related = getMemoriesByEntity('id:000001', 50)
 check('new memory visible', related.some(r => r.title.includes('新增的测试记忆')))
 
-const exp2 = exportVault()
 const userMd2 = fs.readFileSync(path.join(vaultDir, userFile), 'utf8')
 check('re-export has new mem marker', /<!--mem:vault_/.test(userMd2))
 check('re-export no stale mem_2 marker', !userMd2.includes('mem:test_mem_2'))

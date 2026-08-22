@@ -17,7 +17,6 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '..', '..')
 const BASE = process.env.BAILONGMA_API_BASE || 'http://127.0.0.1:3721'
 
 const JUDGE_SYSTEM_PROMPT = `你是一个严格的 AI Agent 评估评委。请对 Agent 的回答进行多维度评分。

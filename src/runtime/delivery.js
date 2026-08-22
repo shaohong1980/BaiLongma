@@ -153,14 +153,14 @@ function prepareOutboundMedia({ image_path, media_path } = {}) {
     return { error: 'media_path must be a local file path, not a URL.' }
   }
 
-  let resolvedPath = ''
+  let resolvedPath
   try {
     resolvedPath = path.resolve(rawPath)
   } catch (err) {
     return { error: `Invalid media path: ${err.message}` }
   }
 
-  let stat = null
+  let stat
   try {
     stat = fs.statSync(resolvedPath)
   } catch {

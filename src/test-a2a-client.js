@@ -81,8 +81,6 @@ function startMockServer({ cardPath = '/.well-known/agent.json', card = SAMPLE_C
   })
 }
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms))
-
 let s1
 try {
   // ── 1. Agent Card 发现 ──

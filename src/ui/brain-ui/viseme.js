@@ -17,17 +17,6 @@ function loadPinyinPro() {
   return _pinyinProPromise
 }
 
-// 声母 → viseme（闭口/摩擦/爆破近似）
-const INITIAL_TO_VISEME = {
-  b: 'PP', p: 'PP', m: 'PP', f: 'FF',
-  d: 'DD', t: 'DD', l: 'DD', n: 'nn',
-  g: 'kk', k: 'kk', h: 'kk',
-  j: 'SS', q: 'SS', x: 'SS',
-  z: 'SS', c: 'SS', s: 'SS',
-  zh: 'CH', ch: 'CH', sh: 'CH', r: 'RR',
-  y: 'ih', w: 'ou', '': 'sil',
-};
-
 // 韵母 → viseme：尾元音决定口型（a→大张嘴 aa，o→圆 oh，e→中 E，i/ü→展 ih，u→嘟 ou）
 // 鼻韵尾(n/ng)与儿化(r)接近闭口。
 function finalToViseme(f) {
@@ -83,7 +72,7 @@ export async function buildVisemeTimeline(text) {
   const pinyinPro = await loadPinyinPro();
   const { pinyin } = pinyinPro;
   const codes = [];
-  let list = [];
+  let list;
   try {
     // type:'array' → 每汉字一个拼音音节；连续非中文(nonZh:'consecutive')一个元素
     list = pinyin(String(text || ''), { type: 'array', toneType: 'none', v: true, nonZh: 'consecutive' });

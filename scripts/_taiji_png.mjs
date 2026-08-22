@@ -16,13 +16,13 @@ try{
   await page.goto(`http://127.0.0.1:${port}/`,{waitUntil:'domcontentloaded'})
   // 直接 import 模块的 createVoiceBagua，但只渲染太极(冻结旋转)到 400px PNG
   const result = await page.evaluate(async () => {
-    const mod = await import('/src/ui/brain-ui/voice-bagua.js')
+    await import('/src/ui/brain-ui/voice-bagua.js')
     // 用模块内部逻辑手画(rot=0, 大尺寸)
     // 但我们无法访问内部 drawTaiji。改为: 从 createVoiceBagua 导出的 debug 不可用。
     // 改为直接在 evaluate 里复制模块 drawTaiji 逻辑(rot=0)渲染
     function hexToRgb(hex){const m=hex.replace('#','').match(/^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);return m?{r:parseInt(m[1],16),g:parseInt(m[2],16),b:parseInt(m[3],16)}:null}
     function rgba(c,a){return `rgba(${c.r},${c.g},${c.b},${a})`}
-    function drawTaiji(ctx,cx,cy,r,yin,yang,rim){
+    function drawTaiji(ctx,cx,cy,r,yin,yang,_rim){
       ctx.save();ctx.translate(cx,cy);
       ctx.fillStyle=yang;ctx.beginPath();ctx.arc(0,0,r,-Math.PI/2,Math.PI/2);ctx.closePath();ctx.fill();
       ctx.fillStyle=yin;ctx.beginPath();ctx.arc(0,0,r,Math.PI/2,Math.PI*3/2);ctx.closePath();ctx.fill();

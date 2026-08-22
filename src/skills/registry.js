@@ -88,7 +88,7 @@ function findSkillFiles(rootDir) {
   const root = path.resolve(rootDir)
   const walk = (dir, depth = 0) => {
     if (depth > 5) return
-    let entries = []
+    let entries
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true })
     } catch {
@@ -111,7 +111,7 @@ function findSkillFiles(rootDir) {
 }
 
 function readSkill(filePath, sourceRoot) {
-  let text = ''
+  let text
   try {
     text = fs.readFileSync(filePath, 'utf8')
   } catch (err) {

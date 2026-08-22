@@ -66,7 +66,7 @@ export async function startFeishuConnector({ pushMessage, emitEvent } = {}) {
   // 未配置凭据时静默跳过（与 discord/clawbot 连接器一致），不报错。
   if (!appId || !appSecret) { feishuStatus = 'idle'; return null }
 
-  let mod = null
+  let mod
   try {
     mod = await import('@larksuiteoapi/node-sdk')
   } catch {

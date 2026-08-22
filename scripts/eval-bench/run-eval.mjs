@@ -11,7 +11,6 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '..', '..')
 const BASE = process.env.BAILONGMA_API_BASE || 'http://127.0.0.1:3721'
 const TASK_TIMEOUT_MS = Number(process.env.EVAL_TASK_TIMEOUT || 45000)
 

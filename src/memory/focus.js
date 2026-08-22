@@ -260,7 +260,7 @@ export async function updateFocusFrame(state, message, {
       conclusions: Array.isArray(f.conclusions) ? f.conclusions.slice(-1) : [],
     }))
     ;(async () => {
-      let llm = null
+      let llm
       try {
         llm = await fn({
           newMessage: body,

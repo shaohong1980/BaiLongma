@@ -88,7 +88,7 @@ export async function startDiscordConnector({ pushMessage, emitEvent }) {
       ws = new WebSocket(`${gatewayUrl}/?v=10&encoding=json`)
 
       ws.on('message', raw => {
-        let msg = null
+        let msg
         try { msg = JSON.parse(raw.toString()) } catch { return }
         if (msg.s != null) seq = msg.s
 

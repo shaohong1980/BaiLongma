@@ -32,14 +32,6 @@ function uniq(values) {
   return [...new Set((values || []).filter(Boolean).map(v => String(v).trim()).filter(Boolean))]
 }
 
-function normalizePartyId(id) {
-  if (!id) return id
-  const text = String(id).trim()
-  if (/^ID:\d+$/i.test(text)) return `ID:${text.replace(/^ID:/i, '')}`
-  if (/^\d+$/.test(text)) return `ID:${text}`
-  return text
-}
-
 function ensureRoot(memId, eventType, title, content, entity, tags) {
   const existing = db.prepare(`
     SELECT id, entities, tags, title, content

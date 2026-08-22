@@ -45,11 +45,6 @@ function extractJson(raw) {
   return null
 }
 
-function countLines(content) {
-  const text = safeStr(content)
-  return text ? text.split('\n').length : 0
-}
-
 // ── 核心：把一次工具调用 + 结果压成一行信息量足够的摘要（hermes `_summarize_tool_result` 的移植） ──
 export function summarizeToolResult(name, args, content) {
   try {
@@ -64,7 +59,6 @@ function summarizeToolResultUnsafe(name, rawArgs, content) {
   const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs)) ? rawArgs : {}
   const text = safeStr(content)
   const len = text.length
-  const lines = countLines(text)
   const parsed = extractJson(text)
   const ok = parsed ? parsed.ok !== false : undefined
   const okFlag = ok === false ? ' failed' : ''

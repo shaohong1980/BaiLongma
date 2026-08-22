@@ -264,7 +264,7 @@ function inferTrackMetaFromFile(filePath) {
 
 export function scanMusicDirIntoLibrary(musicDir) {
   const added = []
-  let entries = []
+  let entries
   try {
     entries = fs.readdirSync(musicDir, { withFileTypes: true })
   } catch {
@@ -453,7 +453,7 @@ export async function execMusic(args = {}) {
     //  - 有明确 URL → 只用它
     //  - 否则用关键词搜索：按 platform 选搜索源，另一平台自动兜底
     const platform = String(args.platform || '').trim().toLowerCase()
-    let targets = []
+    let targets
     if (url) {
       targets = [url]
     } else if (query) {

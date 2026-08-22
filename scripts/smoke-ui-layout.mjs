@@ -7,11 +7,8 @@
 // 运行：node scripts/smoke-ui-layout.mjs
 import path from 'path'
 import fs from 'fs'
-import { fileURLToPath } from 'url'
 import { chromium } from 'playwright'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const root = path.resolve(__dirname, '..')
 
 let pass = 0, fail = 0, skip = 0
 function check(label, cond) {

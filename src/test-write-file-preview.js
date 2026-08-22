@@ -50,7 +50,7 @@ globalThis.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS = 0
     name: 'write_file',
     arguments: '{"path":"demo.md","content":"One',
   }, state)
-  state = streamWriteFileArgumentPreview({
+  streamWriteFileArgumentPreview({
     name: 'write_file',
     arguments: '{"path":"demo.md","content":"One\\nTwo"}',
   }, state)
@@ -88,7 +88,7 @@ globalThis.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS = 0
     name: 'save_markdown_file',
     arguments: '{"output_path":"note.md","markdown":"Alpha',
   }, state)
-  state = streamWriteFileArgumentPreview({
+  streamWriteFileArgumentPreview({
     name: 'save_markdown_file',
     arguments: '{"output_path":"note.md","markdown":"Alpha\\nBeta"}',
   }, state)
@@ -132,7 +132,7 @@ globalThis.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS = 0
   const session = { cleared: false }
   let state = { session }
   state = streamXmlFileWriteArgumentPreview('<invoke name="save_markdown_file"><parameter name="output_path">xml.md</parameter><parameter name="markdown">A&amp;', state)
-  state = streamXmlFileWriteArgumentPreview('<invoke name="save_markdown_file"><parameter name="output_path">xml.md</parameter><parameter name="markdown">A&amp;B&lt;C</parameter>', state)
+  streamXmlFileWriteArgumentPreview('<invoke name="save_markdown_file"><parameter name="output_path">xml.md</parameter><parameter name="markdown">A&amp;B&lt;C</parameter>', state)
   const snapshot = getTerminalStreamSnapshot('write_file')
   const text = snapshot.chunks.map(chunk => chunk.text).join('')
   assert.strictEqual(text, '$ save_markdown_file xml.md\n\nA&B<C')

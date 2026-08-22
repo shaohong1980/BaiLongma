@@ -5,10 +5,16 @@ import { paths } from './paths.js'
 import { nowTimestamp } from './time.js'
 // P0-2：Provider 密钥加密存储（secret-store：Electron safeStorage / AES-GCM 兜底）
 import { getSecret, setSecret } from './capabilities/secret-store.js'
+import { writeSeedanceFile } from './config/seedance.js'
+import {
+  readParsedConfig, writeStoredConfig, readExistingStoredConfig, patchConfig,
+  readJsonObjectFile, writeJsonObjectFile,
+} from './config/io.js'
 
 // secret-store 引用键
 export const SECRET_REF_LLM_KEY = 'llm.api_key'
 export const SECRET_REF_MINIMAX_KEY = 'llm.minimax_key'
+export const SECRET_REF_DOUBAO_KEY = 'tts.doubao_key'
 
 import {
   DEEPSEEK_PROVIDER, MINIMAX_PROVIDER, OPENAI_PROVIDER, MOONSHOT_PROVIDER, ZHIPU_PROVIDER, MIMO_PROVIDER,
@@ -87,19 +93,6 @@ function resolveLlmRecord(raw, fallbackProvider) {
   return { provider, apiKey: raw.apiKey, model: raw.model, baseURL: raw.baseURL }
 }
 
-// 只负责把 config.json 解析成对象；文件缺失或损坏才返回 null。
-// 不在这里判断 LLM 块是否可用——那是加载逻辑的事，避免"一个字段不合法就丢掉整份文件、
-// 连带把 voice/tts/security 等兄弟字段一起重置"（升级后最常见的"配置全没了"根因）。
-function readParsedConfig() {
-  try {
-    if (!fs.existsSync(paths.configFile)) return null
-    const parsed = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))
-    return (parsed && typeof parsed === 'object') ? parsed : null
-  } catch {
-    return null
-  }
-}
-
 // 判断旧版 config.json 里的 LLM 块能否直接激活（provider/apiKey/custom 三件套齐全）。
 // 返回规整后的 { provider, apiKey, model, baseURL }（provider 已过别名映射）；不可用则返回 null。
 function resolveLegacyStoredLlm(parsed) {
@@ -118,27 +111,6 @@ function resolveStoredLlm(parsed) {
   return resolveStoredLlmForProvider(provider) || resolveLegacyStoredLlm(parsed)
 }
 
-function writeStoredConfig(obj) {
-  const tmp = paths.configFile + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), 'utf-8')
-  fs.renameSync(tmp, paths.configFile)
-}
-
-// 读出 config.json 现有内容（失败返回空对象）。
-// activate() 等写操作必须基于它合并，否则会抹掉 voice/tts/security 等其它字段。
-function readExistingStoredConfig() {
-  try { return JSON.parse(fs.readFileSync(paths.configFile, 'utf-8')) || {} }
-  catch { return {} }
-}
-
-// 顶级字段的"读-浅合并-写"一把梭。所有 setter 都该走它（或 readExistingStoredConfig），
-// 把"写时必合并、绝不全量覆盖"变成不可绕过的约束，杜绝再次出现"改一个字段抹掉其它块"。
-// 注意：浅合并无法删除键；需要删字段的 setter 仍自行 readExistingStoredConfig + 解构剔除后 writeStoredConfig。
-function patchConfig(partial) {
-  const merged = { ...readExistingStoredConfig(), ...partial }
-  writeStoredConfig(merged)
-  return merged
-}
 
 function withoutLegacyLlmFields(obj) {
   const {
@@ -232,21 +204,7 @@ function getVoiceProviderConfigFile(provider) {
   return path.join(paths.voiceConfigDir, `${p}.json`)
 }
 
-function readJsonObjectFile(file) {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'))
-    return (parsed && typeof parsed === 'object') ? parsed : null
-  } catch {
-    return null
-  }
-}
 
-function writeJsonObjectFile(file, record) {
-  const tmp = `${file}.tmp`
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(tmp, JSON.stringify(record, null, 2), 'utf-8')
-  fs.renameSync(tmp, file)
-}
 
 function readVoiceProviderConfig(provider) {
   const file = getVoiceProviderConfigFile(provider)
@@ -570,9 +528,15 @@ function migrateConfigSecretsToStore() {
     const moves = [
       { ref: SECRET_REF_LLM_KEY, plainKey: 'apiKey' },
       { ref: SECRET_REF_MINIMAX_KEY, plainKey: 'minimax_api_key' },
+      { ref: SECRET_REF_DOUBAO_KEY, section: 'tts', plainKey: 'doubaoKey' },
     ]
-    for (const { ref, plainKey } of moves) {
-      const plain = typeof parsed[plainKey] === 'string' ? parsed[plainKey].trim() : ''
+    for (const { ref, plainKey, section } of moves) {
+      // section 存在时从嵌套块取值（如 tts.doubaoKey），否则取顶层字段
+      const parent = section
+        ? (parsed[section] && typeof parsed[section] === 'object' ? parsed[section] : null)
+        : parsed
+      if (!parent) continue
+      const plain = typeof parent[plainKey] === 'string' ? parent[plainKey].trim() : ''
       if (!plain || plain === 'none') continue
       const stored = getSecret(ref)
       if (stored && stored !== plain) continue   // secret-store 有不同 key：不动 config.json（防误清）
@@ -580,7 +544,7 @@ function migrateConfigSecretsToStore() {
         setSecret(ref, plain)
         if (getSecret(ref) !== plain) continue   // 加密不可回读：不清明文，保住 key
       }
-      parsed[plainKey] = 'none'                  // secret-store 已有同值或刚写入成功 → 清明文
+      parent[plainKey] = 'none'                  // secret-store 已有同值或刚写入成功 → 清明文
       changed = true
     }
     if (changed) {
@@ -1063,132 +1027,13 @@ function deleteSecretRef(ref) {
 }
 
 // ── Seedance AI 视频生成（火山方舟 Ark）配置 ──
-// 存于 config.json 的 seedance 字段：{ apiKey, model, baseURL }
-// 中国区默认走 ark.cn-beijing.volces.com；model 是 doubao-* 形态的模型 ID 或推理接入点 ep-xxx，
-// 因不同账号开通的版本号不同，做成可配置，给一个合理默认值，错了由调用错误回传引导用户改。
-const SEEDANCE_DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
-const SEEDANCE_DEFAULT_MODEL = 'doubao-seedance-2-0-260128'
-
-// seedance.json 读写（独立文件，只放 seedance 配置，谁都不会全量覆盖它）
-function readSeedanceFile() {
-  try { return JSON.parse(fs.readFileSync(paths.seedanceConfigFile, 'utf-8')) || {} }
-  catch { return {} }
-}
-function writeSeedanceFile(obj) {
-  const tmp = paths.seedanceConfigFile + '.tmp'
-  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2), 'utf-8')
-  fs.renameSync(tmp, paths.seedanceConfigFile)
-}
-
-// 一次性迁移：旧版把 seedance 存在 config.json 里。若独立文件尚无、而 config.json 里还有，
-// 就搬过去并从 config.json 删除该字段，之后只认独立文件。
-function migrateLegacySeedance() {
-  if (fs.existsSync(paths.seedanceConfigFile)) return
-  let mainCfg
-  try { mainCfg = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8')) } catch { return }
-  const legacy = mainCfg?.seedance
-  if (!legacy || typeof legacy !== 'object') return
-  try {
-    writeSeedanceFile(legacy)
-    const { seedance: _removed, ...rest } = mainCfg
-    writeStoredConfig(rest)
-    console.log('[config] 已把旧的 seedance 配置从 config.json 迁移到 seedance.json')
-  } catch (e) {
-    console.warn('[config] seedance 迁移失败:', e.message)
-  }
-}
-
-export function getSeedanceConfig() {
-  // 环境变量优先（ARK_API_KEY），方便开发/部署注入
-  const envKey = String(process.env.ARK_API_KEY || process.env.SEEDANCE_API_KEY || '').trim()
-  migrateLegacySeedance()
-  const stored = readSeedanceFile()
-  const apiKey = envKey || String(stored.apiKey || '').trim()
-  return {
-    apiKey,
-    model: String(stored.model || '').trim() || SEEDANCE_DEFAULT_MODEL,
-    baseURL: String(stored.baseURL || '').trim() || SEEDANCE_DEFAULT_BASE_URL,
-    configured: Boolean(apiKey),
-  }
-}
-
-export function isSeedanceConfigured() {
-  return getSeedanceConfig().configured
-}
-
-export function setSeedanceConfig({ apiKey, model, baseURL } = {}) {
-  migrateLegacySeedance()
-  const next = { ...readSeedanceFile() }
-  if (apiKey !== undefined) next.apiKey = String(apiKey || '').trim()
-  if (model !== undefined) next.model = String(model || '').trim()
-  if (baseURL !== undefined) next.baseURL = String(baseURL || '').trim()
-  // 没有 key 时删掉独立文件，保持干净
-  if (!next.apiKey) {
-    try { fs.rmSync(paths.seedanceConfigFile, { force: true }) } catch (e) { console.warn('[src/config.js] op failed:', e?.message || e) }
-    return getSeedanceConfig()
-  }
-  writeSeedanceFile(next)
-  return getSeedanceConfig()
-}
+// 已拆到 src/config/seedance.js（独立 seedance.json 存储），此处 re-export 保持兼容。
+// writeSeedanceFile 另做本地 import，供 runConfigMigrations(v0→v1) 调用。
+export { getSeedanceConfig, isSeedanceConfigured, setSeedanceConfig } from './config/seedance.js'
 
 // ── Social media platform config ──
-
-const SOCIAL_ENV_KEYS = [
-  'DISCORD_BOT_TOKEN',
-  'FEISHU_APP_ID', 'FEISHU_APP_SECRET', 'FEISHU_VERIFICATION_TOKEN',
-  'WECHAT_OFFICIAL_APP_ID', 'WECHAT_OFFICIAL_APP_SECRET', 'WECHAT_OFFICIAL_TOKEN',
-  'WECOM_BOT_KEY', 'WECOM_INCOMING_TOKEN',
-]
-
-// ── WeChat ClawBot credentials (written automatically after QR scan, not exposed in SOCIAL_ENV_KEYS) ──
-
-export function getClawbotCredentials() {
-  try {
-    const stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))
-    const c = stored?.clawbot
-    return (c?.accountId && c?.botToken) ? c : null
-  } catch { return null }
-}
-
-export function setClawbotCredentials({ accountId, botToken, baseUrl }) {
-  patchConfig({ clawbot: { accountId, botToken, baseUrl } })
-}
-
-export function clearClawbotCredentials() {
-  const { clawbot: _, ...rest } = readExistingStoredConfig()
-  writeStoredConfig(rest)
-}
-
-export function getSocialConfig() {
-  let stored = {}
-  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.social || {} } catch (err) {
-    console.warn('[config] 读取社交配置失败:', err?.message || err)
-  }
-  const result = {}
-  for (const key of SOCIAL_ENV_KEYS) {
-    const val = stored[key] || globalThis.process?.env?.[key] || ''
-    result[key] = { configured: !!val }
-  }
-  return result
-}
-
-export function setSocialConfig(updates) {
-  const existing = readExistingStoredConfig()
-  const current = existing.social || {}
-  const next = { ...current }
-  for (const [key, val] of Object.entries(updates || {})) {
-    if (!SOCIAL_ENV_KEYS.includes(key)) continue
-    const trimmed = String(val || '').trim()
-    if (trimmed) {
-      next[key] = trimmed
-      // Take effect immediately without restart
-      if (globalThis.process?.env) globalThis.process.env[key] = trimmed
-    } else {
-      delete next[key]
-    }
-  }
-  writeStoredConfig({ ...existing, social: next })
-}
+// 已拆到 src/config/social.js，此处 re-export 保持兼容。
+export { getClawbotCredentials, setClawbotCredentials, clearClawbotCredentials, getSocialConfig, setSocialConfig } from './config/social.js'
 
 function isValidAliyunAsrKey(value) {
   return /^sk-[A-Za-z0-9_\-.]{20,}$/.test(String(value || '').trim())
@@ -1304,7 +1149,7 @@ export function getTTSConfig() {
     ttsProvider:     stored.ttsProvider  || 'doubao',
     ttsVoiceId:      stored.ttsVoiceId   || 'zh_female_xiaohe_uranus_bigtts',
     minimaxKey:      { configured: !!(stored.minimaxKey || process.env.MINIMAX_API_KEY || getMinimaxKey()) },
-    doubaoKey:       { configured: !!(stored.doubaoKey), value: stored.doubaoKey || '' },
+    doubaoKey:       { configured: !!((stored.doubaoKey && stored.doubaoKey !== 'none') || getSecret(SECRET_REF_DOUBAO_KEY) || process.env.DOUBAO_TTS_API_KEY) },
     doubaoResourceId: stored.doubaoResourceId || '',
     doubaoSpeechRate: Number(stored.doubaoSpeechRate || 0) || 0,
     openaiTtsBaseURL: stored.openaiTtsBaseURL || '',
@@ -1324,7 +1169,7 @@ export function getTTSCredentials() {
   return {
     provider:       stored.ttsProvider  || 'doubao',
     voiceId:        stored.ttsVoiceId   || 'zh_female_xiaohe_uranus_bigtts',
-    doubaoKey:      stored.doubaoKey    || process.env.DOUBAO_TTS_API_KEY || '',
+    doubaoKey:      (stored.doubaoKey && stored.doubaoKey !== 'none') ? stored.doubaoKey : (getSecret(SECRET_REF_DOUBAO_KEY) || process.env.DOUBAO_TTS_API_KEY || ''),
     doubaoResourceId: stored.doubaoResourceId || process.env.DOUBAO_TTS_RESOURCE_ID || '',
     doubaoSpeechRate: Number(stored.doubaoSpeechRate ?? process.env.DOUBAO_TTS_SPEECH_RATE ?? 0) || 0,
     minimaxKey:     process.env.MINIMAX_API_KEY || stored.minimaxKey || getMinimaxKey() || (config.provider === 'minimax' ? config.apiKey : '') || '',
@@ -1343,6 +1188,17 @@ export function setTTSConfig(updates) {
   for (const [key, val] of Object.entries(updates)) {
     if (!TTS_CONFIG_KEYS.includes(key)) continue
     const trimmed = String(val || '').trim()
+    // P0：doubaoKey 为密钥，只进加密 secret-store，config.json 留 'none' 占位
+    if (key === 'doubaoKey') {
+      if (trimmed && trimmed !== 'none') {
+        try { setSecret(SECRET_REF_DOUBAO_KEY, trimmed) } catch (e) { console.warn('[config] store doubao key failed:', e?.message || e) }
+        next[key] = 'none'
+      } else {
+        try { setSecret(SECRET_REF_DOUBAO_KEY, '') } catch (e) { console.warn('[config] delete doubao key failed:', e?.message || e) }
+        delete next[key]
+      }
+      continue
+    }
     if (trimmed) next[key] = trimmed
     else delete next[key]
   }
@@ -1350,182 +1206,12 @@ export function setTTSConfig(updates) {
 }
 
 // ── Embedding config ──────────────────────────────────────────────────────────
-// 记忆向量召回只用本地离线模型（transformers.js + onnxruntime-node 跑 ONNX），不依赖任何云端 API。
-// 零配置开箱即用：config.json 的 "embedding" 块可不存在；存在时仅 model / timeoutMs 有意义。
-//   model:     本地 ONNX 模型 HF 仓库 id（缺省走 LOCAL_DEFAULT_MODEL）
-//   timeoutMs: 可选，覆盖向量召回硬超时（默认 1500ms）
-// 首次运行会下载 ~330MB 中文嵌入模型到 userData/data/models，之后离线可用。
-
-const EMBEDDING_CONFIG_KEYS = ['model', 'timeoutMs']
-
-// 本地默认模型：中文为主、量化后体积/速度均衡的小型 ONNX 模型。
-const LOCAL_DEFAULT_MODEL = 'Xenova/bge-large-zh-v1.5'
-const LOCAL_DEFAULT_DIMS = 1024
-
-// 解析有效本地模型名：只认 HF 仓库 id 形态（owner/name），过滤掉残留的云端模型名
-// （如 'text-embedding-3-small'），避免拿云端名当本地模型加载导致召回静默失效。
-function resolveLocalModel(stored) {
-  const m = typeof stored?.model === 'string' ? stored.model.trim() : ''
-  return /^[^/\s]+\/[^/\s]+$/.test(m) ? m : LOCAL_DEFAULT_MODEL
-}
-
-// 仅保留 local 预设（云端 provider 已移除）。供 api 的 /settings/embedding 视图使用。
-export const EMBEDDING_PROVIDER_PRESETS = {
-  local: { baseURL: '', defaultModel: LOCAL_DEFAULT_MODEL, defaultDims: LOCAL_DEFAULT_DIMS, local: true },
-}
-
-let _embeddingBlockCache = null
-let _embeddingBlockCacheMtime = -1
-
-function readEmbeddingBlock() {
-  let mtime
-  try {
-    mtime = fs.statSync(paths.configFile).mtimeMs
-  } catch {
-    // config 文件不存在或访问失败：直接返回 {}，不缓存（让下次有机会重试）
-    return {}
-  }
-
-  if (_embeddingBlockCache !== null && mtime === _embeddingBlockCacheMtime) {
-    return _embeddingBlockCache
-  }
-
-  let block = {}
-  try {
-    const raw = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))
-    if (raw?.embedding && typeof raw.embedding === 'object') {
-      block = raw.embedding
-    }
-  } catch {
-    block = {}
-  }
-
-  _embeddingBlockCache = block
-  _embeddingBlockCacheMtime = mtime
-  return block
-}
-
-// 前端可见视图。provider 恒为 'local'，model 缺省走默认，永远 configured=true（零配置）。
-export function getEmbeddingConfig() {
-  const stored = readEmbeddingBlock()
-  const model = resolveLocalModel(stored)
-  const timeoutMs = Number.isFinite(stored.timeoutMs) ? stored.timeoutMs : null
-  return { provider: 'local', model, dimensions: LOCAL_DEFAULT_DIMS, timeoutMs, configured: true }
-}
-
-// Backend-only：供 src/embedding.js 内部用。强制本地，忽略任何残留的云端字段。
-export function getEmbeddingCredentials() {
-  const stored = readEmbeddingBlock()
-  const model = resolveLocalModel(stored)
-  return {
-    provider: 'local',
-    model,
-    apiKey: '',
-    baseURL: '',
-    dimensions: LOCAL_DEFAULT_DIMS,
-    timeoutMs: Number.isFinite(stored.timeoutMs) ? stored.timeoutMs : null,
-  }
-}
-
-export function setEmbeddingConfig(updates) {
-  const existing = readExistingStoredConfig()
-  const current = existing.embedding || {}
-  const next = { ...current }
-  for (const [key, val] of Object.entries(updates || {})) {
-    if (!EMBEDDING_CONFIG_KEYS.includes(key)) continue
-    if (key === 'dimensions' || key === 'timeoutMs') {
-      const n = Number(val)
-      if (Number.isFinite(n) && n > 0) next[key] = n
-      else delete next[key]
-      continue
-    }
-    const trimmed = String(val || '').trim()
-    if (trimmed) next[key] = trimmed
-    else delete next[key]
-  }
-  writeStoredConfig({ ...existing, embedding: next })
-}
+// 已拆到 src/config/embedding.js，此处 re-export 保持兼容。
+export { EMBEDDING_PROVIDER_PRESETS, getEmbeddingConfig, getEmbeddingCredentials, setEmbeddingConfig } from './config/embedding.js'
 
 // ── Web Search 配置 ──
-// 顶级字段（与现有 serper_api_key 兼容），不嵌套到子块
-// 字段：serper_api_key / searxng_url / jina_api_key
-const WEB_SEARCH_KEY_MAP = {
-  serperKey:  'serper_api_key',
-  searxngUrl: 'searxng_url',
-  jinaKey:    'jina_api_key',
-  braveKey:   'brave_api_key',
-  tavilyKey:  'tavily_api_key',
-}
-
-function readWebSearchBlock() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))
-    return {
-      serperKey:  typeof raw.serper_api_key === 'string' ? raw.serper_api_key : '',
-      searxngUrl: typeof raw.searxng_url    === 'string' ? raw.searxng_url    : '',
-      jinaKey:    typeof raw.jina_api_key   === 'string' ? raw.jina_api_key   : '',
-      braveKey:   typeof raw.brave_api_key  === 'string' ? raw.brave_api_key  : '',
-      tavilyKey:  typeof raw.tavily_api_key === 'string' ? raw.tavily_api_key : '',
-    }
-  } catch {
-    return { serperKey: '', searxngUrl: '', jinaKey: '', braveKey: '', tavilyKey: '' }
-  }
-}
-
-// 前端可见视图：不暴露 key 明文，只暴露 configured 布尔 + searxngUrl（URL 不算敏感）
-// configured 同时考虑 env 兜底，避免"env 里有 key 但 UI 标未配置"的误导
-// xxxFromEnv 提示来源，让 UI 标注"已配置（环境变量）"，并暗示清空输入框不会真正生效
-export function getWebSearchConfig() {
-  const stored = readWebSearchBlock()
-  const envSerper  = process.env.SERPER_API_KEY || ''
-  const envJina    = process.env.JINA_API_KEY   || ''
-  const envSearxng = process.env.SEARXNG_URL    || ''
-  const envBrave   = process.env.BRAVE_API_KEY  || ''
-  const envTavily  = process.env.TAVILY_API_KEY || ''
-  return {
-    serperConfigured: !!(stored.serperKey  || envSerper),
-    jinaConfigured:   !!(stored.jinaKey    || envJina),
-    braveConfigured:  !!(stored.braveKey   || envBrave),
-    tavilyConfigured: !!(stored.tavilyKey  || envTavily),
-    // 输入框只回显 stored 值，避免用户以为能编辑 env 值
-    searxngUrl:       stored.searxngUrl,
-    // effective URL（含 env 兜底），UI 可显示在状态行
-    effectiveSearxngUrl: stored.searxngUrl || envSearxng,
-    serperFromEnv:    !stored.serperKey  && !!envSerper,
-    jinaFromEnv:      !stored.jinaKey    && !!envJina,
-    braveFromEnv:     !stored.braveKey   && !!envBrave,
-    tavilyFromEnv:    !stored.tavilyKey  && !!envTavily,
-    searxngFromEnv:   !stored.searxngUrl && !!envSearxng,
-  }
-}
-
-// Backend-only：读明文 key。供 src/capabilities/executor.js 内部用，不要给前端
-export function getWebSearchCredentials() {
-  const stored = readWebSearchBlock()
-  return {
-    serperKey:  stored.serperKey  || process.env.SERPER_API_KEY || '',
-    searxngUrl: stored.searxngUrl || process.env.SEARXNG_URL    || '',
-    jinaKey:    stored.jinaKey    || process.env.JINA_API_KEY   || '',
-    braveKey:   stored.braveKey   || process.env.BRAVE_API_KEY  || '',
-    tavilyKey:  stored.tavilyKey  || process.env.TAVILY_API_KEY || '',
-  }
-}
-
-export function setWebSearchConfig(updates) {
-  const existing = readExistingStoredConfig()
-  const next = { ...existing }
-  for (const [key, val] of Object.entries(updates || {})) {
-    const cfgField = WEB_SEARCH_KEY_MAP[key]
-    if (!cfgField) continue
-    const trimmed = String(val || '').trim()
-    if (key === 'searxngUrl' && trimmed && !/^https?:\/\//i.test(trimmed)) {
-      throw new Error('searxngUrl must start with http:// or https://')
-    }
-    if (trimmed) next[cfgField] = trimmed
-    else delete next[cfgField]
-  }
-  writeStoredConfig(next)
-}
+// 已拆到 src/config/web-search.js，此处 re-export 保持兼容。
+export { getWebSearchConfig, getWebSearchCredentials, setWebSearchConfig } from './config/web-search.js'
 
 export const __internals = {
   DEEPSEEK_MODELS,

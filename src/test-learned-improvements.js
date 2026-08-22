@@ -22,6 +22,9 @@ function assert(cond, label) {
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'blm-improvements-'))
 process.env.BAILONGMA_USER_DIR = tmp
 
+// 结束清理临时目录（进程被强杀时 finally 可能不执行，启动期有 sandbox-cleanup 兜底）
+process.on('exit', () => { try { fs.rmSync(tmp, { recursive: true, force: true }) } catch {} })
+
 // ── 1. 工具结果压缩 ──
 async function testToolCompression() {
   const { compressToolResultForModel, summarizeToolResult, isToolCompressible, cleanupOldToolOutputs } =
@@ -56,7 +59,6 @@ async function testToolCompression() {
 async function testSkillLoop() {
   const skillsTools = await import('./capabilities/tools/skills.js')
   const usage = await import('./memory/skill-usage.js')
-  const registry = await import('./skills/registry.js')
   const schemas = await import('./capabilities/schemas.js')
   const router = await import('./memory/tool-router.js')
 

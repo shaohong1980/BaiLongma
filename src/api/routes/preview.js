@@ -5,10 +5,16 @@
 // 零依赖：不引入 docx/xlsx/mammoth 等重型库——Office 二进制格式返回 previewable:false，
 // 前端给出友好提示；PDF/图片/音视频直接以原生元素预览；文本/代码/Markdown/Diff 内联渲染。
 import fs from 'fs'
+import { promises as fsp } from 'fs'
 import path from 'path'
 import { SANDBOX_ROOT } from '../../capabilities/sandbox.js'
 import { guardFilePath } from '../../capabilities/security-guards.js'
 import { isPathInside, jsonResponse } from '../utils.js'
+
+// P2-15：异步 stat 辅助（文件不存在/不可访问返回 null）
+async function statOrNull(p) {
+  try { return await fsp.stat(p) } catch { return null }
+}
 
 const PREVIEW_TEXT_MAX = 500 * 1024
 const PREVIEW_TEXT_PREVIEW_CHARS = 120 * 1024
@@ -44,7 +50,6 @@ function resolvePreviewPath(rawPath) {
 
 function classifyPreview(filePath) {
   const ext = path.extname(filePath).toLowerCase()
-  const name = path.basename(filePath)
   if (IMAGE_EXTS.has(ext)) return { kind: 'image', format: ext.slice(1), previewable: true }
   if (ext === '.pdf') return { kind: 'pdf', format: 'pdf', previewable: true }
   if (HTML_EXTS.has(ext)) return { kind: 'html', format: 'html', previewable: true }
@@ -72,8 +77,8 @@ export async function handlePreviewRoutes(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/preview/meta') {
     const p = resolvePreviewPath(url.searchParams.get('path'))
     if (!p) return respond(res, 400, { ok: false, error: 'invalid or unsafe path' })
-    if (!fs.existsSync(p)) return respond(res, 404, { ok: false, error: 'not found' })
-    const stat = fs.statSync(p)
+    const stat = await statOrNull(p)
+    if (!stat) return respond(res, 404, { ok: false, error: 'not found' })
     if (!stat.isFile()) return respond(res, 400, { ok: false, error: 'not a file' })
     const cls = classifyPreview(p)
     const sensitive = isSensitive(p)
@@ -94,15 +99,13 @@ export async function handlePreviewRoutes(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/preview/raw') {
     const p = resolvePreviewPath(url.searchParams.get('path'))
     if (!p || isSensitive(p)) { res.writeHead(403); res.end('forbidden'); return true }
-    if (!fs.existsSync(p)) { res.writeHead(404); res.end('not found'); return true }
+    const stat = await statOrNull(p)
+    if (!stat) { res.writeHead(404); res.end('not found'); return true }
     const cls = classifyPreview(p)
     const contentType = MIME[path.extname(p).toLowerCase()] || 'application/octet-stream'
     if (cls.kind === 'office' || !cls.previewable) { res.writeHead(415); res.end('not previewable'); return true }
-    try {
-      const stat = fs.statSync(p)
-      res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': stat.size, 'Cache-Control': 'no-cache' })
-      fs.createReadStream(p).pipe(res)
-    } catch { res.writeHead(404); res.end('not found') }
+    res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': stat.size, 'Cache-Control': 'no-cache' })
+    fs.createReadStream(p).pipe(res)
     return true
   }
 
@@ -110,8 +113,8 @@ export async function handlePreviewRoutes(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/preview/text') {
     const p = resolvePreviewPath(url.searchParams.get('path'))
     if (!p || isSensitive(p)) return respond(res, 403, { ok: false, error: 'forbidden' })
-    if (!fs.existsSync(p)) return respond(res, 404, { ok: false, error: 'not found' })
-    const stat = fs.statSync(p)
+    const stat = await statOrNull(p)
+    if (!stat) return respond(res, 404, { ok: false, error: 'not found' })
     if (!stat.isFile()) return respond(res, 400, { ok: false, error: 'not a file' })
     const cls = classifyPreview(p)
     if (!cls.previewable || cls.kind === 'pdf' || cls.kind === 'image' || cls.kind === 'audio' || cls.kind === 'video') {
@@ -120,9 +123,9 @@ export async function handlePreviewRoutes(req, res, url) {
     if (stat.size > PREVIEW_TEXT_MAX) {
       return respond(res, 413, { ok: false, error: 'file too large for inline text preview', size: stat.size, hint: '用 read_file 分段读取' })
     }
-    let content = ''
+    let content
     try {
-      content = fs.readFileSync(p, 'utf-8')
+      content = await fsp.readFile(p, 'utf-8')
     } catch {
       return respond(res, 422, { ok: false, error: 'cannot decode as UTF-8 text' })
     }
@@ -145,11 +148,11 @@ export async function handlePreviewRoutes(req, res, url) {
     const depth = Math.min(parseInt(url.searchParams.get('depth') || '3', 10) || 3, LIST_MAX_DEPTH)
     const max = Math.min(parseInt(url.searchParams.get('max') || '100', 10) || 100, LIST_MAX_ENTRIES)
     const out = []
-    const walk = (dir, d) => {
+    const walk = async (dir, d) => {
       if (out.length >= max) return
       if (d > depth) return
-      let entries = []
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+      let entries
+      try { entries = await fsp.readdir(dir, { withFileTypes: true }) } catch { return }
       entries.sort((a, b) => {
         if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1
         return a.name.localeCompare(b.name)
@@ -161,14 +164,14 @@ export async function handlePreviewRoutes(req, res, url) {
         if (isSensitive(full)) continue
         if (e.isDirectory()) {
           out.push({ name: e.name, rel: path.relative(SANDBOX_ROOT, full).replace(/\\/g, '/'), type: 'dir' })
-          walk(full, d + 1)
+          await walk(full, d + 1)
         } else if (e.isFile()) {
           const cls = classifyPreview(full)
           out.push({ name: e.name, rel: path.relative(SANDBOX_ROOT, full).replace(/\\/g, '/'), type: 'file', kind: cls.kind, format: cls.format, previewable: cls.previewable })
         }
       }
     }
-    walk(SANDBOX_ROOT, 0)
+    await walk(SANDBOX_ROOT, 0)
     return respond(res, 200, { ok: true, root: SANDBOX_ROOT, count: out.length, entries: out })
   }
 

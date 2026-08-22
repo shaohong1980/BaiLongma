@@ -31,6 +31,9 @@ import { pushMessage } from './inbound-message.js'
 import { popMessage, hasMessages, hasUserMessages, getQueueSnapshot, setInterruptCallback, requeueMessage } from './queue.js'
 import { startTUI } from './tui.js'
 import { startAPI } from './api.js'
+import { startRetentionLoop } from './db/retention.js'
+import { startDbMaintenance } from './db/connection.js'
+import { startSandboxCleanup } from './sandbox-cleanup.js'
 import { startA2AServer } from './a2a-server.js'
 import { emitEvent, setStickyEvent, clearStickyEvent } from './events.js'
 import { formatTick, nowTimestamp, describeExistence } from './time.js'
@@ -938,7 +941,7 @@ async function runTurn(input, label, msg = null) {
   const priority = getProcessPriority(msg)
   const fastUserPath = isFastUserMessage(msg)
   const controller = new AbortController()
-  let llmResult = null
+  let llmResult
   let toolCallLog = []
   let voiceTurn = false
   let localReply = false
@@ -1747,6 +1750,9 @@ const startConsciousnessLoop = consciousnessLoop.start
 async function main() {
   console.log('Jarvis starting...')
   startTracerFlush()  // 可观测性：启动 span 缓冲定时落库（trace_list / trace_detail 数据源）
+  startRetentionLoop(getDB())  // P0-5：数据保留策略（清理 action_logs/media_history/prefetch 膨胀）
+  startDbMaintenance(getDB())  // P0-5：WAL 定时 checkpoint + 增量 VACUUM（防 -wal 膨胀/空闲页堆积）
+  startSandboxCleanup()        // P0-5：清理中断测试残留的 sandbox 临时目录 + 体积告警
   process.on('exit', () => { try { stopTracerFlush() } catch (e) { console.warn('[src/index.js] op failed:', e?.message || e) } })
 
   // 启动时打印恢复的线索状态，便于"重启不丢线索/承诺"的直观验证。

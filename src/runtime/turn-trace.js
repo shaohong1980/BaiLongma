@@ -13,6 +13,7 @@
 //   - 内存环形缓冲（最近 MAX_TURNS 个 turn）+ 轻量 JSONL 落盘，重启后仍可回看最近的 turn。
 
 import fs from 'fs'
+import { promises as fsp } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import { paths } from '../paths.js'
@@ -100,17 +101,28 @@ function ensureLoaded() {
     if (traces.length) seq = traces[traces.length - 1].seq || traces.length
   } catch { /* 落盘读取失败不影响运行 */ }
 }
+// 启动时后台预加载历史 trace，避免首个 turn 因一次性读文件而阻塞事件循环（P2-15）
+setImmediate(() => { try { ensureLoaded() } catch { /* 静默 */ } })
 
+// 异步落盘队列：保证按序写入，不阻塞 agent 回合（P2-15 热路径同步 I/O 改造）
+let writeQueue = Promise.resolve()
+function enqueueWrite(task) {
+  writeQueue = writeQueue.then(task).catch(() => { /* 落盘失败静默 */ })
+}
+
+// 队列化异步落盘：end() 仍同步返回，写入在后台顺序执行
 function persist(t) {
-  try {
-    fs.appendFileSync(TRACE_FILE, JSON.stringify(t) + '\n', 'utf-8')
+  enqueueWrite(async () => {
+    await fsp.appendFile(TRACE_FILE, JSON.stringify(t) + '\n', 'utf-8')
     // 文件过大时用当前内存环形缓冲整体重写，把历史裁到最近 MAX_TURNS
-    const size = fs.statSync(TRACE_FILE).size
-    if (size > FILE_MAX_BYTES) {
-      const body = traces.map(x => JSON.stringify(x)).join('\n') + '\n'
-      fs.writeFileSync(TRACE_FILE, body, 'utf-8')
-    }
-  } catch { /* 落盘失败静默 */ }
+    try {
+      const st = await fsp.stat(TRACE_FILE)
+      if (st.size > FILE_MAX_BYTES) {
+        const body = traces.map(x => JSON.stringify(x)).join('\n') + '\n'
+        await fsp.writeFile(TRACE_FILE, body, 'utf-8')
+      }
+    } catch { /* 统计/重写失败不影响 append */ }
+  })
 }
 
 const NULL_HANDLE = {

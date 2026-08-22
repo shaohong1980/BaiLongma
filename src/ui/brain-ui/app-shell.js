@@ -1361,37 +1361,63 @@ const createMainPages = () => `
     <div class="office-panel" id="multiagent-panel">
       <header class="office-head">
         <div class="office-logo">🐾 多Agent办公室 <small>v4</small></div>
+        <div class="office-route" id="office-route" title="信息汇报路线">
+          <span class="or-node" data-stage="boss">老板</span><i class="or-arrow">→</i>
+          <span class="or-node" data-stage="ceo">CEO拆解</span><i class="or-arrow">→</i>
+          <span class="or-node" data-stage="dispatch">分派员工</span><i class="or-arrow">→</i>
+          <span class="or-node" data-stage="advise">顾问讨论</span><i class="or-arrow">→</i>
+          <span class="or-node" data-stage="exec">员工执行</span><i class="or-arrow">→</i>
+          <span class="or-node" data-stage="report">汇报CEO</span><i class="or-arrow">→</i>
+          <span class="or-node" data-stage="done">老板收报</span>
+        </div>
         <div class="office-stats">
           <span class="office-stat"><i class="office-dot" style="background:#22b07d"></i>工作 <b id="c-w">0</b></span>
           <span class="office-stat"><i class="office-dot" style="background:#e8a13a"></i>思考 <b id="c-t">0</b></span>
           <span class="office-stat"><i class="office-dot" style="background:#9aa1b1"></i>空闲 <b id="c-i">0</b></span>
           <span class="office-stat">✅ 完成 <b id="c-d">0</b></span>
+          <button type="button" class="office-approval-toggle" id="office-approval-toggle" title="开启后：CEO 汇总前需人工审批（借鉴 openhuman 注意力队列）">🛑 审批</button>
           <span class="office-clock" id="office-clock">--:--:--</span>
         </div>
         <button class="office-exit" id="multiagent-exit" type="button" title="退出多Agent办公室">×</button>
       </header>
 
+      <div class="office-approval-bar" id="office-approval-bar" hidden></div>
+
       <main class="office-main">
         <div class="office-stage" id="office-stage">
           <div class="office-floor" id="office-floor">
             <div class="office-table"><span>信息交互区 · 会议桌</span></div>
-            <div class="office-tip">会议桌：CEO / HermesAgent / ClaudeCode / OpenHuman（外部 A2A）· 工位员工执行 · @点名可直呼</div>
+            <div class="office-tip">老板 → CEO拆解 → 外部顾问参与讨论给意见 + 工位员工执行 → 汇报CEO → CEO汇总收报 · @点名可直呼某成员</div>
           </div>
         </div>
 
         <div class="office-side">
-          <div class="office-sec-title">AGENT 档案</div>
           <div class="office-card" id="office-agent-card"></div>
-          <div class="office-sec-title">📋 工作台账</div>
-          <div class="office-ledger" id="office-ledger"></div>
-          <div class="office-sec-title">💬 对话 &amp; 日志</div>
-          <div class="office-messages" id="office-messages"></div>
+          <div class="office-tabs" id="office-tabs" role="tablist">
+            <button type="button" class="office-tab active" data-tab="chat" role="tab">💬 对话</button>
+            <button type="button" class="office-tab" data-tab="ledger" role="tab">📋 台账</button>
+            <button type="button" class="office-tab" data-tab="trace" role="tab">🧭 轨迹</button>
+          </div>
+          <div class="office-tab-body">
+            <div class="office-tab-pane active" data-pane="chat">
+              <div class="office-messages" id="office-messages"></div>
+            </div>
+            <div class="office-tab-pane" data-pane="ledger">
+              <div class="office-ledger" id="office-ledger"></div>
+            </div>
+            <div class="office-tab-pane" data-pane="trace">
+              <div class="office-traces" id="office-traces"></div>
+            </div>
+          </div>
         </div>
       </main>
 
       <footer class="office-foot">
-        <input id="ma-input" placeholder="输入指令或任务，例如：整理本周会议纪要…（@点名某员工则直接交给他）" autocomplete="off" spellcheck="false" />
-        <button id="ma-send" type="button">📣 发送</button>
+        <div class="office-quick" id="office-quick"></div>
+        <div class="office-input-row">
+          <input id="ma-input" placeholder="输入指令或任务，例如：整理本周会议纪要…（@点名某员工则直接交给他）" autocomplete="off" spellcheck="false" />
+          <button id="ma-send" type="button">📣 发送</button>
+        </div>
       </footer>
     </div>
   </div>

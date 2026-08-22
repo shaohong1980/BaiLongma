@@ -14,7 +14,7 @@
 //   ③ 一分钟内没有识别到新语音 → 退场。计时只在「空闲等用户」时累积:Agent 思考/调用工具/说话
 //      期间会刷新活跃时刻,避免长回复中途被误关。
 
-import { apiSseUrl } from './api-client.js'
+import { subscribeEvents } from './api-client.js'
 
 const IDLE_DISMISS_MS = 60000; // 条件三:60s 无新语音(且系统空闲)→ 退场
 const IDLE_CHECK_MS = 2000;
@@ -28,7 +28,6 @@ export function createWakeFlow(core) {
   const orb = (typeof window !== 'undefined' && window.bailongma && window.bailongma.wake) || null;
 
   let active = false;          // 唤醒会话进行中
-  let inConversation = false;  // 已听到语音、转入正常对话
   let lastActiveTs = 0;        // 最近一次「用户说话 / 系统繁忙」时刻(空闲退场据此判)
   let idleTimer = null;
   let dismissToken = 0;
@@ -92,15 +91,17 @@ export function createWakeFlow(core) {
 
   // ── /events SSE:派生 Agent 在干什么(与 brain-ui 仪表盘同源,只读) ──
   function setupSSE() {
-    if (typeof EventSource === 'undefined') return;
     let es;
     const connect = () => {
-      try { es = new EventSource(apiSseUrl('/events')); } catch { return; }
-      es.onmessage = (ev) => {
-        let msg; try { msg = JSON.parse(ev.data); } catch { return; }
-        onAgentEvent(msg?.type, msg?.data || {});
-      };
-      es.onerror = () => { try { es.close(); } catch (e) { console.warn('[src/ui/brain-ui/voice-wake.js] op failed:', e?.message || e) } setTimeout(connect, 3000); };
+      try {
+        es = subscribeEvents('/events', {
+          onmessage: (data) => {
+            let msg; try { msg = JSON.parse(data); } catch { return; }
+            onAgentEvent(msg?.type, msg?.data || {});
+          },
+          onerror: () => { try { es && es.close(); } catch (e) { console.warn('[src/ui/brain-ui/voice-wake.js] op failed:', e?.message || e) } setTimeout(connect, 3000); },
+        });
+      } catch { return; }
     };
     connect();
   }
@@ -144,7 +145,7 @@ export function createWakeFlow(core) {
   async function onHit() {
     if (active) { markActive(); return; } // 已在场:刷新空闲计时,忽略重复唤醒(叠加 800ms 冷却)
     dismissToken++;
-    active = true; inConversation = false;
+    active = true;
     agentText = ''; agentBusy = false;
     retirePending = false; retireArmed = false;
     lastSk = null; lastText = null; lastThinking = null; lastFrameTs = 0;
@@ -159,7 +160,6 @@ export function createWakeFlow(core) {
   // ── 收到转写(interim/final 均算识别到语音) ──
   function onTranscript() {
     if (!active) return;
-    inConversation = true;
     markActive(); // 新语音 → 重置 60s 空闲计时
     retirePending = false; retireArmed = false; // 用户又开口 → 取消待退场,继续对话
   }
@@ -167,7 +167,7 @@ export function createWakeFlow(core) {
   // ── 收起:退场动画 + 停会话 ──
   function dismiss() {
     if (!active) return;
-    active = false; inConversation = false;
+    active = false;
     agentText = ''; agentBusy = false;
     retirePending = false; retireArmed = false;
     stopIdleWatch();

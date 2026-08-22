@@ -6,7 +6,7 @@ import path from 'path'
 import { throwIfAborted } from '../../abort-utils.js'
 import { getSharedBrowser, invalidateSharedBrowser, BROWSER_VIEWPORT } from './browser.js'
 import { paths } from '../../../paths.js'
-import { webJson, normalizeWebUrl } from './util.js'
+import { webJson, normalizeWebUrl, assertSsrSafeUrl } from './util.js'
 
 const IDLE_TIMEOUT_MS = 8 * 60 * 1000  // 8 分钟无操作自动关会话
 let session = null                     // { browser, context, page, lastUsed }
@@ -109,6 +109,11 @@ export async function execBrowserAct(args = {}, context = {}) {
       case 'navigate': {
         const url = normalizeWebUrl(args.url)
         if (!url) return webJson({ ok: false, tool: 'browser_act', action, error: 'missing or invalid url' })
+        // SSRF：交互式浏览器同样会渲染本地/内网地址，navigate 前必须校验
+        const ssrSafe = await assertSsrSafeUrl(url)
+        if (!ssrSafe.ok) {
+          return webJson({ ok: false, tool: 'browser_act', action, url, error: `blocked: ${ssrSafe.reason}`, hint: 'Refused to navigate to a loopback/private/link-local/metadata address. Provide a public URL instead.' })
+        }
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs })
         await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 8000) }).catch(() => {})
         const snap = await snapshot(page, { maxChars: args.max_chars })

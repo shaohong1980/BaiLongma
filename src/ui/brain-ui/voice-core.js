@@ -13,6 +13,7 @@
 //   setOnState()             会话状态变化后编排层同步 UI（如按钮高亮）
 //
 // 点云算法移植自 ACUI (Remix)/Voice Component.html
+import { wsSubprotocol } from './api-client.js'
 
 // ─── 球面采样（Fibonacci） ───
 function fibSphere(n, radius) {
@@ -669,7 +670,9 @@ export function createVoiceCore({ canvas, transcript, _getChatInput, getSendMess
   // ─── Cloud ASR 传输（后端代理） ───
   function connectCloudWs() {
     cloudWsIntentional = false; // 新连接建立时清除上一次主动关闭的标记
-    const ws = new WebSocket(CLOUD_WS_URL);
+    // LAN 鉴权：浏览器 WS 不能设 Authorization 头，token 走 subprotocol（后端 websocket-security 支持）
+    const subprotocol = wsSubprotocol();
+    const ws = subprotocol ? new WebSocket(CLOUD_WS_URL, [subprotocol]) : new WebSocket(CLOUD_WS_URL);
     ws.binaryType = 'arraybuffer';
     cloudWs = ws;
 
@@ -911,7 +914,8 @@ export function createVoiceCore({ canvas, transcript, _getChatInput, getSendMess
       resetTranscriptAccumulation();
       if (transcript) transcript.textContent = '';
       cloudWsIntentional = false; // stopCloudStream(TTS) 留下的是旧连接标志，新连接要恢复自愈重连
-      const bargeinWs = new WebSocket(CLOUD_WS_URL);
+      const subprotocol = wsSubprotocol();
+      const bargeinWs = subprotocol ? new WebSocket(CLOUD_WS_URL, [subprotocol]) : new WebSocket(CLOUD_WS_URL);
       bargeinWs.binaryType = 'arraybuffer';
       cloudWs = bargeinWs;
       bargeinWs.onopen = () => {

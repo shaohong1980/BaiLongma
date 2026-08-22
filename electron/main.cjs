@@ -23,7 +23,7 @@ const http = require('http')
 const { EventEmitter } = require('events')
 const { pathToFileURL } = require('url')
 const { setupAutoUpdater, registerUpdaterIpc } = require('./updater.cjs')
-const { clampNumber, rectRight, rectBottom, rectOverlapArea, roundBounds, fitBoundsToWorkArea, parseTerminalRequestedBounds, candidateFromRegion, candidateForPlacement, scoreTerminalCandidate, terminalFreeRegionCandidates, TERMINAL_STREAM_DEFAULT_WIDTH, TERMINAL_STREAM_DEFAULT_HEIGHT, TERMINAL_STREAM_MIN_WIDTH, TERMINAL_STREAM_MIN_HEIGHT, TERMINAL_STREAM_GAP, TERMINAL_STREAM_MARGIN, MAIN_WINDOW_SIDECAR_MIN_WIDTH, MAIN_WINDOW_SIDECAR_MIN_HEIGHT } = require('./window-layout.cjs')
+const { clampNumber, rectOverlapArea, roundBounds, fitBoundsToWorkArea, parseTerminalRequestedBounds, candidateForPlacement, scoreTerminalCandidate, terminalFreeRegionCandidates, TERMINAL_STREAM_DEFAULT_WIDTH, TERMINAL_STREAM_DEFAULT_HEIGHT, TERMINAL_STREAM_MIN_WIDTH, TERMINAL_STREAM_MIN_HEIGHT, TERMINAL_STREAM_GAP, TERMINAL_STREAM_MARGIN, MAIN_WINDOW_SIDECAR_MIN_WIDTH, MAIN_WINDOW_SIDECAR_MIN_HEIGHT } = require('./window-layout.cjs')
 const wakeWord = require('./wake-word.cjs')
 const devLight = require('./dev-board-light.cjs')
 
@@ -202,7 +202,7 @@ function collectSystemScreenshotDirs() {
 
 function collectImageFiles(dir, { depth = 0 } = {}) {
   const files = []
-  let entries = []
+  let entries
   try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return files }
   for (const entry of entries) {
     const full = path.join(dir, entry.name)

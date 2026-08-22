@@ -1,5 +1,5 @@
 ﻿import { renderBrainUiApp } from "./app-shell.js";
-import { API, apiSseUrl } from "./api-client.js";
+import { API, subscribeEvents } from "./api-client.js";
 import { bootstrapScene } from "../scene-shell/bootstrap.js";
 import { initChat, friendlyChannelLabel } from "./chat.js";
 import { initPanelCollapse } from "./panel-collapse.js";
@@ -162,9 +162,6 @@ nodeSizeSlider.addEventListener("input", () => {
   physicsSettings.nodeSize = Number(nodeSizeSlider.value);
   applyPhysicsSettings();
 });
-
-let W = window.innerWidth;
-let H = window.innerHeight;
 
 const tip = document.getElementById("tip");
 
@@ -710,7 +707,6 @@ const AI_TOOL_GROUPS = {
 };
 const aiActivityLog = [];
 let aiActivityFirstTs = 0;
-let aiActivityTimer = null;
 const aiActivityEl = document.getElementById("ai-activity");
 const aiActivityLabelEl = document.getElementById("ai-activity-label");
 const aiActivityDetailEl = document.getElementById("ai-activity-detail");
@@ -766,7 +762,7 @@ function refreshAiActivity() {
 
 if (aiActivityEl) {
   aiActivityEl.dataset.state = "idle";
-  aiActivityTimer = setInterval(refreshAiActivity, 1000);
+  setInterval(refreshAiActivity, 1000);
 }
 
 async function refreshMemoryAuditStats() {
@@ -948,19 +944,18 @@ function showSkillSuggestionCard(task, suggestion) {
 
 function connectSSE() {
   setConnectionState("连接中", true);
-  const es = new EventSource(apiSseUrl('/events'));
-
-  es.onopen = () => setConnectionState("已连接", true);
-
-  es.onmessage = event => {
-    try { handle(JSON.parse(event.data)); } catch (_) {}
-  };
-
-  es.onerror = () => {
-    setConnectionState("重连中", false);
-    es.close();
-    setTimeout(connectSSE, 3000);
-  };
+  // fetch 流 SSE：EventSource 不能带 Authorization 头，LAN 鉴权靠 Bearer
+  const es = subscribeEvents('/events', {
+    onopen: () => setConnectionState("已连接", true),
+    onmessage: data => {
+      try { handle(JSON.parse(data)); } catch (_) {}
+    },
+    onerror: () => {
+      setConnectionState("重连中", false);
+      try { es && es.close(); } catch (_) {}
+      setTimeout(connectSSE, 3000);
+    },
+  });
 }
 
 function extractNids(memList) {
@@ -1776,10 +1771,6 @@ document.querySelectorAll(".panel, .console, .theme-switcher, .reset-view").forE
 
 physicsControl.addEventListener("wheel", event => event.stopPropagation(), { passive: true });
 
-window.addEventListener("resize", () => {
-  W = window.innerWidth;
-  H = window.innerHeight;
-});
 
 
 
@@ -2573,7 +2564,6 @@ function initTTSSettings() {
           try {
             const r = await fetch(`${API}/skills/${encodeURIComponent(id)}`).then(x => x.json());
             const raw = r?.skill?.raw || "";
-            const lang = /^---\n/.test(raw) ? "markdown" : "text";
             const blob = new Blob([raw], { type: "text/markdown;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");

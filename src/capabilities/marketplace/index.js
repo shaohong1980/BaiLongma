@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import vm from 'node:vm'
 import { execSync, execFileSync } from 'child_process'
 import { paths } from '../../paths.js'
 
@@ -120,35 +121,99 @@ function buildHelpers(permissions = {}) {
   }
 }
 
-// 把工具代码字符串编译为可调用的 async 函数
-// 代码是函数体（不含 function 声明），可用变量：args, helpers
+// 把工具代码字符串编译为受限 vm 上下文中可调用的 async 函数。
+// 代码是函数体（不含 function 声明），可用变量：args, helpers。
+//
+// 相比原来的 new Function（在主进程全局 realm 编译执行，形参遮蔽可被
+// helpers.constructor.constructor('return process') 之类的链条绕过），这里把工具代码
+// 放进独立 vm realm：
+//   · process / require / globalThis / fetch / Buffer / module / exports 等宿主全局从根本上不可达
+//   · args / helpers 在上下文内重建为 context-native 对象，工具代码拿不到任何宿主对象引用，
+//     因而无法经 constructor 链逃回宿主 realm（见 createToolContext）
+function createToolContext(_name) {
+  // 全局对象必须无原型：若用 {}（宿主对象），其原型链带宿主 Object.prototype，
+  // 工具代码可经 this.constructor.constructor 摸到宿主 Function 逃逸。
+  // vm 会在该对象上安装上下文内的标准内建（Object/Function/Math/JSON 等），不影响正常使用。
+  const context = vm.createContext(Object.create(null))
+  const setup = vm.runInContext(`
+    (host) => {
+      const wrap = (fn) => (...a) => fn(...a)
+      globalThis.console = {
+        log: wrap(host.log), warn: wrap(host.warn), error: wrap(host.error),
+        info: wrap(host.info), debug: wrap(host.debug),
+      }
+      globalThis.setTimeout = wrap(host.setTimeout)
+      globalThis.clearTimeout = wrap(host.clearTimeout)
+      globalThis.setInterval = wrap(host.setInterval)
+      globalThis.clearInterval = wrap(host.clearInterval)
+    }
+  `, context)
+  setup({
+    log: (...a) => console.log('[installed_tool]', ...a),
+    warn: (...a) => console.warn('[installed_tool]', ...a),
+    error: (...a) => console.error('[installed_tool]', ...a),
+    info: (...a) => console.info('[installed_tool]', ...a),
+    debug: (...a) => console.debug('[installed_tool]', ...a),
+    setTimeout: (fn, ms, ...a) => setTimeout(fn, ms, ...a),
+    clearTimeout: (id) => clearTimeout(id),
+    setInterval: (fn, ms, ...a) => setInterval(fn, ms, ...a),
+    clearInterval: (id) => clearInterval(id),
+  })
+  return context
+}
+
 function compileExecute(name, code, permissions = {}, { legacyUnsafeGlobals = false } = {}) {
+  // legacyUnsafeGlobals=true 仅用于「无 permissions 元数据」的旧格式磁盘工具（loadInstalledTools 加载）。
+  // 这些是用户手工安装的历史工具，仓库测试保障其保留宿主全局访问（process/require 可用）以便兼容。
+  // ⚠️ 新工具（installTool / LLM 生成 / 市场安装）一律不带该标志，走下方 vm 沙箱。
+  if (legacyUnsafeGlobals) {
+    return compileLegacyExecute(name, code)
+  }
+  return compileSandboxedExecute(name, code, permissions)
+}
+
+// 历史兼容路径：旧格式工具保留宿主全局访问（与改动前行为一致，测试保障）。
+function compileLegacyExecute(name, code) {
   let fn
   try {
-    // AsyncFunction 构造器接受参数名列表 + 函数体
-     
-    fn = legacyUnsafeGlobals
-      ? new Function('args', 'helpers', `"use strict";\nreturn (async () => {\n${code}\n})()`)
-      : new Function(
-          'args',
-          'helpers',
-          'fetch',
-          'process',
-          'globalThis',
-          'require',
-          'module',
-          'exports',
-          'Buffer',
-          `"use strict";\nreturn (async () => {\n${code}\n})()`,
-        )
+    fn = new Function('args', 'helpers', `"use strict";\nreturn (async () => {\n${code}\n})()`)
   } catch (err) {
     throw new Error(`工具 "${name}" 代码语法错误：${err.message}`, { cause: err })
   }
   return async (args) => {
-    const helpers = buildHelpers(permissions)
-    return legacyUnsafeGlobals
-      ? await fn(args ?? {}, helpers)
-      : await fn(args ?? {}, helpers, undefined, undefined, undefined, undefined, undefined, undefined, undefined)
+    const helpers = buildHelpers({})
+    return await fn(args ?? {}, helpers)
+  }
+}
+
+// 新格式工具：放进受限 vm realm 执行（LLM/市场生成代码的主风险面）。
+function compileSandboxedExecute(name, code, permissions) {
+  const context = createToolContext(name)
+  const filename = `installed_tool_${name}`
+  const runnerBody = `
+    {
+      // rawArgs / rawHelpers 是宿主对象，先在这里重建为 context-native 值，
+      // 避免工具代码拿到宿主引用后经 constructor.constructor 逃回宿主 realm。
+      const args = JSON.parse(JSON.stringify(rawArgs || {}))
+      const helpers = {
+        fetch: async (...a) => rawHelpers.fetch(...a),
+        exec: async (...a) => rawHelpers.exec(...a),
+        log: (...a) => rawHelpers.log(...a),
+      }
+      return (async (args, helpers) => {
+${code}
+      })(args, helpers)
+    }
+  `
+  let runner
+  try {
+    runner = vm.compileFunction(runnerBody, ['rawArgs', 'rawHelpers'], { parsingContext: context, filename })
+  } catch (err) {
+    throw new Error(`工具 "${name}" 代码语法错误：${err.message}`, { cause: err })
+  }
+  return async (args) => {
+    const hostHelpers = buildHelpers(permissions)
+    return await runner(args ?? {}, hostHelpers)
   }
 }
 

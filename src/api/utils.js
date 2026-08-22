@@ -1,5 +1,28 @@
 import path from 'path'
 
+// P1-9：日志/错误信息里的密钥脱敏 —— 防止 API key / Bearer token 泄漏到日志、trace、UI 事件。
+// 匹配：sk- 开头的 key、Authorization Bearer、JSON 里的 apiKey/api_key/secret/token 字段值。
+const SECRET_PATTERNS = [
+  // sk- 开头的 key（无上下文）
+  { re: /sk-[A-Za-z0-9_-]{8,}/g, replace: '••••' },
+  // JSON 字段 "apiKey":"..." → "apiKey":"••••"
+  { re: /("(?:api[_-]?key|secret|token|minimax_api_key|DEEPSEEK_API_KEY)"\s*:\s*")[^"]{4,}(")/gi, replace: '$1••••$2' },
+  // Authorization: Bearer xxx → Authorization: Bearer ••••
+  { re: /(Authorization:\s*Bearer\s+)[A-Za-z0-9._-]+/gi, replace: '$1••••' },
+  // apiKey: xxx / api_key = xxx 等非 JSON 形式
+  { re: /((?:api[_-]?key|secret|token)\s*[:=]\s*)[A-Za-z0-9._-]{4,}/gi, replace: '$1••••' },
+]
+export function redactSecrets(value) {
+  if (value == null) return value
+  const s = String(value)
+  if (!/sk-|apiKey|api_key|Bearer|secret|token/i.test(s)) return s
+  let out = s
+  for (const { re, replace } of SECRET_PATTERNS) {
+    out = out.replace(re, replace)
+  }
+  return out
+}
+
 export function jsonResponse(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))

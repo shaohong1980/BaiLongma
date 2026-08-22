@@ -3,7 +3,7 @@
 import { createMergedAbortSignal, throwIfAborted } from '../../abort-utils.js'
 import {
   WEB_HEADERS, webJson, normalizeWebUrl, htmlToText, extractTitle, isLowValuePageText,
-  saveLongArticle, ARTICLE_LENGTH_THRESHOLD, ARTICLE_SUMMARY_EXCERPT,
+  saveLongArticle, ARTICLE_LENGTH_THRESHOLD, ARTICLE_SUMMARY_EXCERPT, assertSsrSafeUrl,
 } from './util.js'
 import { execBrowserRead } from './browser-read.js'
 
@@ -74,11 +74,38 @@ async function fetchViaJina(url, signal) {
 }
 
 // fetch_url 策略二：直接 HTTP + 正则 HTML 转文本（兜底，适合简单静态页）
+// 手动处理重定向：每一跳都重新做 SSRF 校验，防止「初始公网 URL → 跳转到内网/metadata」。
+const MAX_REDIRECTS = 5
 async function fetchViaDirect(url, signal, { expectJson = false } = {}) {
-  const merged = createMergedAbortSignal(signal, 12000)
-  try {
-    const res = await fetch(url, { headers: WEB_HEADERS, signal: merged?.signal })
+  let current = url
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const check = await assertSsrSafeUrl(current)
+    if (!check.ok) return { ok: false, blocked: check.reason, status: 0 }
+
+    const merged = createMergedAbortSignal(signal, 12000)
+    let res
+    try {
+      res = await fetch(check.url, { headers: WEB_HEADERS, signal: merged?.signal, redirect: 'manual' })
+    } catch (err) {
+      merged?.cleanup()
+      if (err.name === 'AbortError') throw err
+      return { ok: false, error: err.message }
+    }
     merged?.cleanup()
+
+    // 重定向：取 Location 并相对解析，下一跳重新校验
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get('location')
+      try { await res.body?.cancel?.() } catch (e) { /* 忽略取消失败 */ }
+      if (!loc) return { ok: false, status: res.status, error: 'redirect without location' }
+      try {
+        current = new URL(loc, current).toString()
+      } catch {
+        return { ok: false, status: res.status, error: 'invalid redirect location' }
+      }
+      continue
+    }
+
     if (!res.ok) return { ok: false, status: res.status }
     const contentType = res.headers.get('content-type') || ''
     if (contentType && !/text|html|xml|json/i.test(contentType)) {
@@ -96,11 +123,8 @@ async function fetchViaDirect(url, signal, { expectJson = false } = {}) {
     const title = extractTitle(raw)
     if (isLowValuePageText(text)) return { ok: false, status: res.status, title, low_value: true }
     return { ok: true, status: res.status, title, body: text }
-  } catch (err) {
-    merged?.cleanup()
-    if (err.name === 'AbortError') throw err
-    return { ok: false, error: err.message }
   }
+  return { ok: false, status: 0, error: `too many redirects (max ${MAX_REDIRECTS})` }
 }
 
 // fetch_url 兜底：Jina 和直连都失败时，自动用真实浏览器渲染（处理 JS / 反爬），
@@ -151,6 +175,12 @@ export async function execFetchUrl(args, context = {}) {
   const url = normalizeWebUrl(args.url || args.URL || args.link || args.href || args.uri)
   if (!url) return webJson({ ok: false, tool: 'fetch_url', error: 'missing url' })
 
+  // SSRF：入口先整体校验一次（覆盖 Jina 路径与浏览器兜底），直连路径另有逐跳校验
+  const ssrSafe = await assertSsrSafeUrl(url)
+  if (!ssrSafe.ok) {
+    return webJson({ ok: false, tool: 'fetch_url', url, error: `blocked: ${ssrSafe.reason}`, hint: 'Refused to fetch a loopback/private/link-local/metadata address. Provide a public URL instead.' })
+  }
+
   const cached = urlCache.get(url)
   const ttl = getUrlTtl(url)
   if (cached && Date.now() - cached.fetchedAt < ttl) {
@@ -161,9 +191,9 @@ export async function execFetchUrl(args, context = {}) {
   console.log(`[fetch_url] -> ${url}`)
 
   throwIfAborted(context.signal)
-  let title = ''
-  let text = ''
-  let fetchSource = ''
+  let title
+  let text
+  let fetchSource
   let httpStatus = null
   let isJson = false
 

@@ -9,6 +9,9 @@
 
 import { validateWorkflow, renderTemplate } from './schema.js'
 import crypto from 'crypto'
+// 工作流表达式安全求值器（AST 解析，替代 new Function）。
+// 只允许从 { item, context } 作用域取值，标识符不落到全局，杜绝 process/require/global 逃逸。
+import { evalWorkflowExpr, evalWorkflowCode } from './expr-eval.js'
 
 function generateId() {
   return 'wf_' + crypto.randomBytes(6).toString('hex')
@@ -475,64 +478,40 @@ function getNested(obj, path) {
 }
 
 // 安全求值（transform/sub_workflow 的 =expr：可用 item.xxx / context.xxx / {{var}}）
+// 改用 AST 求值器：标识符只从 { item, context } 作用域取值，杜绝 process/require 逃逸。
 function evalItemExpr(expr, item, context) {
-  try {
-    let raw = String(expr || '').trim()
-    if (raw.startsWith('=')) raw = raw.slice(1)  // 剥离 =expr 前缀
-    const cleaned = raw.replace(/\{\{([^}]+)\}\}/g, (_, path) => {
-      const val = getNested(context, path.trim())
-      if (typeof val === 'string') return JSON.stringify(val)
-      return String(val ?? 'null')
-    })
-    if (!/^[\s\w'"()<>=!&|+\-*/%.\[\],.]+$/.test(cleaned)) return undefined
-    // eslint-disable-next-line no-new-func
-    return new Function('context', 'item', `"use strict"; return (${cleaned})`)(context, item)
-  } catch {
-    return undefined
-  }
+  let raw = String(expr || '').trim()
+  if (raw.startsWith('=')) raw = raw.slice(1)  // 剥离 =expr 前缀
+  const cleaned = raw.replace(/\{\{([^}]+)\}\}/g, (_, path) => {
+    const val = getNested(context, path.trim())
+    if (typeof val === 'string') return JSON.stringify(val)
+    return String(val ?? 'null')
+  })
+  return evalWorkflowExpr(cleaned, { item, context })
 }
 
 // 安全求值（返回原始值，供 switch 分支匹配；支持 {{var}} 模板变量 与 context.xxx 直接引用）
 function safeEvalValue(expr, context) {
-  try {
-    const cleaned = String(expr || '').replace(/\{\{([^}]+)\}\}/g, (_, path) => {
-      const val = getNested(context, path.trim())
-      if (typeof val === 'string') return JSON.stringify(val)
-      return String(val ?? 'null')
-    })
-    if (!/^[\s\w'"()<>=!&|+\-*/%.\[\],.]+$/.test(cleaned)) return undefined
-    // eslint-disable-next-line no-new-func
-    return new Function('context', `"use strict"; return (${cleaned})`)(context)
-  } catch {
-    return undefined
-  }
+  const cleaned = String(expr || '').replace(/\{\{([^}]+)\}\}/g, (_, path) => {
+    const val = getNested(context, path.trim())
+    if (typeof val === 'string') return JSON.stringify(val)
+    return String(val ?? 'null')
+  })
+  return evalWorkflowExpr(cleaned, { context })
 }
 
 // 安全条件求值（只允许简单比较和逻辑运算；支持 {{var}} 模板变量 与 context.xxx 直接引用）
 function safeEvalCondition(condition, context) {
-  try {
-    // 替换 {{var}} 变量引用
-    const expr = condition.replace(/\{\{([^}]+)\}\}/g, (_, path) => {
-      const val = getNested(context, path.trim())
-      if (typeof val === 'string') return JSON.stringify(val)
-      return String(val ?? 'null')
-    })
-    // 只允许安全字符
-    if (!/^[\s\w'"()<>=!&|+\-*/%.\[\],.]+$/.test(expr)) return false
-    // eslint-disable-next-line no-new-func
-    return Boolean(new Function('context', `"use strict"; return (${expr})`)(context))
-  } catch {
-    return false
-  }
+  const expr = condition.replace(/\{\{([^}]+)\}\}/g, (_, path) => {
+    const val = getNested(context, path.trim())
+    if (typeof val === 'string') return JSON.stringify(val)
+    return String(val ?? 'null')
+  })
+  return Boolean(evalWorkflowExpr(expr, { context }))
 }
 
-// 安全代码执行（只允许简单表达式，访问 context）
+// code 节点：任意 JS 改在 node:vm 沙箱执行（无 process/require/fs/net 等宿主能力），
+// 仍由调用方 allowCode 门控（须已有 Agent 级代码执行授权）。
 function safeEvalCode(code, context) {
-  try {
-    // eslint-disable-next-line no-new-func
-    const fn = new Function('context', `"use strict"; ${code}`)
-    return fn(context)
-  } catch (err) {
-    return { error: err.message }
-  }
+  return evalWorkflowCode(code, context)
 }

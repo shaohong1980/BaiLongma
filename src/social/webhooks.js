@@ -4,6 +4,7 @@ import { emitEvent } from '../events.js'
 import { jsonResponse, readBody, textResponse } from './http.js'
 import { escapeXml, parseSimpleXml } from './xml.js'
 import { env } from './utils.js'
+import { readJsonBody, verifyBearer, isDuplicateEvent } from './middleware.js'
 
 // 微信消息防重放：5 分钟时间窗口
 const WECHAT_TIMESTAMP_TOLERANCE_MS = 5 * 60 * 1000
@@ -53,7 +54,7 @@ function feishuVerificationToken(body) {
 // 入参 event 等价于 webhook 的 body.event，也等价于 SDK EventDispatcher 回调收到的 data。
 export function extractFeishuMessage(event = {}) {
   const message = event.message || {}
-  let content = ''
+  let content
   try {
     const parsed = JSON.parse(message.content || '{}')
     content = parsed.text || parsed.content || ''
@@ -71,11 +72,9 @@ async function handleFeishu(req, res) {
   const expectedToken = env('FEISHU_VERIFICATION_TOKEN')
   if (!expectedToken) return jsonResponse(res, 503, { ok: false, error: 'FEISHU_VERIFICATION_TOKEN not configured' })
 
-  const raw = await readBody(req)
-  let body = null
-  try { body = JSON.parse(raw.toString('utf-8') || '{}') } catch {
-    return jsonResponse(res, 400, { ok: false, error: 'invalid json' })
-  }
+  // 统一中间件：大小上限 + JSON 解析（challenge 握手 body 无 header/event，故不做严格 schema）
+  const body = await readJsonBody(req, res, { label: 'feishu' })
+  if (!body) return
 
   const providedToken = feishuVerificationToken(body)
 
@@ -96,6 +95,10 @@ async function handleFeishu(req, res) {
   const message = event.message || {}
   if (headerType === 'im.message.receive_v1' || message.message_id) {
     const { fromId, content, chatId, messageId } = extractFeishuMessage(event)
+    // 幂等：按 message_id 去重（防飞书 webhook 重试导致同一条消息重复入站）
+    if (messageId && isDuplicateEvent(`feishu:${messageId}`)) {
+      return jsonResponse(res, 200, { ok: true, deduped: true })
+    }
     if (fromId && content) enqueueSocialMessage(fromId, content, 'FEISHU', { platform: 'feishu', chat_id: chatId, message_id: messageId })
   }
 
@@ -113,6 +116,8 @@ async function handleWechatOfficial(req, res, url) {
   const fromUser = msg.FromUserName || ''
   const toUser = msg.ToUserName || ''
   const content = msg.Content || `[${msg.MsgType || 'unknown'} message]`
+  // 幂等：微信消息带 MsgId，webhook 重试时防重复入站
+  if (msg.MsgId && isDuplicateEvent(`wechat:${msg.MsgId}`)) return textResponse(res, 200, 'success')
   if (fromUser) enqueueSocialMessage(`wechat:official:${fromUser}`, content, 'WECHAT_OFFICIAL', { platform: 'wechat-official', msg_type: msg.MsgType || null })
 
   const reply = `<xml><ToUserName><![CDATA[${escapeXml(fromUser)}]]></ToUserName><FromUserName><![CDATA[${escapeXml(toUser)}]]></FromUserName><CreateTime>${Math.floor(Date.now() / 1000)}</CreateTime><MsgType><![CDATA[text]]></MsgType><Content><![CDATA[已收到，我会尽快回复。]]></Content></xml>`
@@ -125,16 +130,18 @@ async function handleWeCom(req, res) {
   const expectedToken = env('WECOM_INCOMING_TOKEN')
   if (!expectedToken) return jsonResponse(res, 503, { ok: false, error: 'WECOM_INCOMING_TOKEN not configured' })
 
-  // 统一只从 Authorization: Bearer <token> 读取
-  const providedToken = req.headers.authorization?.replace(/^Bearer\s+/i, '') || ''
-  if (providedToken !== expectedToken) {
+  // 统一 Bearer 校验
+  if (!verifyBearer(req, expectedToken)) {
     return jsonResponse(res, 403, { ok: false, error: 'invalid token' })
   }
 
-  const raw = await readBody(req)
-  let body = null
-  try { body = JSON.parse(raw.toString('utf-8') || '{}') } catch {
-    return jsonResponse(res, 400, { ok: false, error: 'invalid json' })
+  // 统一中间件：大小上限 + JSON 解析 + schema 校验
+  const body = await readJsonBody(req, res, { label: 'wecom' })
+  if (!body) return
+
+  // 幂等：按消息 id 去重（企业微信回执/重试防重复）
+  if (body.message_id && isDuplicateEvent(`wecom:${body.message_id}`)) {
+    return jsonResponse(res, 200, { ok: true, deduped: true })
   }
   const content = body.text?.content || body.content || ''
   const fromId = body.from_id || 'wecom:webhook:default'

@@ -2,7 +2,7 @@
 // 可视化办公大厅：CEO 决策者坐镇会议桌首席，各职能员工在工位（显示器+椅子）。
 // 工作流：上级发指令 → CEO 拆解 → 分派相关员工 → 员工执行并到会议桌汇报 → CEO 汇总。
 // 也支持 @点名某员工直接交给他（后端 /room/message）。
-import { API, apiSseUrl } from './api-client.js'
+import { API, subscribeEvents } from './api-client.js'
 
 const $ = (id) => document.getElementById(id)
 let agents = []
@@ -158,14 +158,15 @@ let officeSSE = null
 function connectOfficeSSE() {
   try { if (officeSSE) officeSSE.close() } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }
   try {
-    officeSSE = new EventSource(apiSseUrl('/events'))
-    officeSSE.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data)
-        if (msg.type === 'office_progress') handleOfficeProgress(msg.data || {})
-      } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }
-    }
-    officeSSE.onerror = () => { try { officeSSE && officeSSE.close() } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }; officeSSE = null; setTimeout(connectOfficeSSE, 5000) }
+    officeSSE = subscribeEvents('/events', {
+      onmessage: (data) => {
+        try {
+          const msg = JSON.parse(data)
+          if (msg.type === 'office_progress') handleOfficeProgress(msg.data || {})
+        } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }
+      },
+      onerror: () => { try { officeSSE && officeSSE.close() } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }; officeSSE = null; setTimeout(connectOfficeSSE, 5000) },
+    })
   } catch (e) { console.warn('[src/ui/brain-ui/multi-agent-panel.js] op failed:', e?.message || e) }
 }
 function handleOfficeProgress(d = {}) {

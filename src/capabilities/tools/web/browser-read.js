@@ -2,7 +2,7 @@
 import { throwIfAborted } from '../../abort-utils.js'
 import {
   WEB_HEADERS, webJson, normalizeWebUrl, isLowValuePageText,
-  saveLongArticle, ARTICLE_LENGTH_THRESHOLD, ARTICLE_SUMMARY_EXCERPT,
+  saveLongArticle, ARTICLE_LENGTH_THRESHOLD, ARTICLE_SUMMARY_EXCERPT, assertSsrSafeUrl,
 } from './util.js'
 import { getSharedBrowser, invalidateSharedBrowser, autoScrollPage, BROWSER_VIEWPORT } from './browser.js'
 
@@ -10,6 +10,12 @@ export async function execBrowserRead(args, context = {}) {
   throwIfAborted(context.signal)
   const url = normalizeWebUrl(args.url || args.URL || args.link || args.href || args.uri)
   if (!url) return webJson({ ok: false, tool: 'browser_read', error: 'missing url' })
+
+  // SSRF：真实浏览器会把页面渲染成本地资源（可读本地地址、内网、云 metadata），入口必须校验
+  const ssrSafe = await assertSsrSafeUrl(url)
+  if (!ssrSafe.ok) {
+    return webJson({ ok: false, tool: 'browser_read', url, error: `blocked: ${ssrSafe.reason}`, hint: 'Refused to render a loopback/private/link-local/metadata address. Provide a public URL instead.' })
+  }
 
   const timeoutMs = Math.max(5000, Math.min(Number(args.timeout_ms || args.timeout || 20000), 45000))
   const maxChars = Math.max(1000, Math.min(Number(args.max_chars || args.maxChars || 8000), 12000))

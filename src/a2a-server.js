@@ -32,10 +32,25 @@ const ERR_METHOD_NOT_FOUND = -32601
 const ERR_TASK_NOT_FOUND = -32001        // A2A spec: TaskNotFoundError
 const ERR_TASK_NOT_CANCELABLE = -32002   // A2A spec: TaskNotCancelableError
 const DEFAULT_REPLY_TIMEOUT_MS = 120_000
+const MAX_BODY_BYTES = 1024 * 1024   // JSON-RPC 请求体上限（防内存耗尽）
+const MAX_TASKS = 500                 // 任务存储上限（防无限增长）
 
 // ── 任务存储 ──────────────────────────────────────────────────────────
 const tasks = new Map()          // taskId -> task
 const pendingByParty = new Map() // `A2A:<contextId>` -> Set<{ resolve, timer }>
+
+// 任务过多时淘汰旧任务：优先删已完成/失败/取消的，不够再删最旧的
+function pruneTasks() {
+  if (tasks.size <= MAX_TASKS) return
+  const terminalStates = new Set([STATE_COMPLETED, STATE_FAILED, STATE_CANCELED])
+  for (const [id, t] of [...tasks.entries()]) {
+    if (tasks.size <= MAX_TASKS) break
+    if (terminalStates.has(t.status?.state)) tasks.delete(id)
+  }
+  if (tasks.size > MAX_TASKS) {
+    for (const id of [...tasks.keys()].slice(0, tasks.size - MAX_TASKS)) tasks.delete(id)
+  }
+}
 
 function newTaskId()    { return 'task-' + crypto.randomBytes(8).toString('hex') }
 function newContextId() { return 'ctx-' + crypto.randomBytes(8).toString('hex') }
@@ -132,6 +147,7 @@ async function handleSend(id, params) {
     createdAt: new Date().toISOString(),
   }
   tasks.set(taskId, task)
+  pruneTasks()
 
   // 推入主循环：user 优先级；agent 回信到 `A2A:<contextId>` 即被回信监听捕获
   pushMessage(partyId, text, 'A2A', {
@@ -228,8 +244,20 @@ export function startA2AServer({ port = null, host = null } = {}) {
     // JSON-RPC 2.0
     if (req.method === 'POST' && (url.pathname === '/' || url.pathname === '/rpc')) {
       let raw = ''
-      req.on('data', d => { raw += d })
+      let tooLarge = false
+      req.on('data', d => {
+        if (tooLarge) return   // 已超限：丢弃后续数据，等待客户端发完/断开
+        raw += d
+        if (raw.length > MAX_BODY_BYTES) {
+          tooLarge = true
+          try {
+            res.writeHead(413, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(rpcError(null, ERR_PARSE, 'request body too large')))
+          } catch { /* 连接已断则忽略 */ }
+        }
+      })
       req.on('end', async () => {
+        if (tooLarge) return
         let body
         try { body = JSON.parse(raw || '{}') } catch {
           res.writeHead(400, { 'Content-Type': 'application/json' })

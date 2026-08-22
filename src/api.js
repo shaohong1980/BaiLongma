@@ -8,7 +8,7 @@ import { getConfig, insertUISignal } from './db.js'
 import { emitEvent, setStickyEvent } from './events.js'
 import { getNetworkConfig, getSecurity, getVoiceRuntimeConfig, setSecurity } from './config.js'
 import { createCloudASRSession } from './voice/cloud-asr.js'
-import { jsonResponse } from './api/utils.js'
+import { jsonResponse, redactSecrets } from './api/utils.js'
 import { handleActivationRoutes } from './api/routes/activation.js'
 import { handleAdminRoutes } from './api/routes/admin.js'
 import { handleEmbeddingRoutes } from './api/routes/embedding.js'
@@ -41,6 +41,8 @@ import {
 export { emitEvent }
 
 const DEFAULT_API_HOST = '127.0.0.1'
+// P2-13：入站 JSON/表单请求体上限（16MB），防超大 body 撑爆内存（DoS）
+const MAX_BODY_BYTES = 16 * 1024 * 1024
 
 function getApiHost() {
   const envHost = String(globalThis.process?.env?.BAILONGMA_HOST || '').trim()
@@ -86,23 +88,24 @@ function getAuthToken() {
   return String(globalThis.process?.env?.BAILONGMA_API_TOKEN || '').trim()
 }
 
-function hasValidAuthToken(req, url) {
+function hasValidAuthToken(req) {
   const expected = getAuthToken()
   if (!expected) return false
+  // 只接受 Authorization: Bearer；拒绝 URL ?token= —— token 进 URL 会落访问日志/浏览器历史/代理，
+  // 且 LAN 场景下易被截获。SSE 已改为 fetch 流（可带自定义 header），WebSocket 走 subprotocol。
   const header = req.headers.authorization || ''
   const bearer = header.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
-  const queryToken = url.searchParams.get('token')
-  return timingSafeTokenEqual(bearer, expected) || timingSafeTokenEqual(queryToken, expected)
+  return timingSafeTokenEqual(bearer, expected)
 }
 
-function requireLocalOrToken(req, res, url) {
-  if (isLoopbackRequest(req) || hasValidAuthToken(req, url)) return true
+function requireLocalOrToken(req, res, _url) {
+  if (isLoopbackRequest(req) || hasValidAuthToken(req)) return true
   jsonResponse(res, 403, { ok: false, error: 'forbidden' })
   return false
 }
 
-function hasAllowedAccess(req, url) {
-  return isLoopbackRequest(req) || hasValidAuthToken(req, url) || isLanRequest(req)
+function hasAllowedAccess(req, _url) {
+  return isLoopbackRequest(req) || hasValidAuthToken(req) || isLanRequest(req)
 }
 
 function isSensitivePath(pathname) {
@@ -393,6 +396,12 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     const origin = req.headers.origin
 
     try {
+      // P2-13：入站 payload 大小限制（防 DoS / 超大 body 撑爆内存）。POST/JSON 请求体上限 16MB。
+      const contentLength = Number(req.headers['content-length'] || 0)
+      if (req.method === 'POST' && contentLength > MAX_BODY_BYTES) {
+        return jsonResponse(res, 413, { ok: false, error: `payload too large (>${Math.round(MAX_BODY_BYTES / 1024 / 1024)}MB)` })
+      }
+
       if (await handleSocialRoutes(req, res, url, { hasAllowedAccess, requireLocalOrToken })) return
 
       if (origin && !isAllowedOrigin(origin)) {
@@ -416,8 +425,9 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       if (await dispatchHttpRoutes(req, res, url, routeContext)) return
       jsonResponse(res, 404, { error: 'not found' })
     } catch (err) {
-      console.error('[API] request failed:', err)
-      if (!res.headersSent) jsonResponse(res, 500, { ok: false, error: err.message || 'internal error' })
+      // P1-9：错误日志/响应脱敏，防止错误信息里夹带 API key / token
+      console.error('[API] request failed:', redactSecrets(err?.stack || err?.message || String(err)))
+      if (!res.headersSent) jsonResponse(res, 500, { ok: false, error: redactSecrets(err.message || 'internal error') })
       else try { res.end() } catch (e) { console.warn('[api] res.end failed:', e?.message) }
     }
   })

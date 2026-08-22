@@ -77,7 +77,7 @@ axios / js-yaml / protobufjs / form-data / @larksuiteoapi / electron 可修部�
 |---|---|---|---|
 | `sharp`(<0.35.0) | @huggingface/transformers 传递依赖 | libvips 若干 CVE | 仅本地文本嵌入路径、懒加载；文本嵌入不使用其图片函数 |
 | `adm-zip`(<0.6.0) | onnxruntime-node 传递依赖 | 恶意 ZIP 触发大内存分配 | onnxruntime 只解压受信捆绑模型，非不可信输入；懒加载 |
-| `electron`(<=40.10.2) | 直接依赖 | 若干渲染层 CVE | **待升级** 33 → 41/43（breaking，需重编原生模块，单独排期） |
+| `electron`(<=40.10.2) | 直接依赖 | 若干渲染层 CVE | **已升级** 33 → 43.4.1（breaking，需重编原生模块） |
 
 **对策**：`npm audit` 已纳入 CI（非阻断，报告不阻断避免无上游修复时长期红）。
 
@@ -95,6 +95,6 @@ axios / js-yaml / protobufjs / form-data / @larksuiteoapi / electron 可修部�
 - [x] CI：lint / audit / Vitest 单元测试（含覆盖率阈值）
 - [x] workflow 表达式去 `new Function`、marketplace 工具 vm 沙箱
 - [x] 外部协议入站中间件（大小/校验/幂等）
+- [x] **electron 33 → 43.4.1 升级**（breaking，better-sqlite3 同步升到 13.x 重编）
 - [ ] **定期密钥轮换**（doubaoKey 历史明文，建议轮换）
-- [ ] **electron 33 → 41/43 升级**（breaking，需重编 better-sqlite3，单独排期）
 - [ ] ML 栈（sharp/adm-zip）无上游修复，待 transformers 链升级
